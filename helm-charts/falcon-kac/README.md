@@ -22,10 +22,11 @@ The Falcon Kubernetes Admission Controller has been deployed and tested on these
 
 ## Helm Chart Support for Falcon Admission Controller Versions
 
-| Helm chart Version      | Falcon Admission Controller Version            |
-|:------------------------|:-----------------------------------------------|
-| `< 1.2.x`              | `< 7.20.x`                                     |
-| `>= 1.2.x`              | `>= 7.20.x`                                    |
+| Helm chart Version | Falcon Admission Controller Version |
+|:-------------------|:------------------------------------|
+| `< 1.2.x`          | `< 7.20.x`                          |
+| `< 1.2.x`          | `< 7.25.x`                          |
+| `>= 2.0.x`         | `>= 7.25.x`                         |
 
 Depending on your network environment, you might need to allow TLS traffic on port 443 between your network and our cloud's network addresses:
 
