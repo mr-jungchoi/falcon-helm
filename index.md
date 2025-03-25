@@ -4,7 +4,7 @@
 ### Add the CrowdStrike Falcon Helm repository
 
 ```
-helm repo add crowdstrike https://crowdstrike.github.io/falcon-helm
+helm repo add crowdstrike https://mr-jungchoi.github.io/falcon-helm
 ```
 
 <br>
