@@ -476,6 +476,32 @@ entries:
     version: 0.1.1
   falcon-kac:
   - apiVersion: v2
+    appVersion: 2.0.0-rc.1
+    created: "2025-03-25T16:03:33.005168892Z"
+    description: A Helm chart to deploy CrowdStrike Falcon Kubernetes Admission Controller.
+    digest: 98039fa99f638d3f7dd27ce882f3e6728bebefc5d5845c3e6660e4c432877b6e
+    home: https://crowdstrike.com
+    icon: https://raw.githubusercontent.com/CrowdStrike/falcon-helm/main/images/crowdstrike-logo.svg
+    keywords:
+    - CrowdStrike
+    - Falcon
+    - EDR
+    - kubernetes
+    - security
+    - monitoring
+    - alerting
+    kubeVersion: '>1.21.0-0'
+    maintainers:
+    - email: integrations@crowdstrike.com
+      name: CrowdStrike Deployment Engineering
+    name: falcon-kac
+    sources:
+    - https://github.com/CrowdStrike/falcon-helm
+    type: application
+    urls:
+    - https://github.com/mr-jungchoi/falcon-helm/releases/download/falcon-kac-2.0.0-rc.1/falcon-kac-2.0.0-rc.1.tgz
+    version: 2.0.0-rc.1
+  - apiVersion: v2
     appVersion: 1.3.0
     created: "2025-02-18T23:19:47.797342381Z"
     description: A Helm chart to deploy CrowdStrike Falcon Kubernetes Admission Controller.
@@ -840,6 +866,16 @@ entries:
     - https://github.com/CrowdStrike/falcon-helm/releases/download/falcon-kac-1.0.0/falcon-kac-1.0.0.tgz
     version: 1.0.0
   falcon-self-hosted-registry-assessment:
+  - apiVersion: v2
+    appVersion: 1.4.0
+    created: "2025-03-25T16:03:33.150833454Z"
+    description: CrowdStrike Self-hosted Registry Assessment
+    digest: 9a16fb0cd81d403f018126874abd545684fe00b258431b3ddac043e370365b5f
+    name: falcon-self-hosted-registry-assessment
+    type: application
+    urls:
+    - https://github.com/mr-jungchoi/falcon-helm/releases/download/falcon-self-hosted-registry-assessment-1.4.0/falcon-self-hosted-registry-assessment-1.4.0.tgz
+    version: 1.4.0
   - apiVersion: v2
     appVersion: 1.3.0
     created: "2025-02-18T16:50:21.487426254Z"
@@ -2992,4 +3028,4 @@ entries:
     urls:
     - https://github.com/CrowdStrike/falcon-helm/releases/download/registry-scanner-0.1.0/registry-scanner-0.1.0.tgz
     version: 0.1.0
-generated: "2025-03-10T15:52:48.044098947Z"
+generated: "2025-03-25T16:03:33.308305473Z"
