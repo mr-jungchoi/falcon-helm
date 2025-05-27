@@ -541,17 +541,17 @@
                         }
                     },
                     "required": ["enabled", "existingSecretName"]
-                },
-                "falcon": {
-                    "properties": {
-                        "cid": {
-                            "type": ["null", "string"],
-                            "maxLength": 0
-                        }
-                    }
                 }
             },
-            "required": ["falconSecrets", "falcon"]
+            "required": ["falconSecrets"],
+            "not": {
+                "properties": {
+                    "falcon": {
+                        "required": ["cid"]
+                    }
+                },
+                "required": ["falcon"]
+            }
         }
     ]
 }

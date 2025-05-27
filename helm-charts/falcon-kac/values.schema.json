@@ -411,6 +411,19 @@
             }
         }
     },
+    "falconSecrets": {
+        "type": "object",
+        "properties": {
+            "enabled": {
+                "type": "boolean",
+                "default": "false"
+            },
+            "existingSecretName": {
+                "type": "string",
+                "description": "The name of an existing secret in which Falcon specific secrets are stored."
+            }
+        }
+    },
     "oneOf": [
         {
             "properties": {
@@ -437,17 +450,17 @@
                         }
                     },
                     "required": ["enabled", "existingSecretName"]
-                },
-                "falcon": {
-                    "properties": {
-                        "cid": {
-                            "type": ["null", "string"],
-                            "maxLength": 0
-                        }
-                    }
                 }
             },
-            "required": ["falconSecrets", "falcon"]
+            "required": ["falconSecrets"],
+            "not": {
+                "properties": {
+                    "falcon": {
+                        "required": ["cid"]
+                    }
+                },
+                "required": ["falcon"]
+            }
         }
     ]
 }
