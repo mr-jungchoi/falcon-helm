@@ -550,6 +550,32 @@ entries:
     version: 2.0.0-rc.1
   - apiVersion: v2
     appVersion: 1.4.0
+    created: "2025-08-12T19:33:24.959364024Z"
+    description: A Helm chart to deploy CrowdStrike Falcon Kubernetes Admission Controller.
+    digest: a3e8921298e278e05b16f0bfadff4f66ca1e67a26d75d702c8d2e902178eaf34
+    home: https://crowdstrike.com
+    icon: https://raw.githubusercontent.com/CrowdStrike/falcon-helm/main/images/crowdstrike-logo.svg
+    keywords:
+    - CrowdStrike
+    - Falcon
+    - EDR
+    - kubernetes
+    - security
+    - monitoring
+    - alerting
+    kubeVersion: '>1.21.0-0'
+    maintainers:
+    - email: integrations@crowdstrike.com
+      name: CrowdStrike Deployment Engineering
+    name: falcon-kac
+    sources:
+    - https://github.com/CrowdStrike/falcon-helm
+    type: application
+    urls:
+    - https://github.com/mr-jungchoi/falcon-helm/releases/download/falcon-kac-1.5.0-rc/falcon-kac-1.5.0-rc.tgz
+    version: 1.5.0-rc
+  - apiVersion: v2
+    appVersion: 1.4.0
     created: "2025-07-10T14:57:42.527248584Z"
     description: A Helm chart to deploy CrowdStrike Falcon Kubernetes Admission Controller.
     digest: aefd7aa6b184cc9d654376917ce2a6ae80f1f0c82b4c189564aedf90c300cfa4
@@ -3281,4 +3307,4 @@ entries:
     urls:
     - https://github.com/CrowdStrike/falcon-helm/releases/download/registry-scanner-0.1.0/registry-scanner-0.1.0.tgz
     version: 0.1.0
-generated: "2025-08-12T14:50:03.091566885Z"
+generated: "2025-08-12T19:33:24.959844405Z"
