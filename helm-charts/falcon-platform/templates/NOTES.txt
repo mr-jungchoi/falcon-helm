@@ -1,0 +1,122 @@
+{{- if .Values.deploymentConfig.phaseDeployment.enabled }}
+# Phased deployment is enabled. Components will be deployed in phases:
+{{- range $phase, $components := .Values.deploymentConfig.phaseDeployment }}
+{{- if ne $phase "enabled" }}
+# {{ $phase | title }}: {{ join ", " $components }}
+{{- end }}
+{{- end }}
+
+{{- else }}
+# Standard deployment - all enabled components will be deployed together
+{{- end }}
+
+## Enabled Components
+
+{{- $anyEnabled := false }}
+{{- if .Values.falcon-sensor.enabled }}
+{{- $anyEnabled = true }}
+✓ Falcon Sensor - Runtime node protection via DaemonSet
+  - Deployment: {{ if .Values.falcon-sensor.node.enabled }}Node agents{{ else }}Disabled{{ end }}
+  - Backend: {{ .Values.falcon-sensor.node.backend | default "bpf" }}
+{{- end }}
+
+{{- if .Values.falcon-kac.enabled }}
+{{- $anyEnabled = true }}
+✓ Falcon Kubernetes Admission Controller - Policy enforcement
+  - Webhook deployment for admission control
+  - Certificate auto-update: {{ .Values.falcon-kac.autoCertificateUpdate | default true }}
+{{- end }}
+
+{{- if .Values.falcon-image-analyzer.enabled }}
+{{- $anyEnabled = true }}
+✓ Falcon Image Analyzer - Container security scanning
+  - Mode: {{ if .Values.falcon-image-analyzer.deployment.enabled }}Deployment{{ else if .Values.falcon-image-analyzer.daemonset.enabled }}DaemonSet{{ else }}Not configured{{ end }}
+  - Cluster: {{ .Values.falcon-image-analyzer.crowdstrikeConfig.clusterName | default "Not specified" }}
+{{- end }}
+
+{{- if .Values.falcon-integration-gateway.enabled }}
+{{- $anyEnabled = true }}
+✓ Falcon Integration Gateway - Event forwarding
+  - Application ID: {{ .Values.falcon-integration-gateway.falcon.integration_gateway.application_id | default "falcon-platform-umbrella" }}
+  - Log Level: {{ .Values.falcon-integration-gateway.falcon.integration_gateway.level | default "INFO" }}
+{{- end }}
+
+{{- if .Values.aspm-relay.enabled }}
+{{- $anyEnabled = true }}
+✓ ASPM Relay - Application Security Posture Management
+  - Cluster: {{ .Values.aspm-relay.relay.clusterName | default "Not specified" }}
+{{- end }}
+
+{{- if .Values.falcon-self-hosted-registry-assessment.enabled }}
+{{- $anyEnabled = true }}
+✓ Falcon Self-hosted Registry Assessment - Registry scanning
+  - Registry vulnerability assessment for self-hosted registries
+{{- end }}
+
+{{- if not $anyEnabled }}
+⚠️  No components are currently enabled.
+   Set individual component 'enabled: true' in values.yaml to deploy them.
+{{- end }}
+
+## Configuration Notes
+
+{{- if .Values.global.falconSecret.enabled }}
+Using External Secret: {{ .Values.global.falconSecret.secretName }}
+{{- else if .Values.global.falcon.cid }}
+Global CID: {{ .Values.global.falcon.cid }}
+{{- else }}
+⚠️  Neither global CID nor falconSecret configured. Set 'global.falcon.cid' or 'global.falconSecret.enabled=true' in values.yaml
+{{- end }}
+
+{{- if .Values.global.falcon.cloud_region }}
+Global Cloud Region: {{ .Values.global.falcon.cloud_region }}
+{{- else }}
+Global Cloud Region: Auto-discovery (where supported)
+{{- end }}
+
+## Quick Start Examples
+
+For a minimal production setup with just sensor and admission control:
+  helm upgrade --install falcon-platform . \
+    --set global.falcon.cid="YOUR_CID_HERE" \
+    --set falcon-sensor.enabled=true \
+    --set falcon-kac.enabled=true
+
+Using external Kubernetes secret (recommended):
+  kubectl create secret generic falcon-credentials \
+    --from-literal=FALCONCTL_OPT_CID="YOUR_CID_HERE" \
+    -n falcon-system
+  helm upgrade --install falcon-platform . \
+    --set global.falconSecret.enabled=true \
+    --set global.falconSecret.secretName=falcon-credentials \
+    --set falcon-sensor.enabled=true \
+    --set falcon-kac.enabled=true
+
+For comprehensive security coverage:
+  helm upgrade --install falcon-platform . \
+    --set global.falcon.cid="YOUR_CID_HERE" \
+    --set falcon-sensor.enabled=true \
+    --set falcon-kac.enabled=true \
+    --set falcon-image-analyzer.enabled=true \
+    --set falcon-image-analyzer.crowdstrikeConfig.clientID="YOUR_CLIENT_ID" \
+    --set falcon-image-analyzer.crowdstrikeConfig.clientSecret="YOUR_CLIENT_SECRET" \
+    --set falcon-image-analyzer.crowdstrikeConfig.agentRegion="us-1" \
+    --set falcon-image-analyzer.crowdstrikeConfig.clusterName="your-cluster-name"
+
+## Component Status
+
+Check deployment status with:
+  kubectl get pods -n {{ .Values.global.namespace | default "falcon-system" }}
+  
+Monitor components:
+  kubectl logs -n {{ .Values.global.namespace | default "falcon-system" }} -l app.kubernetes.io/managed-by=falcon-platform
+
+## Documentation
+
+For detailed configuration of individual components, refer to:
+- Falcon Sensor: ../falcon-sensor/README.md  
+- Falcon KAC: ../falcon-kac/README.md
+- Falcon Image Analyzer: ../falcon-image-analyzer/README.md
+- Integration Gateway: ../falcon-integration-gateway/README.md
+- ASPM Relay: ../aspm-relay/README.md
+- Registry Assessment: ../falcon-self-hosted-registry-assessment/README.md
