@@ -1,0 +1,287 @@
+# Default values for falcon-platform umbrella chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Global configuration shared across all Falcon components
+global:
+  # CrowdStrike Customer ID (CID) - required for all components
+  falcon:
+    cid: ""
+    # Optional: Falcon cloud region (us-1, us-2, eu-1, us-gov-1)
+    # If not specified, components will use auto-discovery where supported
+    cloud_region: ""
+    
+  # Global Falcon Secret configuration
+  # Used by components that support external secret injection (falcon-sensor, falcon-kac)
+  falconSecret:
+    # Enable Kubernetes secrets to inject sensitive Falcon values
+    # When enabled, overrides falcon.cid and other sensitive values
+    enabled: false
+    
+    # Name of existing Kubernetes secret containing Falcon configuration
+    # Secret must be in the same namespace as the component deployment
+    # Required keys: FALCONCTL_OPT_CID (and optionally FALCONCTL_OPT_PROVISIONING_TOKEN)
+    secretName: ""
+    
+  # Container registry configuration
+  registry:
+    # Registry where Falcon images are stored
+    # Can be overridden per component
+    repository: "registry.crowdstrike.com"
+    
+    # Pull secrets for accessing private registries
+    pullSecrets: []
+    
+    # Base64 encoded docker config JSON for registry authentication
+    # registryConfigJSON: ""
+    
+  # Default namespace for all components (can be overridden)
+  namespace: falcon-system
+
+# Enable/disable individual components
+# Set enabled: true to deploy, enabled: false to skip
+
+# Falcon Sensor - Runtime node protection
+falcon-sensor:
+  enabled: true
+  # Override specific values for falcon-sensor
+  # All values from the individual chart can be overridden here
+  falcon:
+    # Will inherit global.falcon.cid if not specified
+    # cid: ""
+    
+  # Will inherit global.falconSecret if not specified
+  # falconSecret:
+  #   enabled: false
+  #   secretName: ""
+    
+  node:
+    enabled: true
+    backend: bpf
+    
+  # Example: Custom image configuration
+  # node:
+  #   image:
+  #     repository: "your-registry.com/falcon-sensor"
+  #     tag: "latest"
+
+# Falcon Kubernetes Admission Controller - Policy enforcement
+falcon-kac:
+  enabled: true
+  # Override specific values for falcon-kac
+  
+  # Will inherit global.falconSecret if not specified
+  # falconSecret:
+  #   enabled: false
+  #   secretName: ""
+  
+  image:
+    repository: falcon-kac
+    tag: latest
+    pullPolicy: Always
+    
+  # Auto-update certificates
+  autoCertificateUpdate: true
+  certExpiration: 3650
+
+# Falcon Image Analyzer - Container image security scanning
+falcon-image-analyzer:
+  enabled: false  # Disabled by default due to additional configuration requirements
+  # Override specific values for falcon-image-analyzer
+  deployment:
+    enabled: true
+  daemonset:
+    enabled: false
+    
+  crowdstrikeConfig:
+    # Will inherit global.falcon.cid if not specified
+    # cid: ""
+    # clientID: ""      # Required - OAuth API Client ID
+    # clientSecret: ""  # Required - OAuth API Client Secret
+    # agentRegion: ""   # Required - us-1, us-2, eu-1, gov1, gov2
+    clusterName: ""     # Required - Kubernetes cluster name
+    
+# Falcon Integration Gateway - Event forwarding
+falcon-integration-gateway:
+  enabled: false  # Disabled by default - requires backend configuration
+  # Override specific values for falcon-integration-gateway
+  falcon:
+    # client_id: ""       # Required - CrowdStrike API Client ID
+    # client_secret: ""   # Required - CrowdStrike API Client Secret
+    # cloud_region: ""    # Will inherit from global if not specified
+    
+    integration_gateway:
+      application_id: "falcon-platform-umbrella"
+      level: "INFO"
+      severity_threshold: 2
+      
+  # Example backend configurations (enable as needed)
+  push:
+    # AWS Security Hub integration
+    aws_security_hub:
+      enabled: false
+      # region: "us-east-1"
+      
+    # Generic stdout (for testing/debugging)
+    generic:
+      enabled: false
+
+# ASPM Relay - Application Security Posture Management
+aspm-relay:
+  enabled: false  # Disabled by default - requires access token
+  # Override specific values for aspm-relay
+  relay:
+    # accessToken: ""   # Required - ASPM access token
+    clusterName: ""     # Recommended - cluster identifier
+    # falconRegion: ""  # Required - CrowdStrike region
+    
+# Falcon Self-hosted Registry Assessment - Registry vulnerability scanning
+falcon-self-hosted-registry-assessment:
+  enabled: false  # Disabled by default - requires extensive configuration
+  # Override specific values for falcon-self-hosted-registry-assessment
+  
+  # Example minimal configuration
+  # crowdstrikeConfig:
+  #   clientId: ""        # Required
+  #   clientSecret: ""    # Required  
+  #   customerId: ""      # Required
+  #   cloud: "us-1"       # Required
+  
+  # registries: []        # Required - list of registries to scan
+
+# Component deployment order and dependencies
+# These settings help ensure proper deployment sequencing
+deploymentConfig:
+  # Deploy components in phases for proper initialization
+  phaseDeployment:
+    enabled: true
+    
+    # Phase 1: Core infrastructure
+    phase1:
+      - falcon-sensor
+      
+    # Phase 2: Policy enforcement  
+    phase2:
+      - falcon-kac
+      
+    # Phase 3: Extended security features
+    phase3:
+      - falcon-image-analyzer
+      - falcon-integration-gateway
+      
+    # Phase 4: Specialized tools
+    phase4:
+      - aspm-relay
+      - falcon-self-hosted-registry-assessment
+      
+  # Health checks before proceeding to next phase
+  healthChecks:
+    enabled: true
+    timeout: 300  # seconds
+    
+# Common resource configurations that can be shared
+commonConfig:
+  # Resource limits and requests (can be overridden per component)
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi" 
+      cpu: "500m"
+      
+  # Node selector for all components (can be overridden)
+  nodeSelector: {}
+  
+  # Tolerations for all components (can be overridden)
+  tolerations: []
+  
+  # Affinity rules for all components (can be overridden)
+  affinity: {}
+  
+  # Security context for all components (can be overridden)
+  securityContext:
+    runAsNonRoot: true
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+# Advanced configuration options
+advanced:
+  # Enable debug mode for all components
+  debug: false
+  
+  # Custom annotations to apply to all resources
+  annotations: {}
+  
+  # Custom labels to apply to all resources  
+  labels:
+    app.kubernetes.io/managed-by: "falcon-platform"
+    
+  # Network policy configuration
+  networkPolicy:
+    enabled: false
+    # ingress: []
+    # egress: []
+    
+  # Pod disruption budgets
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+
+# Examples of complete configurations for quick setup
+examples:
+  # Minimal production setup
+  production:
+    enabled: false
+    config:
+      falcon-sensor:
+        enabled: true
+      falcon-kac: 
+        enabled: true
+      falcon-image-analyzer:
+        enabled: false
+      falcon-integration-gateway:
+        enabled: false
+      aspm-relay:
+        enabled: false
+      falcon-self-hosted-registry-assessment:
+        enabled: false
+        
+  # Comprehensive security setup  
+  comprehensive:
+    enabled: false
+    config:
+      falcon-sensor:
+        enabled: true
+      falcon-kac:
+        enabled: true
+      falcon-image-analyzer:
+        enabled: true
+      falcon-integration-gateway:
+        enabled: true
+      aspm-relay:
+        enabled: true
+      falcon-self-hosted-registry-assessment:
+        enabled: true
+        
+  # Development/testing setup
+  development:
+    enabled: false
+    config:
+      falcon-sensor:
+        enabled: true
+        node:
+          backend: bpf
+      falcon-kac:
+        enabled: true
+      falcon-image-analyzer:
+        enabled: false
+      falcon-integration-gateway:
+        enabled: false
+      aspm-relay:
+        enabled: false
+      falcon-self-hosted-registry-assessment:
+        enabled: false
