@@ -101,52 +101,6 @@ falcon-image-analyzer:
     # agentRegion: ""   # Required - us-1, us-2, eu-1, gov1, gov2
     clusterName: ""     # Required - Kubernetes cluster name
     
-# Falcon Integration Gateway - Event forwarding
-falcon-integration-gateway:
-  enabled: false  # Disabled by default - requires backend configuration
-  # Override specific values for falcon-integration-gateway
-  falcon:
-    # client_id: ""       # Required - CrowdStrike API Client ID
-    # client_secret: ""   # Required - CrowdStrike API Client Secret
-    # cloud_region: ""    # Will inherit from global if not specified
-    
-    integration_gateway:
-      application_id: "falcon-platform-umbrella"
-      level: "INFO"
-      severity_threshold: 2
-      
-  # Example backend configurations (enable as needed)
-  push:
-    # AWS Security Hub integration
-    aws_security_hub:
-      enabled: false
-      # region: "us-east-1"
-      
-    # Generic stdout (for testing/debugging)
-    generic:
-      enabled: false
-
-# ASPM Relay - Application Security Posture Management
-aspm-relay:
-  enabled: false  # Disabled by default - requires access token
-  # Override specific values for aspm-relay
-  relay:
-    # accessToken: ""   # Required - ASPM access token
-    clusterName: ""     # Recommended - cluster identifier
-    # falconRegion: ""  # Required - CrowdStrike region
-    
-# Falcon Self-hosted Registry Assessment - Registry vulnerability scanning
-falcon-self-hosted-registry-assessment:
-  enabled: false  # Disabled by default - requires extensive configuration
-  # Override specific values for falcon-self-hosted-registry-assessment
-  
-  # Example minimal configuration
-  # crowdstrikeConfig:
-  #   clientId: ""        # Required
-  #   clientSecret: ""    # Required  
-  #   customerId: ""      # Required
-  #   cloud: "us-1"       # Required
-  
   # registries: []        # Required - list of registries to scan
 
 # Component deployment order and dependencies
@@ -167,12 +121,6 @@ deploymentConfig:
     # Phase 3: Extended security features
     phase3:
       - falcon-image-analyzer
-      - falcon-integration-gateway
-      
-    # Phase 4: Specialized tools
-    phase4:
-      - aspm-relay
-      - falcon-self-hosted-registry-assessment
       
   # Health checks before proceeding to next phase
   healthChecks:
@@ -243,12 +191,6 @@ examples:
         enabled: true
       falcon-image-analyzer:
         enabled: false
-      falcon-integration-gateway:
-        enabled: false
-      aspm-relay:
-        enabled: false
-      falcon-self-hosted-registry-assessment:
-        enabled: false
         
   # Comprehensive security setup  
   comprehensive:
@@ -259,12 +201,6 @@ examples:
       falcon-kac:
         enabled: true
       falcon-image-analyzer:
-        enabled: true
-      falcon-integration-gateway:
-        enabled: true
-      aspm-relay:
-        enabled: true
-      falcon-self-hosted-registry-assessment:
         enabled: true
         
   # Development/testing setup
@@ -278,10 +214,4 @@ examples:
       falcon-kac:
         enabled: true
       falcon-image-analyzer:
-        enabled: false
-      falcon-integration-gateway:
-        enabled: false
-      aspm-relay:
-        enabled: false
-      falcon-self-hosted-registry-assessment:
         enabled: false

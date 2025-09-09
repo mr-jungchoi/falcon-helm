@@ -1,6 +1,6 @@
 apiVersion: v2
 name: falcon-platform
-description: A comprehensive Helm umbrella chart to deploy the complete CrowdStrike Falcon platform for Kubernetes security
+description: A comprehensive Helm umbrella chart to deploy the complete CrowdStrike Falcon platform for Kubernetes runtime security
 
 # This is an umbrella chart that depends on individual CrowdStrike Falcon charts
 type: application
@@ -51,15 +51,3 @@ dependencies:
     version: "1.1.15"
     repository: "file://../falcon-image-analyzer"
     condition: falcon-image-analyzer.enabled
-  - name: falcon-integration-gateway
-    version: "0.5.1"
-    repository: "file://../falcon-integration-gateway"
-    condition: falcon-integration-gateway.enabled
-  - name: aspm-relay
-    version: "1.0.0"
-    repository: "file://../aspm-relay"
-    condition: aspm-relay.enabled
-  - name: falcon-self-hosted-registry-assessment
-    version: "1.0.0"
-    repository: "file://../falcon-self-hosted-registry-assessment"
-    condition: falcon-self-hosted-registry-assessment.enabled
