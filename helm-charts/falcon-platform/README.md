@@ -107,11 +107,6 @@ falcon-image-analyzer:
     agentRegion: "us-1"
     clusterName: "your-cluster-name"
 
-falcon-integration-gateway:
-  enabled: true
-  falcon:
-    client_id: "YOUR_OAUTH_CLIENT_ID"
-    client_secret: "YOUR_OAUTH_CLIENT_SECRET"
 EOF
 
 # Create the secret first
@@ -221,11 +216,7 @@ deploymentConfig:
       
     phase3:  # Extended features
       - falcon-image-analyzer
-      - falcon-integration-gateway
       
-    phase4:  # Specialized tools
-      - aspm-relay
-      - falcon-self-hosted-registry-assessment
 ```
 
 ## Deployment Scenarios
@@ -272,15 +263,6 @@ falcon-image-analyzer:
     agentRegion: "us-1"  
     clusterName: "production-cluster"
 
-falcon-integration-gateway:
-  enabled: true
-  falcon:
-    client_id: "CLIENT_ID"
-    client_secret: "CLIENT_SECRET"
-  push:
-    aws_security_hub:
-      enabled: true
-      region: "us-east-1"
 ```
 
 ## Prerequisites
@@ -298,17 +280,6 @@ falcon-integration-gateway:
 - Kubernetes cluster name
 - Container registry access
 
-**Falcon Integration Gateway:**
-- OAuth API credentials
-- Backend system configuration (AWS Security Hub, SQS, etc.)
-
-**ASPM Relay:**
-- ASPM access token
-- Falcon region configuration
-
-**Registry Assessment:**
-- Extensive registry and scanning configuration
-- Persistent storage for scan data
 
 ## Verification
 

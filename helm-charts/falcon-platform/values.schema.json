@@ -120,39 +120,6 @@
         }
       }
     },
-    "falcon-integration-gateway": {
-      "type": "object",
-      "description": "Falcon Integration Gateway configuration",
-      "properties": {
-        "enabled": {
-          "type": "boolean", 
-          "description": "Enable Falcon Integration Gateway deployment",
-          "default": false
-        }
-      }
-    },
-    "aspm-relay": {
-      "type": "object",
-      "description": "ASPM Relay configuration",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable ASPM Relay deployment", 
-          "default": false
-        }
-      }
-    },
-    "falcon-self-hosted-registry-assessment": {
-      "type": "object",
-      "description": "Falcon Self-hosted Registry Assessment configuration",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable Registry Assessment deployment",
-          "default": false
-        }
-      }
-    },
     "deploymentConfig": {
       "type": "object",
       "description": "Deployment orchestration configuration",
