@@ -15,12 +15,10 @@
             "cid": {
               "type": "string",
               "description": "CrowdStrike Customer ID (CID) - required for all components",
-              "pattern": "^[A-F0-9]{32}-[A-F0-9]{2}$"
-            },
-            "cloud_region": {
-              "type": "string",
-              "description": "Falcon cloud region",
-              "enum": ["us-1", "us-2", "eu-1", "us-gov-1"]
+              "pattern": "^[A-F0-9]{32}-[A-F0-9]{2}$",
+              "example": [
+                "1234567890ABCDEF1234567890ABCDEF-12"
+              ]
             }
           }
         },
@@ -30,12 +28,12 @@
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Enable Kubernetes secrets to inject sensitive Falcon values",
+              "description": "Enable a Kubernetes secret to inject sensitive Falcon values",
               "default": false
             },
             "secretName": {
               "type": "string",
-              "description": "Name of existing Kubernetes secret containing Falcon configuration"
+              "description": "Name of existing Kubernetes secret containing sensitive Falcon values"
             }
           }
         },
@@ -56,11 +54,6 @@
               }
             }
           }
-        },
-        "namespace": {
-          "type": "string",
-          "description": "Default namespace for all components",
-          "default": "falcon-system"
         }
       }
     },
@@ -83,6 +76,32 @@
           "type": "boolean",
           "description": "Enable Falcon KAC deployment", 
           "default": true
+        },
+        "resourceQuota": {
+          "type": "object",
+          "description": "",
+          "properties": {
+            "pods": {
+              "oneOf": [
+                {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": "6",
+                  "pattern": "^[0-9]+$"
+                },
+                {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "default": 6,
+                  "minimum": 2
+                }
+              ]
+            }
+          }
         }
       }
     },
@@ -120,116 +139,10 @@
         }
       }
     },
-    "deploymentConfig": {
-      "type": "object",
-      "description": "Deployment orchestration configuration",
-      "properties": {
-        "phaseDeployment": {
-          "type": "object",
-          "description": "Phased deployment configuration",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable phased deployment",
-              "default": true
-            },
-            "phase1": {
-              "type": "array",
-              "description": "Phase 1 components (core infrastructure)",
-              "items": {
-                "type": "string"
-              }
-            },
-            "phase2": {
-              "type": "array", 
-              "description": "Phase 2 components (policy enforcement)",
-              "items": {
-                "type": "string"
-              }
-            },
-            "phase3": {
-              "type": "array",
-              "description": "Phase 3 components (extended features)", 
-              "items": {
-                "type": "string"
-              }
-            },
-            "phase4": {
-              "type": "array",
-              "description": "Phase 4 components (specialized tools)",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "healthChecks": {
-          "type": "object",
-          "description": "Health check configuration",
-          "properties": {
-            "enabled": {
-              "type": "boolean", 
-              "description": "Enable health checks between phases",
-              "default": true
-            },
-            "timeout": {
-              "type": "integer",
-              "description": "Health check timeout in seconds",
-              "default": 300,
-              "minimum": 30,
-              "maximum": 600
-            }
-          }
-        }
-      }
-    },
-    "commonConfig": {
-      "type": "object",
-      "description": "Common configuration for all components",
-      "properties": {
-        "resources": {
-          "type": "object",
-          "description": "Default resource limits and requests",
-          "properties": {
-            "requests": {
-              "type": "object",
-              "properties": {
-                "memory": {
-                  "type": "string",
-                  "pattern": "^[0-9]+(Mi|Gi)$"
-                },
-                "cpu": {
-                  "type": "string", 
-                  "pattern": "^[0-9]+(m|[0-9]*)$"
-                }
-              }
-            },
-            "limits": {
-              "type": "object",
-              "properties": {
-                "memory": {
-                  "type": "string",
-                  "pattern": "^[0-9]+(Mi|Gi)$"
-                },
-                "cpu": {
-                  "type": "string",
-                  "pattern": "^[0-9]+(m|[0-9]*)$"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "advanced": {
       "type": "object",
       "description": "Advanced configuration options",
       "properties": {
-        "debug": {
-          "type": "boolean",
-          "description": "Enable debug mode for all components",
-          "default": false
-        },
         "annotations": {
           "type": "object",
           "description": "Custom annotations for all resources"
@@ -237,17 +150,6 @@
         "labels": {
           "type": "object", 
           "description": "Custom labels for all resources"
-        },
-        "networkPolicy": {
-          "type": "object",
-          "description": "Network policy configuration",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Enable network policies",
-              "default": false
-            }
-          }
         }
       }
     }

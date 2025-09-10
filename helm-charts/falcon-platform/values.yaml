@@ -4,12 +4,9 @@
 
 # Global configuration shared across all Falcon components
 global:
-  # CrowdStrike Customer ID (CID) - required for all components
+  # CrowdStrike Customer ID (CID) - required for all components if not using falconSecret
   falcon:
     cid: ""
-    # Optional: Falcon cloud region (us-1, us-2, eu-1, us-gov-1)
-    # If not specified, components will use auto-discovery where supported
-    cloud_region: ""
     
   # Global Falcon Secret configuration
   # Used by components that support external secret injection (falcon-sensor, falcon-kac)
@@ -24,19 +21,14 @@ global:
     secretName: ""
     
   # Container registry configuration
+  # Used by components that support top level registry configuration (falcon-kac, falcon-image-analyzer)
   registry:
-    # Registry where Falcon images are stored
-    # Can be overridden per component
-    repository: "registry.crowdstrike.com"
-    
-    # Pull secrets for accessing private registries
-    pullSecrets: []
-    
-    # Base64 encoded docker config JSON for registry authentication
-    # registryConfigJSON: ""
-    
-  # Default namespace for all components (can be overridden)
-  namespace: falcon-system
+    pullPolicy: Always
+
+    # Value must be base64. Global pullSecret is not supported.
+    # The base64 encoded string of the docker config json for the pull secret can be gotten through:
+    # $ cat ~/.docker/config.json | base64 -
+    registryConfigJSON:
 
 # Enable/disable individual components
 # Set enabled: true to deploy, enabled: false to skip
@@ -96,122 +88,18 @@ falcon-image-analyzer:
   crowdstrikeConfig:
     # Will inherit global.falcon.cid if not specified
     # cid: ""
-    # clientID: ""      # Required - OAuth API Client ID
-    # clientSecret: ""  # Required - OAuth API Client Secret
-    # agentRegion: ""   # Required - us-1, us-2, eu-1, gov1, gov2
+    # clientID: ""      # Required if crowdstrikeConfig.existingSecret not set - OAuth API Client ID
+    # clientSecret: ""  # Required if crowdstrikeConfig.existingSecret not set - OAuth API Client Secret
+    # agentRegion: ""   # Optional - CrowdStrike Cloud region, default: 'autodiscovery'
     clusterName: ""     # Required - Kubernetes cluster name
     
   # registries: []        # Required - list of registries to scan
 
-# Component deployment order and dependencies
-# These settings help ensure proper deployment sequencing
-deploymentConfig:
-  # Deploy components in phases for proper initialization
-  phaseDeployment:
-    enabled: true
-    
-    # Phase 1: Core infrastructure
-    phase1:
-      - falcon-sensor
-      
-    # Phase 2: Policy enforcement  
-    phase2:
-      - falcon-kac
-      
-    # Phase 3: Extended security features
-    phase3:
-      - falcon-image-analyzer
-      
-  # Health checks before proceeding to next phase
-  healthChecks:
-    enabled: true
-    timeout: 300  # seconds
-    
-# Common resource configurations that can be shared
-commonConfig:
-  # Resource limits and requests (can be overridden per component)
-  resources:
-    requests:
-      memory: "256Mi"
-      cpu: "100m"
-    limits:
-      memory: "512Mi" 
-      cpu: "500m"
-      
-  # Node selector for all components (can be overridden)
-  nodeSelector: {}
-  
-  # Tolerations for all components (can be overridden)
-  tolerations: []
-  
-  # Affinity rules for all components (can be overridden)
-  affinity: {}
-  
-  # Security context for all components (can be overridden)
-  securityContext:
-    runAsNonRoot: true
-    readOnlyRootFilesystem: true
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-
 # Advanced configuration options
 advanced:
-  # Enable debug mode for all components
-  debug: false
-  
   # Custom annotations to apply to all resources
   annotations: {}
   
   # Custom labels to apply to all resources  
   labels:
     app.kubernetes.io/managed-by: "falcon-platform"
-    
-  # Network policy configuration
-  networkPolicy:
-    enabled: false
-    # ingress: []
-    # egress: []
-    
-  # Pod disruption budgets
-  podDisruptionBudget:
-    enabled: false
-    minAvailable: 1
-
-# Examples of complete configurations for quick setup
-examples:
-  # Minimal production setup
-  production:
-    enabled: false
-    config:
-      falcon-sensor:
-        enabled: true
-      falcon-kac: 
-        enabled: true
-      falcon-image-analyzer:
-        enabled: false
-        
-  # Comprehensive security setup  
-  comprehensive:
-    enabled: false
-    config:
-      falcon-sensor:
-        enabled: true
-      falcon-kac:
-        enabled: true
-      falcon-image-analyzer:
-        enabled: true
-        
-  # Development/testing setup
-  development:
-    enabled: false
-    config:
-      falcon-sensor:
-        enabled: true
-        node:
-          backend: bpf
-      falcon-kac:
-        enabled: true
-      falcon-image-analyzer:
-        enabled: false
