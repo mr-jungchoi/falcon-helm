@@ -1,16 +1,5 @@
 Thank you for installing the CrowdStrike Falcon Platform Helm Chart!
 
-{{- if .Values.deploymentConfig.phaseDeployment.enabled }}
-# Phased deployment is enabled using Helm hooks. Components will be deployed in phases:
-# Phase1: falcon-kac
-# Phase2: falcon-sensor  
-# Phase3: falcon-image-analyzer
-# Each phase waits for the previous phase components to be ready before proceeding.
-
-{{- else }}
-# Standard deployment - all enabled components will be deployed together
-{{- end }}
-
 ## Enabled Components
 
 {{- $anyEnabled := false }}
@@ -25,14 +14,13 @@ Thank you for installing the CrowdStrike Falcon Platform Helm Chart!
 {{- $anyEnabled = true }}
 ✓ Falcon Kubernetes Admission Controller - Policy enforcement
   - Webhook deployment for admission control
-  - Certificate auto-update: {{ (index .Values "falcon-kac").autoCertificateUpdate | default true }}
 {{- end }}
 
 {{- if (index .Values "falcon-image-analyzer").enabled }}
 {{- $anyEnabled = true }}
 ✓ Falcon Image Analyzer - Container security scanning
-  - Mode: {{ if (index .Values "falcon-image-analyzer").deployment.enabled }}Deployment{{ else if (index .Values "falcon-image-analyzer").daemonset.enabled }}DaemonSet{{ else }}Not configured{{ end }}
-  - Cluster: {{ (index .Values "falcon-image-analyzer").crowdstrikeConfig.clusterName | default "Not specified" }}
+  - Mode: {{ if (index .Values "falcon-image-analyzer").deployment.enabled }}Deployment{{ else if (index .Values "falcon-image-analyzer").daemonset.enabled }}DaemonSet{{ end }}
+  - Cluster: {{ (index .Values "falcon-image-analyzer").crowdstrikeConfig.clusterName }}
 {{- end }}
 
 
@@ -40,52 +28,6 @@ Thank you for installing the CrowdStrike Falcon Platform Helm Chart!
 ⚠️  No components are currently enabled.
    Set individual component 'enabled: true' in values.yaml to deploy them.
 {{- end }}
-
-## Configuration Notes
-
-{{- if .Values.global.falconSecret.enabled }}
-Using External Secret: {{ .Values.global.falconSecret.secretName }}
-{{- else if .Values.global.falcon.cid }}
-Global CID: {{ .Values.global.falcon.cid }}
-{{- else }}
-⚠️  Neither global CID nor falconSecret configured. Set 'global.falcon.cid' or 'global.falconSecret.enabled=true' in values.yaml
-{{- end }}
-
-{{- if .Values.global.falcon.cloud_region }}
-Global Cloud Region: {{ .Values.global.falcon.cloud_region }}
-{{- else }}
-Global Cloud Region: Auto-discovery (where supported)
-{{- end }}
-
-## Quick Start Examples
-
-For a minimal production setup with just sensor and admission control:
-  helm upgrade --install falcon-platform . \
-    --set global.falcon.cid="YOUR_CID_HERE" \
-    --set falcon-sensor.enabled=true \
-    --set falcon-kac.enabled=true
-
-Using external Kubernetes secret (recommended):
-  kubectl create secret generic falcon-secret \
-    --from-literal=FALCONCTL_OPT_CID="YOUR_CID_HERE" \
-    -n falcon-system
-
-  helm upgrade --install falcon-platform . \
-    --set global.falconSecret.enabled=true \
-    --set global.falconSecret.secretName=falcon-secret \
-    --set falcon-sensor.enabled=true \
-    --set falcon-kac.enabled=true
-
-For comprehensive security coverage:
-  helm upgrade --install falcon-platform . \
-    --set global.falcon.cid="YOUR_CID_HERE" \
-    --set falcon-sensor.enabled=true \
-    --set falcon-kac.enabled=true \
-    --set falcon-image-analyzer.enabled=true \
-    --set falcon-image-analyzer.crowdstrikeConfig.clientID="YOUR_CLIENT_ID" \
-    --set falcon-image-analyzer.crowdstrikeConfig.clientSecret="YOUR_CLIENT_SECRET" \
-    --set falcon-image-analyzer.crowdstrikeConfig.agentRegion="us-1" \
-    --set falcon-image-analyzer.crowdstrikeConfig.clusterName="your-cluster-name"
 
 ## Component Status
 
