@@ -6,57 +6,13 @@ A comprehensive umbrella Helm chart that deploys the complete CrowdStrike Falcon
 
 The Falcon Platform umbrella chart allows you to deploy and manage the entire CrowdStrike Falcon security stack with a single Helm installation. It coordinates the deployment of multiple security components while providing centralized configuration management and deployment orchestration.
 
-## Architecture
-
-```mermaid
-graph TB
-    subgraph "Falcon Platform Umbrella Chart"
-        UP[Umbrella Chart<br/>falcon-platform]
-    end
-    
-    subgraph "Core Security Components"
-        FS[Falcon Sensor<br/>Runtime Protection]
-        KAC[Falcon KAC<br/>Admission Control]
-    end
-    
-    subgraph "Extended Security Features"
-        FIA[Falcon Image Analyzer<br/>Container Scanning]
-        FIG[Integration Gateway<br/>Event Forwarding]
-    end
-    
-    subgraph "Specialized Tools"
-        ASPM[ASPM Relay<br/>App Security]
-        FSHRA[Registry Assessment<br/>Vulnerability Scanning]
-    end
-    
-    UP --> FS
-    UP --> KAC
-    UP --> FIA
-    UP --> FIG
-    UP --> ASPM
-    UP --> FSHRA
-    
-    classDef umbrella fill:#ff6b35,stroke:#333,stroke-width:3px,color:#fff
-    classDef core fill:#2196f3,stroke:#333,stroke-width:2px,color:#fff
-    classDef extended fill:#4caf50,stroke:#333,stroke-width:2px,color:#fff
-    classDef specialized fill:#9c27b0,stroke:#333,stroke-width:2px,color:#fff
-    
-    class UP umbrella
-    class FS,KAC core
-    class FIA,FIG extended
-    class ASPM,FSHRA specialized
-```
-
 ## Components Included
 
-| Component | Purpose | Default Status | Requirements |
-|-----------|---------|----------------|--------------|
-| **Falcon Sensor** | Runtime node protection and monitoring | ✅ Enabled | CID |
-| **Falcon KAC** | Kubernetes admission controller | ✅ Enabled | CID |
-| **Falcon Image Analyzer** | Container image vulnerability scanning | ❌ Disabled | CID + OAuth credentials + cluster name |
-| **Falcon Integration Gateway** | Event forwarding to external systems | ❌ Disabled | OAuth credentials + backend config |
-| **ASPM Relay** | Application security posture management | ❌ Disabled | Access token + region |
-| **Registry Assessment** | Self-hosted registry vulnerability scanning | ❌ Disabled | Extensive configuration |
+| Component                 | Purpose                                | Default Status | Requirements                           |
+|---------------------------|----------------------------------------|----------------|----------------------------------------|
+| **Falcon Sensor**         | Runtime node protection and monitoring | Enabled        | CID                                    |
+| **Falcon KAC**            | Kubernetes admission controller        | Enabled        | CID                                    |
+| **Falcon Image Analyzer** | Container image vulnerability scanning | Disabled       | CID + OAuth credentials + cluster name |
 
 ## Quick Start
 
@@ -86,12 +42,10 @@ Deploy all components (requires additional configuration):
 # Create a values file with your configuration
 cat > falcon-platform-values.yaml << EOF
 global:
-  falcon:
-    cloud_region: "us-1"
   # Use external secret for sensitive values
   falconSecret:
     enabled: true
-    secretName: "falcon-credentials"
+    secretName: "falcon-secret"
 
 falcon-sensor:
   enabled: true
@@ -102,10 +56,9 @@ falcon-kac:
 falcon-image-analyzer:
   enabled: true
   crowdstrikeConfig:
-    clientID: "YOUR_OAUTH_CLIENT_ID"
-    clientSecret: "YOUR_OAUTH_CLIENT_SECRET"  
     agentRegion: "us-1"
     clusterName: "your-cluster-name"
+    existingSecret: "falcon-secret"
 
 EOF
 
@@ -113,6 +66,8 @@ EOF
 kubectl create secret generic falcon-credentials \
   --from-literal=FALCONCTL_OPT_CID="YOUR_CID_HERE" \
   --from-literal=FALCONCTL_OPT_PROVISIONING_TOKEN="YOUR_TOKEN" \
+  --from-literal=AGENT_CLIENT_ID="YOUR_FALCON_API_CLIENT_ID" \
+  --from-literal=AGENT_CLIENT_SECRET="YOUR_FALCON_API_CLIENT_SECRET" \
   -n falcon-system --dry-run=client -o yaml | kubectl apply -f -
 
 helm upgrade --install falcon-platform crowdstrike/falcon-platform \
@@ -131,9 +86,8 @@ Global settings apply to all components unless overridden:
 global:
   falcon:
     cid: "YOUR_CID_HERE"              # Required for all components
-    cloud_region: "us-1"              # Optional: us-1, us-2, eu-1, us-gov-1
     
-  # Global Falcon Secret configuration (alternative to CID)
+  # Global Falcon Secret configuration (alternative to CID) - only supported by falcon-sensor and falcon-kac
   falconSecret:
     enabled: false                    # Use external Kubernetes secret
     secretName: ""                    # Name of secret with FALCONCTL_OPT_CID
@@ -165,8 +119,8 @@ falcon-kac:
 falcon-image-analyzer:
   enabled: false  # Disabled by default
   crowdstrikeConfig:
-    clientID: ""      # Required
-    clientSecret: ""  # Required  
+    clientID: ""      # Required if not using crowdstrikeConfig.existingSecret
+    clientSecret: ""  # Required if not using crowdstrikeConfig.existingSecret
     agentRegion: ""   # Required
     clusterName: ""   # Required
 ```
@@ -184,40 +138,20 @@ global:
   # Option 2: Use external secret (more secure)
   falconSecret:
     enabled: true
-    secretName: "falcon-credentials"
+    secretName: falcon-secret
 ```
 
 When using `falconSecret`, create the secret beforehand:
 
 ```bash
 # Create secret with required Falcon credentials
-kubectl create secret generic falcon-credentials \
+kubectl create secret generic falcon-secret \
   --from-literal=FALCONCTL_OPT_CID="YOUR_CID_HERE" \
   --from-literal=FALCONCTL_OPT_PROVISIONING_TOKEN="YOUR_TOKEN" \
   -n falcon-system
 ```
 
-**Note**: The `falconSecret` configuration is inherited by `falcon-sensor` and `falcon-kac` components, which both support external secret injection.
-
-### Deployment Orchestration
-
-The umbrella chart supports phased deployment for proper initialization:
-
-```yaml
-deploymentConfig:
-  phaseDeployment:
-    enabled: true
-    
-    phase1:  # Core infrastructure
-      - falcon-sensor
-      
-    phase2:  # Policy enforcement
-      - falcon-kac
-      
-    phase3:  # Extended features
-      - falcon-image-analyzer
-      
-```
+**Note**: The `falconSecret` configuration is inherited by `falcon-sensor` and `falcon-kac` components only.
 
 ## Deployment Scenarios
 
@@ -236,7 +170,7 @@ falcon-sensor:
 falcon-kac:
   enabled: true
 
-# All other components disabled
+# falcon-image-analyzer disabled by default
 ```
 
 ### Scenario 2: Comprehensive Security
@@ -318,15 +252,6 @@ kubectl get deployment -n falcon-system | grep image-analyzer
 3. **Webhook Failures**: Check KAC certificate generation and API server connectivity
 4. **Node Scheduling**: Verify node tolerations and selectors for DaemonSet components
 
-### Debug Mode
-
-Enable debug logging across all components:
-
-```yaml
-advanced:
-  debug: true
-```
-
 ### Component Logs
 
 ```bash
@@ -357,30 +282,6 @@ helm upgrade falcon-platform crowdstrike/falcon-platform \
 ### Individual Component Updates
 
 Component versions are managed through the umbrella chart's dependencies. Update the umbrella chart to get latest component versions.
-
-## Security Considerations
-
-### Network Policies
-
-Enable network policies to restrict component communications:
-
-```yaml
-advanced:
-  networkPolicy:
-    enabled: true
-```
-
-### Pod Security Standards
-
-Configure appropriate pod security contexts:
-
-```yaml
-commonConfig:
-  securityContext:
-    runAsNonRoot: true
-    readOnlyRootFilesystem: true
-    allowPrivilegeEscalation: false
-```
 
 ## Uninstall
 
