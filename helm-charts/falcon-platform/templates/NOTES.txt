@@ -1,10 +1,11 @@
+Thank you for installing the CrowdStrike Falcon Platform Helm Chart!
+
 {{- if .Values.deploymentConfig.phaseDeployment.enabled }}
-# Phased deployment is enabled. Components will be deployed in phases:
-{{- range $phase, $components := .Values.deploymentConfig.phaseDeployment }}
-{{- if ne $phase "enabled" }}
-# {{ $phase | title }}: {{ join ", " $components }}
-{{- end }}
-{{- end }}
+# Phased deployment is enabled using Helm hooks. Components will be deployed in phases:
+# Phase1: falcon-kac
+# Phase2: falcon-sensor  
+# Phase3: falcon-image-analyzer
+# Each phase waits for the previous phase components to be ready before proceeding.
 
 {{- else }}
 # Standard deployment - all enabled components will be deployed together
@@ -13,25 +14,25 @@
 ## Enabled Components
 
 {{- $anyEnabled := false }}
-{{- if .Values.falcon-sensor.enabled }}
+{{- if (index .Values "falcon-sensor").enabled }}
 {{- $anyEnabled = true }}
 ✓ Falcon Sensor - Runtime node protection via DaemonSet
-  - Deployment: {{ if .Values.falcon-sensor.node.enabled }}Node agents{{ else }}Disabled{{ end }}
-  - Backend: {{ .Values.falcon-sensor.node.backend | default "bpf" }}
+  - Deployment: {{ if (index .Values "falcon-sensor").node.enabled }}Node agents{{ else }}Disabled{{ end }}
+  - Backend: {{ (index .Values "falcon-sensor").node.backend | default "bpf" }}
 {{- end }}
 
-{{- if .Values.falcon-kac.enabled }}
+{{- if (index .Values "falcon-kac").enabled }}
 {{- $anyEnabled = true }}
 ✓ Falcon Kubernetes Admission Controller - Policy enforcement
   - Webhook deployment for admission control
-  - Certificate auto-update: {{ .Values.falcon-kac.autoCertificateUpdate | default true }}
+  - Certificate auto-update: {{ (index .Values "falcon-kac").autoCertificateUpdate | default true }}
 {{- end }}
 
-{{- if .Values.falcon-image-analyzer.enabled }}
+{{- if (index .Values "falcon-image-analyzer").enabled }}
 {{- $anyEnabled = true }}
 ✓ Falcon Image Analyzer - Container security scanning
-  - Mode: {{ if .Values.falcon-image-analyzer.deployment.enabled }}Deployment{{ else if .Values.falcon-image-analyzer.daemonset.enabled }}DaemonSet{{ else }}Not configured{{ end }}
-  - Cluster: {{ .Values.falcon-image-analyzer.crowdstrikeConfig.clusterName | default "Not specified" }}
+  - Mode: {{ if (index .Values "falcon-image-analyzer").deployment.enabled }}Deployment{{ else if (index .Values "falcon-image-analyzer").daemonset.enabled }}DaemonSet{{ else }}Not configured{{ end }}
+  - Cluster: {{ (index .Values "falcon-image-analyzer").crowdstrikeConfig.clusterName | default "Not specified" }}
 {{- end }}
 
 
@@ -65,12 +66,13 @@ For a minimal production setup with just sensor and admission control:
     --set falcon-kac.enabled=true
 
 Using external Kubernetes secret (recommended):
-  kubectl create secret generic falcon-credentials \
+  kubectl create secret generic falcon-secret \
     --from-literal=FALCONCTL_OPT_CID="YOUR_CID_HERE" \
     -n falcon-system
+
   helm upgrade --install falcon-platform . \
     --set global.falconSecret.enabled=true \
-    --set global.falconSecret.secretName=falcon-credentials \
+    --set global.falconSecret.secretName=falcon-secret \
     --set falcon-sensor.enabled=true \
     --set falcon-kac.enabled=true
 
@@ -89,7 +91,7 @@ For comprehensive security coverage:
 
 Check deployment status with:
   kubectl get pods -n {{ .Values.global.namespace | default "falcon-system" }}
-  
+
 Monitor components:
   kubectl logs -n {{ .Values.global.namespace | default "falcon-system" }} -l app.kubernetes.io/managed-by=falcon-platform
 
