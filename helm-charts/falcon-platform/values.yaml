@@ -5,8 +5,8 @@
 # Global configuration shared across all Falcon components
 global:
   # CrowdStrike Customer ID (CID) - required for all components if not using falconSecret
-  falcon:
-    cid: ""
+  # falcon:
+  #   cid: ""
     
   # Global Falcon Secret configuration
   # Used by components that support external secret injection (falcon-sensor, falcon-kac)
@@ -18,7 +18,7 @@ global:
     # Name of existing Kubernetes secret containing Falcon configuration
     # Secret must be in the same namespace as the component deployment
     # Required keys: FALCONCTL_OPT_CID (and optionally FALCONCTL_OPT_PROVISIONING_TOKEN)
-    secretName: ""
+    # secretName: ""
     
   # Container registry configuration
   # Used by components that support top level registry configuration (falcon-kac, falcon-image-analyzer)
@@ -37,7 +37,7 @@ global:
 falcon-sensor:
   enabled: true
   # Override specific values for falcon-sensor
-  # All values from the individual chart can be overridden here
+
   falcon:
     # Will inherit global.falcon.cid if not specified
     # cid: ""
@@ -50,56 +50,47 @@ falcon-sensor:
   node:
     enabled: true
     backend: bpf
-    
-  # Example: Custom image configuration
-  # node:
-  #   image:
-  #     repository: "your-registry.com/falcon-sensor"
-  #     tag: "latest"
+
+    image:
+      repository: registry.crowdstrike.com/falcon-sensor/us-1/release/falcon-sensor
+      tag: latest
+
+  container:
+    enabled: false
 
 # Falcon Kubernetes Admission Controller - Policy enforcement
 falcon-kac:
   enabled: true
   # Override specific values for falcon-kac
-  
-  # Will inherit global.falconSecret if not specified
-  # falconSecret:
-  #   enabled: false
-  #   secretName: ""
+
+  falcon:
+  # Will inherit global.falcon.cid if not specified
+  #  cid: ""
+
+# Will inherit global.falconSecret if not specified
+#  falconSecret:
+#    enabled: false
+#    secretName: ""
   
   image:
-    repository: falcon-kac
+    repository: registry.crowdstrike.com/falcon-kac/us-1/release/falcon-kac
     tag: latest
-    pullPolicy: Always
-    
-  # Auto-update certificates
-  autoCertificateUpdate: true
-  certExpiration: 3650
 
 # Falcon Image Analyzer - Container image security scanning
 falcon-image-analyzer:
   enabled: false  # Disabled by default due to additional configuration requirements
   # Override specific values for falcon-image-analyzer
+
   deployment:
     enabled: true
   daemonset:
     enabled: false
     
   crowdstrikeConfig:
-    # Will inherit global.falcon.cid if not specified
-    # cid: ""
-    # clientID: ""      # Required if crowdstrikeConfig.existingSecret not set - OAuth API Client ID
-    # clientSecret: ""  # Required if crowdstrikeConfig.existingSecret not set - OAuth API Client Secret
-    # agentRegion: ""   # Optional - CrowdStrike Cloud region, default: 'autodiscovery'
     clusterName: ""     # Required - Kubernetes cluster name
-    
-  # registries: []        # Required - list of registries to scan
+    cid: ""             # Required - Falcon customer ID
+    existingSecret: ""  # Optional - Name of existing secret containing AGENT_CLIENT_ID and AGENT_CLIENT_SECRET
+  #  clientID: ""       # Required if not using existingSecret - OAuth API Client ID
+  #  clientSecret: ""   # Required if not using existingSecret - OAuth API Client Secret
+  #  agentRegion: ""    # Optional - CrowdStrike Cloud region, default: 'autodiscovery'
 
-# Advanced configuration options
-advanced:
-  # Custom annotations to apply to all resources
-  annotations: {}
-  
-  # Custom labels to apply to all resources  
-  labels:
-    app.kubernetes.io/managed-by: "falcon-platform"

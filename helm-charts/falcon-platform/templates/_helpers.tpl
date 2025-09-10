@@ -34,9 +34,6 @@ helm.sh/chart: {{ include "falcon-platform.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- if .Values.advanced.labels }}
-{{ toYaml .Values.advanced.labels }}
-{{- end }}
 {{- end }}
 
 {{/* Selector labels */}}
@@ -45,9 +42,3 @@ app.kubernetes.io/name: {{ include "falcon-platform.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/* Common annotations */}}
-{{- define "falcon-platform.annotations" -}}
-{{- if .Values.advanced.annotations }}
-{{ toYaml .Values.advanced.annotations }}
-{{- end }}
-{{- end }}
