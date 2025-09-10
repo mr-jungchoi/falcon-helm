@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "http://json-schema.org/schema#",
   "type": "object",
   "title": "CrowdStrike Falcon Platform Umbrella Chart Values Schema",
   "description": "Schema for the falcon-platform umbrella chart configuration",
@@ -33,7 +33,8 @@
             },
             "secretName": {
               "type": "string",
-              "description": "Name of existing Kubernetes secret containing sensitive Falcon values"
+              "description": "Name of existing Kubernetes secret containing sensitive Falcon values",
+              "minLength": 1
             }
           }
         },
@@ -113,43 +114,6 @@
           "type": "boolean",
           "description": "Enable Falcon Image Analyzer deployment",
           "default": false
-        },
-        "crowdstrikeConfig": {
-          "type": "object",
-          "description": "CrowdStrike-specific configuration",
-          "properties": {
-            "clientID": {
-              "type": "string", 
-              "description": "OAuth API Client ID"
-            },
-            "clientSecret": {
-              "type": "string",
-              "description": "OAuth API Client Secret"
-            },
-            "agentRegion": {
-              "type": "string",
-              "description": "Agent region",
-              "enum": ["us-1", "us-2", "eu-1", "gov1", "gov2"]
-            },
-            "clusterName": {
-              "type": "string",
-              "description": "Kubernetes cluster name"
-            }
-          }
-        }
-      }
-    },
-    "advanced": {
-      "type": "object",
-      "description": "Advanced configuration options",
-      "properties": {
-        "annotations": {
-          "type": "object",
-          "description": "Custom annotations for all resources"
-        },
-        "labels": {
-          "type": "object", 
-          "description": "Custom labels for all resources"
         }
       }
     }
