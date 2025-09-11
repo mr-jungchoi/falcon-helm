@@ -5,25 +5,26 @@
 # Global configuration shared across all Falcon components
 global:
   # CrowdStrike Customer ID (CID) - required for all components if not using falconSecret
-  # falcon:
-  #   cid: ""
-    
+  falcon:
+    cid:
+
   # Global Falcon Secret configuration
-  # Used by components that support external secret injection (falcon-sensor, falcon-kac)
-  falconSecret:
-    # Enable Kubernetes secrets to inject sensitive Falcon values
-    # When enabled, overrides falcon.cid and other sensitive values
-    enabled: false
-    
-    # Name of existing Kubernetes secret containing Falcon configuration
-    # Secret must be in the same namespace as the component deployment
-    # Required keys: FALCONCTL_OPT_CID (and optionally FALCONCTL_OPT_PROVISIONING_TOKEN)
-    # secretName: ""
-    
+  # Name of existing Kubernetes secret containing sensitive Falcon configuration values
+  # Secret must be in the same namespace as the component deployment
+  # Required data:
+  #   - FALCONCTL_OPT_CID
+  # Required data if falcon-image-analyzer enabled:
+  #   - AGENT_CID
+  #   - AGENT_CLIENT_ID
+  #   - AGENT_CLIENT_SECRET
+  # Optional data:
+  #   - FALCONCTL_OPT_PROVISIONING_TOKEN
+  falconSecretName:
+
   # Container registry configuration
   # Used by components that support top level registry configuration (falcon-kac, falcon-image-analyzer)
-  registry:
-    pullPolicy: Always
+  docker:
+    pullSecret:
 
     # Value must be base64. Global pullSecret is not supported.
     # The base64 encoded string of the docker config json for the pull secret can be gotten through:
@@ -37,15 +38,6 @@ global:
 falcon-sensor:
   enabled: true
   # Override specific values for falcon-sensor
-
-  falcon:
-    # Will inherit global.falcon.cid if not specified
-    # cid: ""
-    
-  # Will inherit global.falconSecret if not specified
-  # falconSecret:
-  #   enabled: false
-  #   secretName: ""
     
   node:
     enabled: true
@@ -62,15 +54,6 @@ falcon-sensor:
 falcon-kac:
   enabled: true
   # Override specific values for falcon-kac
-
-  falcon:
-  # Will inherit global.falcon.cid if not specified
-  #  cid: ""
-
-# Will inherit global.falconSecret if not specified
-#  falconSecret:
-#    enabled: false
-#    secretName: ""
   
   image:
     repository: registry.crowdstrike.com/falcon-kac/us-1/release/falcon-kac
@@ -88,9 +71,7 @@ falcon-image-analyzer:
     
   crowdstrikeConfig:
     clusterName: ""     # Required - Kubernetes cluster name
-    cid: ""             # Required - Falcon customer ID
-    existingSecret: ""  # Optional - Name of existing secret containing AGENT_CLIENT_ID and AGENT_CLIENT_SECRET
-  #  clientID: ""       # Required if not using existingSecret - OAuth API Client ID
-  #  clientSecret: ""   # Required if not using existingSecret - OAuth API Client Secret
+  #  clientID: ""       # Required if not using global.falconSecretName - OAuth API Client ID
+  #  clientSecret: ""   # Required if not using global.falconSecretName - OAuth API Client Secret
   #  agentRegion: ""    # Optional - CrowdStrike Cloud region, default: 'autodiscovery'
 
