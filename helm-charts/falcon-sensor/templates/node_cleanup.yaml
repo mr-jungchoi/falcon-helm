@@ -57,15 +57,15 @@ spec:
         {{- end }}
         {{ include "falcon-sensor.workloadCleanupAllowlistLabel" . }}
     spec:
-    {{- if and (.Values.node.image.pullSecrets) (.Values.node.image.registryConfigJSON) }}
+    {{- if and (include "imagePullSecretName" .) (include "registryConfigJson" .) }}
       {{- fail "node.image.pullSecrets and node.image.registryConfigJSON cannot be used together." }}
     {{- else }}
-    {{- if or (.Values.node.image.pullSecrets) (.Values.node.image.registryConfigJSON) }}
+    {{- if or (include "imagePullSecretName" .) (include "registryConfigJson" .) }}
       imagePullSecrets:
-      {{- if .Values.node.image.pullSecrets }}
-        - name: {{ .Values.node.image.pullSecrets }}
+      {{- if include "imagePullSecretName" . }}
+        - name: {{ include "imagePullSecretName" . }}
       {{- end }}
-      {{- if .Values.node.image.registryConfigJSON }}
+      {{- if include "registryConfigJson" . }}
         - name: {{ include "falcon-sensor.fullname" . }}-pull-secret-cleanup
       {{- end }}
     {{- end }}
