@@ -22,17 +22,17 @@ spec:
       labels:
     {{- include "falcon-image-analyzer.labels" . | nindent 8 }}
     spec:
-      {{- if or (.Values.image.pullSecret) (.Values.image.registryConfigJSON) (.Values.crowdstrikeConfig.dockerAPIToken) }}
+      {{- if or (include "imagePullSecret" .) (include "registryConfigJson" .) (.Values.crowdstrikeConfig.dockerAPIToken) }}
       imagePullSecrets:
-        {{- if and (.Values.crowdstrikeConfig.dockerAPIToken) (.Values.image.registryConfigJSON) }}
+        {{- if and (.Values.crowdstrikeConfig.dockerAPIToken) (include "registryConfigJson" .) }}
           {{- fail "crowdstrikeConfig.dockerAPIToken and image.registryConfigJSON cannot be used together." }}
         {{- else -}}
-        {{ if or (.Values.crowdstrikeConfig.dockerAPIToken) (.Values.image.registryConfigJSON) }}
+        {{ if or (.Values.crowdstrikeConfig.dockerAPIToken) (include "registryConfigJson" .) }}
         - name: {{ include "falcon-image-analyzer.fullname" . }}-pull-secret
         {{- end }}
         {{- end }}
-        {{- if .Values.image.pullSecret }}
-        - name: {{ .Values.image.pullSecret }}
+        {{- if include "imagePullSecret" . }}
+        - name: {{ include "imagePullSecret" . }}
         {{- end }}
       {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name | default ( include "falcon-image-analyzer.fullname" . ) }}
@@ -91,8 +91,8 @@ spec:
             - configMapRef:
                 name: {{ include "falcon-image-analyzer.fullname" . }}
             - secretRef:
-                {{- if .Values.crowdstrikeConfig.existingSecret }}
-                name: {{ .Values.crowdstrikeConfig.existingSecret }}
+                {{- if include "falconSecretName" . }}
+                name: {{ include "falconSecretName" . }}
                 {{- else }}
                 name: {{ include "falcon-image-analyzer.fullname" . }}
                 {{- end }}
