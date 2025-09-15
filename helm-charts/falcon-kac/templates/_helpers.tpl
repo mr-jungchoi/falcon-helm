@@ -160,7 +160,7 @@ namespaceOverride should only be used when installing falcon-kac as a subchart o
 {{/*
 Get Falcon CID from global value if it exists
 */}}
-{{- define "falconCid" -}}
+{{- define "falcon-kac.falconCid" -}}
 {{- if .Values.global.falcon.cid -}}
 {{- .Values.global.falcon.cid -}}
 {{- else -}}
@@ -171,7 +171,7 @@ Get Falcon CID from global value if it exists
 {{/*
 Check if Falcon secret is enabled from global value if it exists
 */}}
-{{- define "falconSecretEnabled" -}}
+{{- define "falcon-kac.falconSecretEnabled" -}}
 {{- if .Values.global.falconSecret.enabled -}}
 {{- .Values.global.falconSecret.enabled -}}
 {{- else -}}
@@ -182,7 +182,7 @@ Check if Falcon secret is enabled from global value if it exists
 {{/*
 Get Falcon secret name from global value if it exists
 */}}
-{{- define "falconSecretName" -}}
+{{- define "falcon-kac.falconSecretName" -}}
 {{- if .Values.global.falconSecret.secretName -}}
 {{- .Values.global.falconSecret.secretName -}}
 {{- else -}}
@@ -193,7 +193,7 @@ Get Falcon secret name from global value if it exists
 {{/*
 Get docker pull secret from global value if it exists
 */}}
-{{- define "imagePullSecret" -}}
+{{- define "falcon-kac.imagePullSecret" -}}
 {{- if .Values.global.docker.pullSecret -}}
 {{- .Values.global.docker.pullSecret -}}
 {{- else -}}
@@ -204,7 +204,7 @@ Get docker pull secret from global value if it exists
 {{/*
 Get docker registry config json from global value if it exists
 */}}
-{{- define "registryConfigJson" -}}
+{{- define "falcon-kac.registryConfigJson" -}}
 {{- if .Values.global.docker.registryConfigJSON -}}
 {{- .Values.global.docker.registryConfigJSON -}}
 {{- else -}}
