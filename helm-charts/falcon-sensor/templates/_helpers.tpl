@@ -198,7 +198,7 @@ Return namespace based on .Values.namespaceOverride or Release.Namespace
 {{/*
 Get Falcon CID from global value if it exists
 */}}
-{{- define "falconCid" -}}
+{{- define "falcon-sensor.falconCid" -}}
 {{- if .Values.global.falcon.cid -}}
 {{- .Values.global.falcon.cid -}}
 {{- else -}}
@@ -209,14 +209,14 @@ Get Falcon CID from global value if it exists
 {{/*
 Check if Falcon secret is enabled from global value if it exists
 */}}
-{{- define "falconSecretEnabled" -}}
+{{- define "falcon-sensor.falconSecretEnabled" -}}
 {{- or .Values.global.falconSecret.enabled .Values.falconSecret.enabled -}}
 {{- end -}}
 
 {{/*
 Get Falcon secret name from global value if it exists
 */}}
-{{- define "falconSecretName" -}}
+{{- define "falcon-sensor.falconSecretName" -}}
 {{- if .Values.global.falconSecret.secretName -}}
 {{- .Values.global.falconSecret.secretName -}}
 {{- else -}}
@@ -227,7 +227,7 @@ Get Falcon secret name from global value if it exists
 {{/*
 Get docker pull secret from global value if it exists
 */}}
-{{- define "imagePullSecretName" -}}
+{{- define "falcon-sensor.imagePullSecretName" -}}
 {{- if .Values.global.docker.pullSecret -}}
 {{- .Values.global.docker.pullSecret -}}
 {{- else -}}
@@ -244,7 +244,7 @@ Get docker pull secret from global value if it exists
 {{/*
 Get docker registry config json from global value if it exists
 */}}
-{{- define "registryConfigJson" -}}
+{{- define "falcon-sensor.registryConfigJson" -}}
 {{- if .Values.global.docker.registryConfigJSON -}}
 {{- .Values.global.docker.registryConfigJSON -}}
 {{- else -}}
