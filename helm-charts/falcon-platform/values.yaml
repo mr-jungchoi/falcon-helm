@@ -38,10 +38,11 @@ global:
 # Set enabled: true to deploy, enabled: false to skip
 
 # Falcon Sensor - Runtime node protection
+# Override specific values for falcon-sensor
 falcon-sensor:
   enabled: true
-  # Override specific values for falcon-sensor
-    
+  namespaceOverride: falcon-sensor
+
   node:
     enabled: true
     backend: bpf
@@ -53,28 +54,32 @@ falcon-sensor:
   container:
     enabled: false
 
+    image:
+      repository: registry.crowdstrike.com/falcon-container/us-1/release/falcon-sensor
+      tag: latest
+
 # Falcon Kubernetes Admission Controller - Policy enforcement
+# Override specific values for falcon-kac
 falcon-kac:
   enabled: true
-  # Override specific values for falcon-kac
-  
+  namespaceOverride: falcon-kac
+
   image:
     repository: registry.crowdstrike.com/falcon-kac/us-1/release/falcon-kac
     tag: latest
 
 # Falcon Image Analyzer - Container image security scanning
+# Override specific values for falcon-image-analyzer
 falcon-image-analyzer:
   enabled: false  # Disabled by default due to additional configuration requirements
-  # Override specific values for falcon-image-analyzer
+  namespaceOverride: falcon-image-analyzer
 
   deployment:
     enabled: true
   daemonset:
     enabled: false
-    
-  crowdstrikeConfig:
-    clusterName: ""     # Required - Kubernetes cluster name
-  #  clientID: ""       # Required if not using global.falconSecret - OAuth API Client ID
-  #  clientSecret: ""   # Required if not using global.falconSecret - OAuth API Client Secret
-  #  agentRegion: ""    # Optional - CrowdStrike Cloud region, default: 'autodiscovery'
 
+  crowdstrikeConfig:
+    clusterName: ""    # Required - Kubernetes cluster name
+    clientID: ""       # Required if not using global.falconSecret - OAuth API Client ID
+    clientSecret: ""   # Required if not using global.falconSecret - OAuth API Client Secret
