@@ -14,8 +14,11 @@
           "description": "Global Falcon configuration",
           "properties": {
             "cid": {
-              "type": "string",
-              "description": "CrowdStrike Customer ID (CID) - required for all components",
+              "type": [
+                "null",
+                "string"
+              ],
+              "description": "Falcon Customer ID (CID) - required for all components",
               "pattern": "^[A-F0-9]{32}-[A-F0-9]{2}$",
               "example": [
                 "1234567890ABCDEF1234567890ABCDEF-12"
@@ -25,7 +28,7 @@
         },
         "falconSecret": {
           "type": "object",
-          "description": "Global Falcon Secret configuration for external secret injection",
+          "description": "Global Falcon Secret configuration for existing Kubernetes secret",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -38,21 +41,17 @@
             }
           }
         },
-        "registry": {
+        "docker": {
           "type": "object",
-          "description": "Container registry configuration",
+          "description": "Global docker registry configuration for pulling Falcon component images",
           "properties": {
-            "repository": {
+            "pullSecret": {
               "type": "string",
-              "description": "Registry where Falcon images are stored",
-              "default": "registry.crowdstrike.com"
+              "description": "Existing docker registry Kubernetes secret for accessing private registries"
             },
-            "pullSecrets": {
-              "type": "array",
-              "description": "Pull secrets for accessing private registries",
-              "items": {
-                "type": "string"
-              }
+            "registryConfigJSON": {
+              "type": "string",
+              "description": "Base64 encoded docker registry config json for accessing private registries"
             }
           }
         }
@@ -77,32 +76,6 @@
           "type": "boolean",
           "description": "Enable Falcon KAC deployment", 
           "default": true
-        },
-        "resourceQuota": {
-          "type": "object",
-          "description": "",
-          "properties": {
-            "pods": {
-              "oneOf": [
-                {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "default": "6",
-                  "pattern": "^[0-9]+$"
-                },
-                {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
-                  "default": 6,
-                  "minimum": 2
-                }
-              ]
-            }
-          }
         }
       }
     },
