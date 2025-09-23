@@ -23,6 +23,11 @@ The Falcon Platform Helm chart allows you to deploy and manage the entire CrowdS
 
 ## Quick Start
 
+**NOTES:**
+- The falcon-platform Helm chart uses the latest version of each Falcon component subchart and does not allow version customization for individual subcharts. For granular version control, use the individual Falcon component Helm charts instead.
+- The falcon-platform Helm chart creates dedicated namespaces for each Falcon component automatically. For optimal security and resource management, we recommend deploying each component in its own dedicated namespace.
+- The falcon-platform Helm chart treats all CrowdStrike components as a single deployment. Running `helm uninstall` will remove all components - follow the [guide here](#uninstall-a-single-component) to uninstall a single component.
+
 ### 1. Add the Helm Repository
 
 ```bash
@@ -35,14 +40,16 @@ helm repo update
 Deploy core security components (Sensor + Admission Controller):
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION \
+helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION -n falcon-platform \
+--create-namespace \
 --set global.falcon.cid=$FALCON_CID \
 --set global.docker.registryConfigJSON=$DOCKER_CONFIG_ENCODED \
+--set falcon-sensor.enabled=true \
 --set falcon-sensor.node.image.repository=$SENSOR_DOCKER_REGISTRY \
 --set falcon-sensor.node.image.tag=$FALCON_SENSOR_IMAGE_TAG \
+--set falcon-kac.enabled=true \
 --set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
---set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG \
---set falcon-image-analyzer.enabled=false
+--set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG
 ```
 
 ### 3. Comprehensive Installation
@@ -50,13 +57,18 @@ helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 Deploy all components (requires additional configuration):
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION \
+helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION -n falcon-platform \
+--create-namespace \
 --set global.falcon.cid=$FALCON_CID \
 --set global.docker.registryConfigJSON=$DOCKER_CONFIG_ENCODED \
+--set falcon-sensor.enabled=true \
 --set falcon-sensor.node.image.repository=$SENSOR_DOCKER_REGISTRY \
 --set falcon-sensor.node.image.tag=$FALCON_SENSOR_IMAGE_TAG \
+--set falcon-kac.enabled=true \
 --set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
 --set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG \
+--set falcon-image-analyzer.enabled=true \
+--set falcon-image-analyzer.daemonset=true \
 --set falcon-image-analyzer.image.repository=$IMAGE_ANALYZER_DOCKER_REGISTRY \
 --set falcon-image-analyzer.image.tag=$FALCON_IAR_IMAGE_TAG \
 --set falcon-image-analyzer.crowdstrikeConfig.clusterName=$CLUSTER_NAME \
@@ -183,7 +195,8 @@ When using `falconSecret`, create the secret in each respective namespace before
 ```bash
 # Create secret with required values for falcon-sensor
 kubectl create secret generic $FALCON_SECRET_NAME -n falcon-sensor \
-  --from-literal=FALCONCTL_OPT_CID=$FALCON_CID
+  --from-literal=FALCONCTL_OPT_CID=$FALCON_CID \
+  --from-literal=FALCONCTL_OPT_PROVISIONING_TOKEN=$FALCON_PROVISIONING_TOKEN
   
 # Create secret with required values for falcon-kac
 kubectl create secret generic $FALCON_SECRET_NAME -n falcon-kac \
@@ -198,14 +211,18 @@ kubectl create secret generic $FALCON_SECRET_NAME -n falcon-image-analyzer \
 Once you have created your Kubernetes secrets, you can install the falcon-platform Helm chart with the following global options: 
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION \
+helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+--create-namespace \
 --set global.falconSecret.enabled=true \
 --set global.falconSecret.secretName=$FALCON_SECRET_NAME \
 --set global.docker.registryConfigJSON=$DOCKER_CONFIG_ENCODED \
+--set falcon-sensor.enabled=true \
 --set falcon-sensor.node.image.repository=$SENSOR_DOCKER_REGISTRY \
 --set falcon-sensor.node.image.tag=7.28.0-18108-1.falcon-linux.Release.US-2 \
+--set falcon-kac.enabled=true \
 --set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
 --set falcon-kac.image.tag=7.27.0-2502.Release.US-2 \
+--set falcon-image-analyzer.enabled=true \
 --set falcon-image-analyzer.image.repository=$IMAGE_ANALYZER_DOCKER_REGISTRY \
 --set falcon-image-analyzer.image.tag=1.0.20 \
 --set falcon-image-analyzer.crowdstrikeConfig.clusterName=$CLUSTER_NAME \
@@ -219,7 +236,7 @@ helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 
 ```bash
 # Check overall falcon-platform release status
-helm status falcon-platform
+helm status falcon-platform -n falcon-platform
 
 # Check all pods in the falcon namespace
 kubectl get pods -l app.kubernetes.io/instance=falcon-platform -A
@@ -243,9 +260,18 @@ kubectl get deployments,daemonsets,pods -n falcon-image-analyzer
 
 ## Troubleshooting
 
-### Common Issues
+### Falcon Sensor Troubleshooting Guide
 - [Falcon Sensor - Troubleshooting](/helm-charts/falcon-sensor/README.md#troubleshooting)
+
+### Falcon Image Analyzer - Pod Eviction
 - [Falcon Image Analyzer - Pod Eviction](/helm-charts/falcon-image-analyzer/README.md#pod-eviction)
+
+### Partial Falcon Platform Installation - Release Failure
+In some cases you might be missing some permissions or your cluster might not be set up the way you expected. This can lead to a scenario where the Helm release was created, but the release `failed` and it only installed some of the Falcon components.
+
+Once you have diagnosed the root cause of the failure and addressed the issue, you can either:
+1. Do a complete uninstall, then reinstall.
+2. Run a `helm upgrade` with the necessary Helm values to [install the remaining Falcon components](#installreinstall-a-single-component).
 
 ### Component Logs
 
@@ -262,23 +288,33 @@ kubectl logs -n falcon-image-analyzer -l app.kubernetes.io/instance=falcon-platf
 
 ## Upgrade Strategy
 
-### Upgrade the Falcon Platform Helm Chart Version
-
+### Install/Reinstall a single component
 ```bash
-# Update repository
+# Upgrade Helm chart with new component enabled and required values - for example to install falcon-kac after initial Helm install
+helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+  --reuse-values \
+  --set falcon-kac.enabled=true \
+  --set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
+  --set falcon-kac.image.tag=$KAC_IMAGE_TAG
+```
+
+### Upgrade the Falcon Platform Helm Chart Version
+```bash
+# Update Helm repository
 helm repo update
 
+# Update dependent subcharts for falcon-platform
 helm dependency update falcon-platform crowdstrike/falcon-platform
 
-# Upgrade with existing values
-helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION \
+# Upgrade Helm chart with existing Helm values
+helm upgrade falcon-platform crowdstrike/falcon-platform --version $NEW_FALCON_PLATFORM_VERSION -n falcon-platform \
   --reuse-values
 ```
 
 ### Individual Component Updates
-
 ```bash
-helm upgrade falcon-platform jchoi_cs/falcon-platform --version $FALCON_PLATFORM_VERSION \
+# Upgrade the version of each Falcon component image
+helm upgrade falcon-platform jchoi_cs/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
   --reuse-values \
   --set falcon-sensor.node.image.tag=$FALCON_SENSOR_IMAGE_TAG \
   --set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG \
@@ -287,16 +323,29 @@ helm upgrade falcon-platform jchoi_cs/falcon-platform --version $FALCON_PLATFORM
 
 **IMPORTANT NOTE:** You cannot control exactly which helm chart version is being used for each individual Falcon component subchart.
 
-Component versions are managed through the umbrella chart's dependencies. The dependent subchart versions are locked.
+Component versions are managed through the falcon-platform chart's [dependencies](./Chart.yaml). The dependent subchart versions are locked.
 Update the umbrella chart to get the latest Falcon component helm chart versions for each subchart.
 
 ## Uninstall
 
+### Uninstall a Single Component
+```bash
+# Upgrade your helm release with the component disabled - for example to uninstall falcon-image-analyzer only:
+helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+  --reuse-values \
+  --set falcon-image-analyzer.enabled=false
+
+# Optionally delete the component namespace
+kubectl delete namespace $FALCON_IAR_NAMESPACE
+```
+
+### Uninstall the Falcon Platform Helm chart
 ```bash
 # Remove Falcon Platform and all components
 helm uninstall falcon-platform
 
 # Optionally delete the release namespace, and the namespace for each Falcon component subchart
+kubectl delete namespace $FALCON_PLATFORM_NAMESPACE
 kubectl delete namespace $FALCON_SENSOR_NAMESPACE
 kubectl delete namespace $FALCON_KAC_NAMESPACE
 kubectl delete namespace $FALCON_IAR_NAMESPACE
