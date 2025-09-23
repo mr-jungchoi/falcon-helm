@@ -44,46 +44,17 @@ global:
 # Falcon Sensor - Runtime node protection
 # Override specific values for falcon-sensor
 falcon-sensor:
-  enabled: true
+  enabled: false
   namespaceOverride: falcon-sensor
-
-  node:
-    enabled: true
-    backend: bpf
-
-    image:
-      repository: registry.crowdstrike.com/falcon-sensor/us-1/release/falcon-sensor
-      tag: latest
-
-  container:
-    enabled: false
-
-    image:
-      repository: registry.crowdstrike.com/falcon-container/us-1/release/falcon-sensor
-      tag: latest
 
 # Falcon Kubernetes Admission Controller - Policy enforcement
 # Override specific values for falcon-kac
 falcon-kac:
-  enabled: true
+  enabled: false
   namespaceOverride: falcon-kac
-
-  image:
-    repository: registry.crowdstrike.com/falcon-kac/us-1/release/falcon-kac
-    tag: latest
 
 # Falcon Image Analyzer - Container image security scanning
 # Override specific values for falcon-image-analyzer
 falcon-image-analyzer:
   enabled: false  # Disabled by default due to additional configuration requirements
   namespaceOverride: falcon-image-analyzer
-
-  deployment:
-    enabled: true
-  daemonset:
-    enabled: false
-
-  crowdstrikeConfig:
-    clusterName: ""    # Required - Kubernetes cluster name
-    clientID: ""       # Required if not using global.falconSecret - OAuth API Client ID
-    clientSecret: ""   # Required if not using global.falconSecret - OAuth API Client Secret
