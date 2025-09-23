@@ -2,6 +2,10 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Namespace management configuration
+# Enable automatic namespace creation - ignores already existing namespaces
+createComponentNamespaces: true
+
 # Global configuration shared across all Falcon components
 global:
   # Falcon Customer ID (CID) - required for all components if not using falconSecret

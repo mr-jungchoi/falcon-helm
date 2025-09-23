@@ -1,6 +1,6 @@
 {{/* Expand the name of the chart */}}
 {{- define "falcon-platform.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- .Chart.Name }}
 {{- end }}
 
 {{/*
@@ -9,15 +9,11 @@ We truncate at 63 chars because some Kubernetes name fields are limited to this 
 If release name contains chart name it will be used as a full name.
 */}}
 {{- define "falcon-platform.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- $name := .Chart.Name }}
 {{- if contains $name .Release.Name }}
 {{- .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
 {{- end }}
 {{- end }}
 
@@ -30,10 +26,8 @@ If release name contains chart name it will be used as a full name.
 {{- define "falcon-platform.labels" -}}
 helm.sh/chart: {{ include "falcon-platform.chart" . }}
 {{ include "falcon-platform.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+crowdstrike.com/provider: crowdstrike
 {{- end }}
 
 {{/* Selector labels */}}
@@ -42,3 +36,17 @@ app.kubernetes.io/name: {{ include "falcon-platform.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/* Component namespaces */}}
+{{- define "falcon-platform.componentNamespaces" -}}
+{{- $namespaces := list -}}
+{{- if and (index .Values "falcon-sensor").enabled (index .Values "falcon-sensor").namespaceOverride -}}
+{{- $namespaces = append $namespaces (index .Values "falcon-sensor").namespaceOverride -}}
+{{- end -}}
+{{- if and (index .Values "falcon-kac").enabled (index .Values "falcon-kac").namespaceOverride -}}
+{{- $namespaces = append $namespaces (index .Values "falcon-kac").namespaceOverride -}}
+{{- end -}}
+{{- if and (index .Values "falcon-image-analyzer").enabled (index .Values "falcon-image-analyzer").namespaceOverride -}}
+{{- $namespaces = append $namespaces (index .Values "falcon-image-analyzer").namespaceOverride -}}
+{{- end -}}
+{{- $namespaces | uniq | join "," -}}
+{{- end }}

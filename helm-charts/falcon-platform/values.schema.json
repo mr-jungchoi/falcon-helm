@@ -5,6 +5,11 @@
   "description": "Schema for the falcon-platform umbrella chart configuration",
   "required": ["global"],
   "properties": {
+    "createComponentNamespaces": {
+      "type": "boolean",
+      "description": "Enable automatic namespace creation - ignores already existing namespaces ",
+      "default": true
+    },
     "global": {
       "type": "object",
       "description": "Global configuration shared across all Falcon components",
