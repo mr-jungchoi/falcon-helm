@@ -52,28 +52,64 @@ helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 --set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG
 ```
 
-### 3. Comprehensive Installation
+### 3. Comprehensive Installation with Values File and Falcon Secret
 
-Deploy all components (requires additional configuration):
+Deploy all components:
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION -n falcon-platform \
---create-namespace \
---set global.falcon.cid=$FALCON_CID \
---set global.docker.registryConfigJSON=$DOCKER_CONFIG_ENCODED \
---set falcon-sensor.enabled=true \
---set falcon-sensor.node.image.repository=$SENSOR_DOCKER_REGISTRY \
---set falcon-sensor.node.image.tag=$FALCON_SENSOR_IMAGE_TAG \
---set falcon-kac.enabled=true \
---set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
---set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG \
---set falcon-image-analyzer.enabled=true \
---set falcon-image-analyzer.daemonset=true \
---set falcon-image-analyzer.image.repository=$IMAGE_ANALYZER_DOCKER_REGISTRY \
---set falcon-image-analyzer.image.tag=$FALCON_IAR_IMAGE_TAG \
---set falcon-image-analyzer.crowdstrikeConfig.clusterName=$CLUSTER_NAME \
---set falcon-image-analyzer.crowdstrikeConfig.clientID=$FALCON_CLIENT_ID \
---set falcon-image-analyzer.crowdstrikeConfig.clientSecret=$FALCON_CLIENT_SECRET
+# Create a values file with your configuration
+cat > falcon-platform-values.yaml << EOF
+global:
+  # Use external secret for sensitive values
+  falconSecret:
+    enabled: true
+    secretName: falcon-secrets
+  docker:
+    registryConfigJSON="YOUR_BASE64_ENCODED_DOCKER_CONFIG_JSON"
+
+falcon-sensor:
+  enabled: true
+  node:
+    enabled: true
+    image:
+      repository: "SENSOR_DOCKER_REGISTRY"
+      tag: "FALCON_SENSOR_IMAGE_TAG"
+
+falcon-kac:
+  enabled: true
+  image:
+    repository: "KAC_DOCKER_REGISTRY"
+    tag: "FALCON_KAC_IMAGE_TAG"
+
+falcon-image-analyzer:
+  enabled: true
+  daemonset:
+    enabled: true
+  image:
+    repository: "IMAGE_ANALYZER_DOCKER_REGISTRY"
+    tag: "FALCON_IAR_IMAGE_TAG"
+
+  crowdstrikeConfig:
+    clusterName: "YOUR_CLUSTER_NAME"
+    cid: "YOUR_FALCON_CID"
+EOF
+
+# Create the secrets first
+kubectl create secret generic $FALCON_SECRET_NAME -n falcon-sensor \
+  --from-literal=FALCONCTL_OPT_CID=$FALCON_CID \
+  --from-literal=FALCONCTL_OPT_PROVISIONING_TOKEN=$FALCON_PROVISIONING_TOKEN
+
+kubectl create secret generic $FALCON_SECRET_NAME -n falcon-kac \
+  --from-literal=FALCONCTL_OPT_CID=$FALCON_CID
+
+kubectl create secret generic $FALCON_SECRET_NAME -n falcon-image-analyzer \
+  --from-literal=AGENT_CLIENT_ID=$FALCON_CLIENT_ID \
+  --from-literal=AGENT_CLIENT_SECRET=$FALCON_CLIENT_SECRET
+
+helm upgrade --install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFROM_VERSION \
+  --namespace falcon-platform \
+  --create-namespace \
+  -f falcon-platform-values.yaml
 ```
 
 ## Configuration
@@ -345,8 +381,5 @@ kubectl delete namespace $FALCON_IAR_NAMESPACE
 helm uninstall falcon-platform
 
 # Optionally delete the release namespace, and the namespace for each Falcon component subchart
-kubectl delete namespace $FALCON_PLATFORM_NAMESPACE
-kubectl delete namespace $FALCON_SENSOR_NAMESPACE
-kubectl delete namespace $FALCON_KAC_NAMESPACE
-kubectl delete namespace $FALCON_IAR_NAMESPACE
+kubectl delete namespace $FALCON_PLATFORM_NAMESPACE $FALCON_SENSOR_NAMESPACE $FALCON_KAC_NAMESPACE $FALCON_IAR_NAMESPACE
 ```
