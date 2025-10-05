@@ -17,9 +17,9 @@ global:
   # Global Falcon Secret configuration
   # Use an existing Kubernetes secret containing sensitive Falcon configuration values
   # Secret must be in the same namespace as the installed namespace
-  # Required data:
+  # Required data for falcon-sensor and falcon-kac:
   #   - FALCONCTL_OPT_CID
-  # Required data if falcon-image-analyzer enabled:
+  # Required data for falcon-image-analyzer:
   #   - AGENT_CID
   #   - AGENT_CLIENT_ID
   #   - AGENT_CLIENT_SECRET
@@ -30,7 +30,6 @@ global:
     secretName: ""
 
   # Container registry configuration
-  # Used by components that support top level registry configuration (falcon-kac, falcon-image-analyzer)
   docker:
     # Name of existing Kubernetes docker registry secret
     pullSecret: ""
@@ -46,17 +45,17 @@ global:
 # Falcon Sensor - Runtime node protection
 # Override specific values for falcon-sensor
 falcon-sensor:
-  enabled: false
+  enabled: true
   namespaceOverride: falcon-sensor
 
 # Falcon Kubernetes Admission Controller - Policy enforcement
 # Override specific values for falcon-kac
 falcon-kac:
-  enabled: false
+  enabled: true
   namespaceOverride: falcon-kac
 
 # Falcon Image Analyzer - Container image security scanning
 # Override specific values for falcon-image-analyzer
 falcon-image-analyzer:
-  enabled: false  # Disabled by default due to additional configuration requirements
+  enabled: true
   namespaceOverride: falcon-image-analyzer

@@ -8,11 +8,12 @@ The Falcon Platform Helm chart allows you to deploy and manage the entire CrowdS
 
 ## Components Included
 
-| Component                                                                 | Purpose                                |
-|---------------------------------------------------------------------------|----------------------------------------|
-| [**Falcon Sensor**](/helm-charts/falcon-sensor/README.md)                 | Runtime node protection and monitoring |
-| [**Falcon KAC**](/helm-charts/falcon-kac/README.md)                       | Kubernetes admission controller        |
-| [**Falcon Image Analyzer**](/helm-charts/falcon-image-analyzer/README.md) | Container image vulnerability scanning |
+| Component                                                                 | Purpose                                     | Default Status |
+|---------------------------------------------------------------------------|---------------------------------------------|----------------|
+| [**Falcon Node Sensor**](/helm-charts/falcon-sensor/README.md)            | Runtime node protection and monitoring      | Enabled        |
+| [**Falcon Container Sensor**](/helm-charts/falcon-sensor/README.md)       | Runtime container protection and monitoring | Disabled       |
+| [**Falcon KAC**](/helm-charts/falcon-kac/README.md)                       | Kubernetes admission controller             | Enabled        |
+| [**Falcon Image Analyzer**](/helm-charts/falcon-image-analyzer/README.md) | Container image vulnerability scanning      | Enabled        |
 
 ## Falcon Platform Support for Falcon Component Subcharts
 Falcon Platform uses the existing Falcon component Helm charts. The subchart versions are managed
@@ -76,13 +77,10 @@ helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
   --set createComponentNamespaces=true \
   --set global.falcon.cid=$FALCON_CID \
   --set global.docker.registryConfigJSON=$DOCKER_CONFIG_ENCODED \
-  --set falcon-sensor.enabled=true \
   --set falcon-sensor.node.image.repository=$SENSOR_DOCKER_REGISTRY \
   --set falcon-sensor.node.image.tag=$FALCON_SENSOR_IMAGE_TAG \
-  --set falcon-kac.enabled=true \
   --set falcon-kac.image.repository=$KAC_DOCKER_REGISTRY \
   --set falcon-kac.image.tag=$FALCON_KAC_IMAGE_TAG \
-  --set falcon-image-analyzer.enabled=true \
   --set falcon-image-analyzer.daemonset.enabled=true \
   --set falcon-image-analyzer.image.repository=$IAR_DOCKER_REGISTRY \
   --set falcon-image-analyzer.image.tag=$IAR_IMAGE_TAG \
