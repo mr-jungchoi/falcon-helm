@@ -199,7 +199,7 @@ Return namespace based on .Values.namespaceOverride or Release.Namespace
 Get Falcon CID from global value if it exists
 */}}
 {{- define "falcon-sensor.falconCid" -}}
-{{- if .Values.global.falcon.cid -}}
+{{- if and .Values.global.falcon.cid (not .Values.falcon.cid) -}}
 {{- .Values.global.falcon.cid -}}
 {{- else -}}
 {{- .Values.falcon.cid -}}
@@ -208,16 +208,22 @@ Get Falcon CID from global value if it exists
 
 {{/*
 Check if Falcon secret is enabled from global value if it exists
+If falcon.cid is defined in the component config, then it is assumed the customer
+wants to override global.falconSecret.enabled, since CID is a required secret value
 */}}
 {{- define "falcon-sensor.falconSecretEnabled" -}}
-{{- or .Values.global.falconSecret.enabled .Values.falconSecret.enabled -}}
+{{- if and .Values.global.falconSecret.enabled (not .Values.falcon.cid) -}}
+{{- .Values.global.falconSecret.enabled -}}
+{{- else -}}
+{{- .Values.falconSecret.enabled -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
 Get Falcon secret name from global value if it exists
 */}}
 {{- define "falcon-sensor.falconSecretName" -}}
-{{- if .Values.global.falconSecret.secretName -}}
+{{- if and .Values.global.falconSecret.secretName (not .Values.falconSecret.secretName) -}}
 {{- .Values.global.falconSecret.secretName -}}
 {{- else -}}
 {{- .Values.falconSecret.secretName -}}
@@ -225,35 +231,45 @@ Get Falcon secret name from global value if it exists
 {{- end -}}
 
 {{/*
-Get docker pull secret from global value if it exists
+Get node container registry pull secret from global value if it exists
 */}}
-{{- define "falcon-sensor.imagePullSecretName" -}}
-{{- if .Values.global.docker.pullSecret -}}
-{{- .Values.global.docker.pullSecret -}}
+{{- define "falcon-sensor.node.imagePullSecretName" -}}
+{{- if and .Values.global.containerRegistry.pullSecret (not .Values.node.image.pullSecrets) -}}
+{{- .Values.global.containerRegistry.pullSecret -}}
 {{- else -}}
-{{- if .Values.node.enabled -}}
 {{- .Values.node.image.pullSecrets | default "" -}}
-{{- else if .Values.container.image.pullSecrets.enable -}}
-{{- .Values.container.image.pullSecrets.name | default "" -}}
-{{- else -}}
-{{- "" -}}
-{{- end -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-Get docker registry config json from global value if it exists
+Get sidecar container registry pull secret from global value if it exists
 */}}
-{{- define "falcon-sensor.registryConfigJson" -}}
-{{- if .Values.global.docker.registryConfigJSON -}}
-{{- .Values.global.docker.registryConfigJSON -}}
+{{- define "falcon-sensor.container.imagePullSecretName" -}}
+{{- if and .Values.global.containerRegistry.pullSecret (not .Values.container.image.pullSecrets.name) -}}
+{{- .Values.global.containerRegistry.pullSecret -}}
 {{- else -}}
-{{- if .Values.node.enabled -}}
-{{- .Values.node.image.registryConfigJSON | default "" -}}
-{{- else if .Values.container.image.pullSecrets.enable -}}
-{{- .Values.container.image.pullSecrets.registryConfigJSON | default "" -}}
-{{- else -}}
-{{- "" -}}
+{{- .Values.container.image.pullSecrets.name | default "" -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Get node container registry config json from global value if it exists
+*/}}
+{{- define "falcon-sensor.node.registryConfigJson" -}}
+{{- if and .Values.global.containerRegistry.configJSON (not .Values.node.image.registryConfigJSON) -}}
+{{- .Values.global.containerRegistry.configJSON -}}
+{{- else -}}
+{{- .Values.node.image.registryConfigJSON | default "" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get sidecar container registry config json from global value if it exists
+*/}}
+{{- define "falcon-sensor.container.registryConfigJson" -}}
+{{- if and .Values.global.containerRegistry.configJSON (not .Values.container.image.pullSecrets.registryConfigJSON) -}}
+{{- .Values.global.containerRegistry.configJSON -}}
+{{- else -}}
+{{- .Values.container.image.pullSecrets.registryConfigJSON | default "" -}}
 {{- end -}}
 {{- end -}}
