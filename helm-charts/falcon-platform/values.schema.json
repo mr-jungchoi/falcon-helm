@@ -24,7 +24,7 @@
                 "string"
               ],
               "description": "Falcon Customer ID (CID) - required for all components",
-              "pattern": "^[A-F0-9]{32}-[A-F0-9]{2}$",
+              "pattern": "^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$",
               "example": [
                 "1234567890ABCDEF1234567890ABCDEF-12"
               ]
