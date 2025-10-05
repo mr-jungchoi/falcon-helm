@@ -161,7 +161,7 @@ namespaceOverride should only be used when installing falcon-kac as a subchart o
 Get Falcon CID from global value if it exists
 */}}
 {{- define "falcon-kac.falconCid" -}}
-{{- if .Values.global.falcon.cid -}}
+{{- if and .Values.global.falcon.cid (not .Values.falcon.cid) -}}
 {{- .Values.global.falcon.cid -}}
 {{- else -}}
 {{- .Values.falcon.cid -}}
@@ -170,9 +170,11 @@ Get Falcon CID from global value if it exists
 
 {{/*
 Check if Falcon secret is enabled from global value if it exists
+If falcon.cid is defined in the component config, then it is assumed the customer
+wants to override global.falconSecret.enabled, since CID is a required secret value
 */}}
 {{- define "falcon-kac.falconSecretEnabled" -}}
-{{- if .Values.global.falconSecret.enabled -}}
+{{- if and .Values.global.falconSecret.enabled (not .Values.falcon.cid) -}}
 {{- .Values.global.falconSecret.enabled -}}
 {{- else -}}
 {{- .Values.falconSecret.enabled -}}
@@ -183,7 +185,7 @@ Check if Falcon secret is enabled from global value if it exists
 Get Falcon secret name from global value if it exists
 */}}
 {{- define "falcon-kac.falconSecretName" -}}
-{{- if .Values.global.falconSecret.secretName -}}
+{{- if and .Values.global.falconSecret.secretName (not .Values.falconSecret.secretName) -}}
 {{- .Values.global.falconSecret.secretName -}}
 {{- else -}}
 {{- .Values.falconSecret.secretName -}}
@@ -191,22 +193,22 @@ Get Falcon secret name from global value if it exists
 {{- end -}}
 
 {{/*
-Get docker pull secret from global value if it exists
+Get container registry pull secret from global value if it exists
 */}}
 {{- define "falcon-kac.imagePullSecret" -}}
-{{- if .Values.global.docker.pullSecret -}}
-{{- .Values.global.docker.pullSecret -}}
+{{- if and .Values.global.containerRegistry.pullSecret (not .Values.image.pullSecrets) -}}
+{{- .Values.global.containerRegistry.pullSecret -}}
 {{- else -}}
 {{- .Values.image.pullSecrets | default "" -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-Get docker registry config json from global value if it exists
+Get container registry config json from global value if it exists
 */}}
 {{- define "falcon-kac.registryConfigJson" -}}
-{{- if .Values.global.docker.registryConfigJSON -}}
-{{- .Values.global.docker.registryConfigJSON -}}
+{{- if and .Values.global.containerRegistry.configJSON (not .Values.image.registryConfigJSON) -}}
+{{- .Values.global.containerRegistry.configJSON -}}
 {{- else -}}
 {{- .Values.image.registryConfigJSON | default "" -}}
 {{- end -}}
