@@ -7,8 +7,8 @@
   "properties": {
     "createComponentNamespaces": {
       "type": "boolean",
-      "description": "Enable automatic namespace creation - ignores already existing namespaces ",
-      "default": true
+      "description": "Enable automatic namespace creation - pre-install only",
+      "default": false
     },
     "global": {
       "type": "object",

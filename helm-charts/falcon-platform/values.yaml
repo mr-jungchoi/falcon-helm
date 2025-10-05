@@ -3,8 +3,10 @@
 # Declare variables to be passed into your templates.
 
 # Namespace management configuration
-# Enable automatic namespace creation - ignores already existing namespaces
-createComponentNamespaces: true
+# Enable pre-install namespace creation - fails if namespaces already exist
+# `createComponentNamespaces` will fail if the component namespaces already exist.
+# Falcon component namespace(s) have to be created manually before upgrades that enable new components.
+createComponentNamespaces: false
 
 # Global configuration shared across all Falcon components
 global:
