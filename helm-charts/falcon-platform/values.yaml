@@ -58,4 +58,4 @@ falcon-kac:
 # Override specific values for falcon-image-analyzer
 falcon-image-analyzer:
   enabled: true
-  namespaceOverride: falcon-imageanalyzer
+  namespaceOverride: falcon-image-analyzer
