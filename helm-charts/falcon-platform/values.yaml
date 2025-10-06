@@ -30,14 +30,14 @@ global:
     secretName: ""
 
   # Container registry configuration
-  docker:
+  containerRegistry:
     # Name of existing Kubernetes docker registry secret
     pullSecret: ""
 
     # Value must be base64. Global pullSecret is not supported.
     # The base64 encoded string of the docker config json for the pull secret can be gotten through:
     # $ cat ~/.docker/config.json | base64 -
-    registryConfigJSON: ""
+    configJSON: ""
 
 # Enable/disable individual components
 # Set enabled: true to deploy, enabled: false to skip
@@ -46,7 +46,7 @@ global:
 # Override specific values for falcon-sensor
 falcon-sensor:
   enabled: true
-  namespaceOverride: falcon-sensor
+  namespaceOverride: falcon-system
 
 # Falcon Kubernetes Admission Controller - Policy enforcement
 # Override specific values for falcon-kac
@@ -58,4 +58,4 @@ falcon-kac:
 # Override specific values for falcon-image-analyzer
 falcon-image-analyzer:
   enabled: true
-  namespaceOverride: falcon-image-analyzer
+  namespaceOverride: falcon-imageanalyzer
