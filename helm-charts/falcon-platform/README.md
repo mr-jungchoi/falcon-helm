@@ -98,7 +98,7 @@ Deploy all 3 components using `--set` arguments to pass configuration values dir
 component.
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION \
+helm install falcon-platform crowdstrike/falcon-platform --version 1.0.0 \
   --namespace falcon-platform \
   --create-namespace \
   --set createComponentNamespaces=true \
@@ -123,10 +123,11 @@ helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 
 ```bash
 # Check overall falcon-platform release status
-helm status falcon-platform -n falcon-platform
+helm list -n falcon-platform
 
 # Expected Output:
-
+NAME           	NAMESPACE      	REVISION	UPDATED                             	STATUS  	CHART                	APP VERSION
+falcon-platform	falcon-platform	1       	2025-10-06 16:54:28.315583 -0400 EDT	deployed	falcon-platform-1.0.0
 
 # Check all pods with the falcon-platform label
 kubectl get pods -l app.kubernetes.io/instance=falcon-platform -A
