@@ -1,0 +1,35 @@
+createComponentNamespaces: true
+
+global:
+  falcon:
+    cid: 38359EB96CDB4186B3572344035EFF31-2C
+  docker:
+    registryConfigJSON:
+
+falcon-sensor:
+  enabled: true
+  node:
+    enabled: true
+    image:
+      repository: registry.crowdstrike.com/falcon-sensor/us-2/release/falcon-sensor
+      tag: 7.28.0-18108-1.falcon-linux.Release.US-2
+
+falcon-kac:
+  enabled: true
+  image:
+    repository: registry.crowdstrike.com/falcon-kac/us-2/release/falcon-kac
+    tag: 7.27.0-2502.Release.US-2
+
+falcon-image-analyzer:
+  enabled: true
+  daemonset:
+    enabled: true
+  image:
+    repository: registry.crowdstrike.com/falcon-imageanalyzer/us-2/release/falcon-imageanalyzer
+    tag: 1.0.19
+
+  crowdstrikeConfig:
+    clusterName: colima-arm64-k8s
+    clientID: 4238e169ed1444ee9a181acce8186455
+    clientSecret: aTuPJ759Of38Xz4NngVq016WMyBIt2SKlpsYweZE
+    agentRuntime: docker

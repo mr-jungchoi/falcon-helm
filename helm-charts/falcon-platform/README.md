@@ -29,9 +29,12 @@ versions of each component chart during installation.
 
 Below is a table of subchart versions locked to the latest falcon-platform release.
 
-| Falcon Platform Version | Falcon Sensor Version | Falcon KAC Version | Falcon Image Analyzer Version |
-|:------------------------|:----------------------|:-------------------|:------------------------------|
-| `1.0.0`                 | `1.34.1`              | `1.5.1`            | `1.1.16`                      |
+| Helm Chart Name       | Helm Chart Version |
+|:----------------------|:-------------------|
+| falcon-platform       | `1.0.0`            |
+| falcon-sensor         | `1.34.1`           |
+| falcon-kac            | `1.5.1`            |
+| falcon-image-analyzer | `1.1.16`           |
 
 ### Namespace Isolation Strategy
 Each Falcon component operates in its own dedicated namespace.
@@ -117,7 +120,7 @@ helm install falcon-platform crowdstrike/falcon-platform --version 1.0.0 \
   --set falcon-image-analyzer.crowdstrikeConfig.clientSecret=$FALCON_CLIENT_SECRET
 ```
 
-## Verification
+## Verify Falcon Platform Deployment
 
 ### Check Installation Status
 
@@ -176,8 +179,14 @@ NAME                                              READY   STATUS    RESTARTS   A
 pod/falcon-platform-falcon-image-analyzer-xxxxx   1/1     Running   0          2m
 ```
 
+## Configure Falcon Platform
 
-## Configuration
+### Configuration Priority
+Configuration values are applied in this priority order:
+
+Component-specific values: Highest priority, override global settings when defined
+Global values: Medium priority, inherited by all components
+Chart defaults: Lowest priority, used when no other values are specified
 
 ### Component-Specific Requirements
 
@@ -241,7 +250,7 @@ Falcon Sensor specific configurations must be prefixed with `falcon-sensor`. For
 
 | Parameter                              | Description                          |
 |:---------------------------------------|:-------------------------------------|
-| `falcon-sensor.enabled`                | Default: false                       |
+| `falcon-sensor.enabled`                | Default: true                        |
 | `falcon-sensor.node.image.respository` | Falcon Sensor container registry URL |
 | `falcon-sensor.node.image.tag`         | Falcon Sensor container image tag    |
 
@@ -253,19 +262,21 @@ Falcon Sensor specific configurations must be prefixed with `falcon-sensor`. For
 
 **Required Container Values:**
 
-| Parameter                                   | Description                                                        |
-|:--------------------------------------------|:-------------------------------------------------------------------|
-| `falcon-sensor.enabled`                     | Default: false                                                     |
-| `falcon-sensor.node.enabled`                | Enable daemonset installation (must be `false`)                    |
-| `falcon-sensor.container.enabled`           | Enable sensor installation as a sidecar container (must be `true`) |
-| `falcon-sensor.container.image.respository` | Falcon Container Sensor container registry URL                     |
-| `falcon-sensor.container.image.tag`         | Falcon Container Sensor container image tag                        |
+| Parameter                                              | Description                                                                 |
+|:-------------------------------------------------------|:----------------------------------------------------------------------------|
+| `falcon-sensor.enabled`                                | Default: true                                                               |
+| `falcon-sensor.node.enabled`                           | Enable daemonset installation (must be `false`)                             |
+| `falcon-sensor.container.enabled`                      | Enable sensor installation as a sidecar container (must be `true`)          |
+| `falcon-sensor.container.image.respository`            | Falcon Container Sensor container registry URL                              |
+| `falcon-sensor.container.image.tag`                    | Falcon Container Sensor container image tag                                 |
+| `falcon-sensor.container.image.pullSecrets.enabled`    | Required if connecting to a registry that requires authentication           |
+| `falcon-sensor.container.image.pullSecrets.namespaces` | List of Namespaces to pull the Falcon sensor from an authenticated registry |
 
 **Optional Container Values:**
 
-| Parameter                                   | Description                                                           |
-|:--------------------------------------------|:----------------------------------------------------------------------|
-| `falcon-sensor.container.image.digest`      | Falcon Container Sensor container image digest (alternative to `tag`) |
+| Parameter                              | Description                                                           |
+|:---------------------------------------|:----------------------------------------------------------------------|
+| `falcon-sensor.container.image.digest` | Falcon Container Sensor container image digest (alternative to `tag`) |
 
 #### Falcon KAC
 Falcon KAC specific configurations must be prefixed with `falcon-kac`. For comprehensive configuration options please see the linked documentation below.
@@ -275,7 +286,7 @@ Falcon KAC specific configurations must be prefixed with `falcon-kac`. For compr
 
 | Parameter                      | Description                       |
 |:-------------------------------|:----------------------------------|
-| `falcon-kac.enabled`           | Default: false                    |
+| `falcon-kac.enabled`           | Default: true                     |
 | `falcon-kac.image.respository` | Falcon KAC container registry URL |
 | `falcon-kac.image.tag`         | Falcon KAC container image tag    |
 
@@ -286,18 +297,22 @@ Falcon KAC specific configurations must be prefixed with `falcon-kac`. For compr
 | `falcon-kac.image.digest` | Falcon Sensor container image digest (alternative to `tag`) |
 
 #### Falcon Image Analyzer
+Falcon Image Analyzer specific configurations must be prefixed with `falcon-image-analyzer`. For comprehensive configuration options please see the linked documentation below.
 - [Falcon Image Analyzer - Configuration Options](/helm-charts/falcon-image-analyzer/README.md#falcon-configuration-options)
 
 **Required Values:**
 
-| Parameter                                              | Description                                  |
-|:-------------------------------------------------------|:---------------------------------------------|
-| `falcon-image-analyzer.enabled`                        | Default: false                               |
-| `falcon-image-analyzer.image.respository`              | Falcon Image Analyzer container registry URL |
-| `falcon-image-analyzer.image.tag`                      | Falcon Image Analyzer container image tag    |
-| `falcon-image-analyzer.crowdstrikeConfig.clusterName`  | Kubernetes cluster name                      |
-| `falcon-image-analyzer.crowdstrikeConfig.clientId`     | CrowdStrike Falcon OAuth client ID           |
-| `falcon-image-analyzer.crowdstrikeConfig.clientSecret` | CrowdStrike Falcon OAuth client secret       |
+| Parameter                                              | Description                                                  |
+|:-------------------------------------------------------|:-------------------------------------------------------------|
+| `falcon-image-analyzer.enabled`                        | Default: true                                                |
+| `falcon-image-analyzer.daemonset.enabled`              | Enable for socket mode (only one of daemonset or deployment) |
+| `falcon-image-analyzer.deployment.enabled`             | Enable for watcher mode (cannot enable both modes)           |
+| `falcon-image-analyzer.image.respository`              | Falcon Image Analyzer container registry URL                 |
+| `falcon-image-analyzer.image.tag`                      | Falcon Image Analyzer container image tag                    |
+| `falcon-image-analyzer.crowdstrikeConfig.clusterName`  | Kubernetes cluster name                                      |
+| `falcon-image-analyzer.crowdstrikeConfig.agentRuntime` | Required if daemonset enabled                                |
+| `falcon-image-analyzer.crowdstrikeConfig.clientId`     | CrowdStrike Falcon OAuth client ID                           |
+| `falcon-image-analyzer.crowdstrikeConfig.clientSecret` | CrowdStrike Falcon OAuth client secret                       |
 
 **Optional Values:**
 
@@ -344,7 +359,7 @@ kubectl create secret generic $FALCON_SECRET_NAME -n falcon-image-analyzer \
 Once you have created your Kubernetes secrets, you can install the falcon-platform Helm chart with the following global options: 
 
 ```bash
-helm install falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+helm install falcon-platform crowdstrike/falcon-platform --version 1.0.0 -n falcon-platform \
   --create-namespace \
   --set global.falconSecret.enabled=true \
   --set global.falconSecret.secretName=$FALCON_SECRET_NAME \
@@ -372,7 +387,7 @@ When installing a new component for the first time, make sure the component name
 kubectl create namespace falcon-kac
 
 # Upgrade Helm chart with new component enabled and required values - for example to install falcon-kac after initial Helm install
-helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+helm upgrade falcon-platform crowdstrike/falcon-platform --version 1.0.0 -n falcon-platform \
   --reuse-values \
   --set falcon-kac.enabled=true \
   --set falcon-kac.image.repository=$KAC_REGISTRY \
@@ -385,14 +400,14 @@ helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 helm repo update
 
 # Upgrade Helm chart with existing Helm values
-helm upgrade falcon-platform crowdstrike/falcon-platform --version $NEW_FALCON_PLATFORM_VERSION -n falcon-platform \
+helm upgrade falcon-platform crowdstrike/falcon-platform --version 1.0.1 -n falcon-platform \
   --reuse-values
 ```
 
 ### Individual Component Updates
 ```bash
 # Upgrade the version of each Falcon component image
-helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+helm upgrade falcon-platform crowdstrike/falcon-platform --version 1.0.0 -n falcon-platform \
   --reuse-values \
   --set falcon-sensor.node.image.tag=$SENSOR_IMAGE_TAG \
   --set falcon-kac.image.tag=$KAC_IMAGE_TAG \
@@ -410,7 +425,7 @@ helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATF
 ### Uninstall a Single Component
 ```bash
 # Upgrade your helm release with the component disabled - for example to uninstall falcon-image-analyzer only:
-helm upgrade falcon-platform crowdstrike/falcon-platform --version $FALCON_PLATFORM_VERSION -n falcon-platform \
+helm upgrade falcon-platform crowdstrike/falcon-platform --version 1.0.0 -n falcon-platform \
   --reuse-values \
   --set falcon-image-analyzer.enabled=false
 
