@@ -1,9 +1,6 @@
 name: Helm Repo Build and Deploy
 
 on:
-  push:
-    branches:
-      - gh-pages
   workflow_dispatch:
 
 permissions:
