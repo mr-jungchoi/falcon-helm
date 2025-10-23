@@ -25,6 +25,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
+        id: checkout-gh-pages
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ref: gh-pages
@@ -36,6 +37,7 @@ jobs:
         with:
           source: .
           destination: ./_site
+          build_revision: ${{ steps.checkout-gh-pages.outputs.commit }}
           verbose: true
 
       - name: Upload artifact
