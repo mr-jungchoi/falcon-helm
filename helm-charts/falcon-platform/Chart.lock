@@ -4,9 +4,9 @@ dependencies:
   version: 1.34.1
 - name: falcon-kac
   repository: file://../falcon-kac
-  version: 1.6.0-rc
+  version: 1.6.0-rc1
 - name: falcon-image-analyzer
   repository: file://../falcon-image-analyzer
   version: 1.1.18-rc
-digest: sha256:a425347eebf60383820b63356f8cafcab72d0240d4d8b482ebf321529ca70b9d
-generated: "2025-12-10T13:04:51.72646-05:00"
+digest: sha256:34272194f0dcc5141b19074b902f09d866e6b9072f169709edd70beac36da7f9
+generated: "2025-12-12T10:04:17.334902-05:00"
