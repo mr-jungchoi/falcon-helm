@@ -1,12 +1,12 @@
 dependencies:
 - name: falcon-sensor
   repository: file://../falcon-sensor
-  version: 1.34.2
+  version: 1.35.0-rc
 - name: falcon-kac
   repository: file://../falcon-kac
   version: 1.6.0
 - name: falcon-image-analyzer
-  repository: https://crowdstrike.github.io/falcon-helm
-  version: 1.1.18
-digest: sha256:541918aa74f4754e63f8eb5eb15d593bdbd64ef2c177337df64cf7224b6f4c85
-generated: "2026-01-26T16:56:27.05327-05:00"
+  repository: file://../falcon-image-analyzer
+  version: 1.1.20-rc
+digest: sha256:3c6e0c6973dd19c155adf97ad03b366cb3f1095acf1d476a69d92f4909a69605
+generated: "2026-02-20T15:32:40.624342-05:00"
