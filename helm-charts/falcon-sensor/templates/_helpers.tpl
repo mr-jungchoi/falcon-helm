@@ -145,7 +145,10 @@ args:
       else
       echo "Running /opt/CrowdStrike/configure-cluster-id";
       /opt/CrowdStrike/configure-cluster-id;
-      fi
+      fi;
+      echo "Creating falconstore and Store.bin files if missing";
+      touch /opt/CrowdStrike/falconstore;
+      touch /opt/CrowdStrike/Store.bin
 {{- end -}}
 
 {{/*
