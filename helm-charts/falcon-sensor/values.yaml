@@ -115,6 +115,10 @@ container:
   # When enabled, Helm chart deploys the Falcon Container Sensor to Pods through Webhooks
   enabled: false
 
+  # Enable for use on Google's GKE Autopilot clusters
+  gke:
+    autopilot: false
+
   # Configure the number of replicas for the mutating webhook backend
   replicas: 2
 
@@ -259,6 +263,29 @@ container:
     requests:
       cpu: 10m
       memory: 20Mi
+
+  aitap:
+    # Configure the list of namespaces that should have access to the AI-DR credentials.
+    # This is a comma separated list. For example:
+    #
+    # namespaces: ns1,ns2,ns3
+    namespaces: ""
+    # Attempt to create the AI-DR secret in all Namespaces
+    # instead of using "container.aitap.namespaces"
+    allNamespaces: false
+    # AI-DR Collector Base API URL for the Application Collector
+    aidrCollectorBaseApiUrl:
+    # AI-DR Collector API token for the Application Collector
+    aidrCollectorApiToken:
+    # AI-DR Kubernetes secret name
+    aidrSecretName:
+    # Use external secret management instead of Helm-managed secrets.
+    # When true, Helm will NOT create any secrets - assumes secrets are managed externally
+    # (e.g., via Vault, External Secrets Operator, AWS Secrets Manager).
+    # When false (default), Helm creates and propagates secrets to target namespaces based on
+    # namespaces or allNamespaces settings.
+    # The secret name is always referenced via FALCON_AITAP_AIDR_SECRET_NAME environment variable.
+    useExternalSecret: false
 
 serviceAccount:
   name: crowdstrike-falcon-sa

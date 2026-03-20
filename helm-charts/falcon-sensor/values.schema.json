@@ -305,6 +305,24 @@
                 "enabled"
             ],
             "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": "false"
+                },
+                "gke": {
+                    "type": "object",
+                    "properties": {
+                        "autopilot": {
+                            "type": "boolean",
+                            "default": "false"
+                        }
+                    }
+                },
+                "replicas": {
+                    "type": "integer",
+                    "default": 2,
+                    "minimum": 1
+                },
                 "tolerations": {
                     "type": "array"
                 },

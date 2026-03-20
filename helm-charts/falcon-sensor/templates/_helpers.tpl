@@ -306,3 +306,56 @@ Get sidecar container registry config json from global value if it exists
 {{- .Values.container.image.pullSecrets.registryConfigJSON | default "" -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Get the name of the AITap AI-DR secret.
+GKE Autopilot WorkloadAllowlists require an exact match for naming.
+*/}}
+{{- define "falcon-sensor.container.aitapAidrSecretName" -}}
+{{- if and .Values.container.gke.autopilot .Values.container.aitap.aidrSecretName -}}
+{{- if ne .Values.container.aitap.aidrSecretName "falcon-node-sensor-aitap-aidr-secret" -}}
+{{- $_ := printf "container.aitap.aidrSecretName must be \"falcon-node-sensor-aitap-aidr-secret\" when GKE Autopilot is enabled" | fail -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.container.aitap.aidrSecretName -}}
+{{- .Values.container.aitap.aidrSecretName -}}
+{{- else if .Values.container.aitapAidrSecretName -}}
+{{- .Values.container.aitapAidrSecretName -}}
+{{- else -}}
+{{- if .Values.container.gke.autopilot -}}
+{{- printf "falcon-node-sensor-aitap-aidr-secret" -}}
+{{- else -}}
+{{- printf "%s-aitap-aidr-secret" (include "falcon-sensor.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get filtered list of namespaces excluding reserved system namespaces.
+Used for AITap secret propagation when allNamespaces is true.
+*/}}
+{{- define "falcon-sensor.aitapFilteredNamespaces" -}}
+{{- $reservedNamespaces := list "kube-system" "kube-public" "kube-node-lease" "falcon-system" (include "falcon-sensor.namespace" .) -}}
+{{- $filteredNamespaces := list -}}
+{{- range $index, $ns := (lookup "v1" "Namespace" "" "").items -}}
+{{- $excluded := false -}}
+{{- if has $ns.metadata.name $reservedNamespaces -}}
+{{- $excluded = true -}}
+{{- end -}}
+{{- if not $excluded -}}
+{{- $filteredNamespaces = append $filteredNamespaces $ns.metadata.name -}}
+{{- end -}}
+{{- end -}}
+{{- $filteredNamespaces | toJson -}}
+{{- end -}}
+
+{{/*
+Validate AITap configuration - aidrCollectorBaseApiUrl is required when aidrCollectorApiToken is set
+*/}}
+{{- define "falcon-sensor.validateAitapConfig" -}}
+{{- if .Values.container.aitap.aidrCollectorApiToken -}}
+{{- if not .Values.container.aitap.aidrCollectorBaseApiUrl -}}
+{{- fail "container.aitap.aidrCollectorBaseApiUrl is required when container.aitap.aidrCollectorApiToken is set" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
