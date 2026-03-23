@@ -331,25 +331,6 @@ GKE Autopilot WorkloadAllowlists require an exact match for naming.
 {{- end -}}
 
 {{/*
-Get filtered list of namespaces excluding reserved system namespaces.
-Used for AITap secret propagation when allNamespaces is true.
-*/}}
-{{- define "falcon-sensor.aitapFilteredNamespaces" -}}
-{{- $reservedNamespaces := list "kube-system" "kube-public" "kube-node-lease" "falcon-system" (include "falcon-sensor.namespace" .) -}}
-{{- $filteredNamespaces := list -}}
-{{- range $index, $ns := (lookup "v1" "Namespace" "" "").items -}}
-{{- $excluded := false -}}
-{{- if has $ns.metadata.name $reservedNamespaces -}}
-{{- $excluded = true -}}
-{{- end -}}
-{{- if not $excluded -}}
-{{- $filteredNamespaces = append $filteredNamespaces $ns.metadata.name -}}
-{{- end -}}
-{{- end -}}
-{{- $filteredNamespaces | toJson -}}
-{{- end -}}
-
-{{/*
 Validate AITap configuration - aidrCollectorBaseApiUrl is required when aidrCollectorApiToken is set
 */}}
 {{- define "falcon-sensor.validateAitapConfig" -}}
