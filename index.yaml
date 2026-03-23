@@ -2776,6 +2776,33 @@ entries:
     - https://github.com/mr-jungchoi/falcon-helm/releases/download/falcon-sensor-1.35.0-aitap/falcon-sensor-1.35.0-aitap.tgz
     version: 1.35.0-aitap
   - apiVersion: v2
+    appVersion: aitap-test
+    created: "2026-03-23T18:43:33.215153857Z"
+    description: A Helm chart to deploy CrowdStrike Falcon sensors into Kubernetes
+      clusters.
+    digest: 4bbcb4f568e5dedee8d66c2aa9c97767cf55361f9dbc4437a5fd7bff7e92aa7e
+    home: https://crowdstrike.com
+    icon: https://raw.githubusercontent.com/CrowdStrike/falcon-helm/main/images/crowdstrike-logo.svg
+    keywords:
+    - CrowdStrike
+    - Falcon
+    - EDR
+    - kubernetes
+    - security
+    - monitoring
+    - alerting
+    kubeVersion: '>1.22.0-0'
+    maintainers:
+    - email: integrations@crowdstrike.com
+      name: CrowdStrike Solutions Architecture
+    name: falcon-sensor
+    sources:
+    - https://github.com/CrowdStrike/falcon-helm
+    type: application
+    urls:
+    - https://github.com/mr-jungchoi/falcon-helm/releases/download/falcon-sensor-1.35.0-aitap/falcon-sensor-1.35.0-aitap.tgz
+    version: 1.35.0-aitap
+  - apiVersion: v2
     appVersion: 1.34.2
     created: "2026-03-20T16:19:13.494689789Z"
     description: A Helm chart to deploy CrowdStrike Falcon sensors into Kubernetes
@@ -5217,4 +5244,4 @@ entries:
     urls:
     - https://github.com/CrowdStrike/falcon-helm/releases/download/registry-scanner-0.1.0/registry-scanner-0.1.0.tgz
     version: 0.1.0
-generated: "2026-03-20T16:29:29.284268529Z"
+generated: "2026-03-23T18:43:33.215652979Z"
