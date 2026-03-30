@@ -331,12 +331,23 @@ GKE Autopilot WorkloadAllowlists require an exact match for naming.
 {{- end -}}
 
 {{/*
-Validate AITap configuration - aidrCollectorBaseApiUrl is required when aidrCollectorApiToken is set
+Validate AITap configuration.
 */}}
 {{- define "falcon-sensor.validateAitapConfig" -}}
-{{- if .Values.container.aitap.aidrCollectorApiToken -}}
+{{- if and .Values.container.aitap.namespaces .Values.container.aitap.allNamespaces -}}
+{{- fail "AI Tap: 'container.aitap.namespaces' and 'container.aitap.allNamespaces' cannot both be set. Use 'allNamespaces: true' to propagate to all namespaces, or list specific namespaces with 'namespaces'." -}}
+{{- end -}}
+{{- if .Values.container.aitap.useExternalSecret -}}
+{{- if not .Values.container.aitap.aidrSecretName -}}
+{{- fail "AI Tap: 'container.aitap.aidrSecretName' is required when 'container.aitap.useExternalSecret' is true. Set this to the name of the pre-existing secret that contains the AI-DR collector token." -}}
+{{- end -}}
 {{- if not .Values.container.aitap.aidrCollectorBaseApiUrl -}}
-{{- fail "container.aitap.aidrCollectorBaseApiUrl is required when container.aitap.aidrCollectorApiToken is set" -}}
+{{- fail "AI Tap: 'container.aitap.aidrCollectorBaseApiUrl' is required. Provide the base URL for the AI-DR collector API (e.g. https://your-collector-host)." -}}
+{{- end -}}
+{{- end -}}
+{{- if or .Values.container.aitap.namespaces .Values.container.aitap.allNamespaces -}}
+{{- if not (and .Values.container.aitap.aidrCollectorApiToken .Values.container.aitap.aidrCollectorBaseApiUrl) -}}
+{{- fail "AI Tap: 'container.aitap.aidrCollectorApiToken' and 'container.aitap.aidrCollectorBaseApiUrl' are both required." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
