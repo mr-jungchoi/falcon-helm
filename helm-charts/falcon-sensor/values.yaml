@@ -265,13 +265,12 @@ container:
       memory: 20Mi
 
   aitap:
-    # Configure the list of namespaces that should have access to the AI-DR credentials.
+    # Configure the list of namespaces where AITap should be enabled.
     # This is a comma separated list. For example:
     #
     # namespaces: ns1,ns2,ns3
     namespaces: ""
-    # Attempt to create the AI-DR secret in all Namespaces
-    # instead of using "container.aitap.namespaces"
+    # Set `allNamespaces` to true to enable AITap in all namespaces in the cluster.
     allNamespaces: false
     # AI-DR Collector Base API URL for the Application Collector
     aidrCollectorBaseApiUrl:
@@ -279,12 +278,10 @@ container:
     aidrCollectorApiToken:
     # AI-DR Kubernetes secret name
     aidrSecretName:
-    # Use external secret management instead of Helm-managed secrets.
-    # When true, Helm will NOT create any secrets - assumes secrets are managed externally
-    # (e.g., via Vault, External Secrets Operator, AWS Secrets Manager).
-    # When false (default), Helm creates and propagates secrets to target namespaces based on
-    # namespaces or allNamespaces settings.
-    # The secret name is always referenced via FALCON_AITAP_AIDR_SECRET_NAME environment variable.
+    # Use existing secrets instead of Helm-managed secrets.
+    # When `useExternalSecret` is true, Helm will NOT create AI-DR secrets.
+    # When `useExternalSecret` is false, the AI-DR token (aidrCollectorApiToken) will be added
+    # as a Secret to each of the namespaces specified at the time of installation.
     useExternalSecret: false
 
 serviceAccount:
