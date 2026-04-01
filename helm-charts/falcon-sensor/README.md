@@ -283,13 +283,13 @@ The following tables lists the more common configurable parameters of the chart 
 | `container.image.pullSecrets.allNamespaces`      | Use Helm's lookup function to deploy the pull secret to all namespaces. Helm chart must be re-run everytime a new namespace is created. | `false`                                                                                                                                                                                                                                                   |
 | `container.image.pullSecrets.registryConfigJSON` | base64 encoded docker config json for the pull secret                                                                                   | None                                                                                                                                                                                                                                                      |
 | `container.image.sensorResources`                | The requests and limits of the sensor ([see example below](#example-using-containerimagesensorresources))                               | None                                                                                                                                                                                                                                                      |
-| `container.gke.autopilot`                        | Enable for GKE Autopilot clusters. Enforces AIDR secret name to be "falcon-node-sensor-aitap-aidr-secret".                              | `false`                                                                                                                                                                                                                                                   |
-| `container.aitap.namespaces`                     | Comma-separated list of namespaces where AITap should be enabled. Example: "ns1,ns2,ns3"                                                             | None                                                                                                                                                                                                                                                      |
+| `container.gke.autopilot`                        | Enable for GKE Autopilot clusters. Enforces AI-DR secret name to be "falcon-node-sensor-aitap-aidr-secret".                             | `false`                                                                                                                                                                                                                                                   |
+| `container.aitap.namespaces`                     | Comma-separated list of namespaces where AITap should be enabled. Example: "ns1,ns2,ns3"                                                | None                                                                                                                                                                                                                                                      |
 | `container.aitap.allNamespaces`                  | Enabled AI Tap in all namespaces. Reserved system namespaces are automatically excluded.                                                | `false`                                                                                                                                                                                                                                                   |
 | `container.aitap.aidrCollectorBaseApiUrl`        | AI-DR Collector Base API URL for the Application Collector                                                                              | None       (Required to enable AI Tap)                                                                                                                                                                                                                    |
 | `container.aitap.aidrCollectorApiToken`          | AI-DR Collector API token for the Application Collector                                                                                 | None                                                                                                                                                                                                                                                      |
 | `container.aitap.aidrSecretName`                 | Custom AI-DR Kubernetes secret name                                                                                                     | None       (Defaults to `<release-name>-aitap-aidr-secret`)                                                                                                                                                                                               |
-| `container.aitap.useExternalSecret`              | Use existing AI-DR secret. When true, Helm does NOT create secrets. When false (default), Helm propagates secrets to target namespaces. | `false`                                                                                                                                                                                                                                                   |
+| `container.aitap.useExistingSecret`              | Use existing AI-DR secret. When true, Helm does NOT create secrets. When false (default), Helm propagates secrets to target namespaces. | `false`                                                                                                                                                                                                                                                   |
 | `falcon.cid`                                     | CrowdStrike Customer ID (CID)                                                                                                           | None       (Required if falconSecret.enabled is false)                                                                                                                                                                                                    |
 | `falconSecret.enabled`                           | Enable k8s secrets to inject sensitive Falcon values                                                                                    | false       (Must be true if falcon.cid is not set)                                                                                                                                                                                                       |
 | `falconSecret.secretName`                        | Existing k8s secret name to inject sensitive Falcon values.<br> The secret must be under the same namespace as the sensor deployment.   | None       (Existing secret must include `FALCONCTL_OPT_CID`)                                                                                                                                                                                             |
@@ -380,13 +380,13 @@ container:
   aitap:
     aidrCollectorApiToken: "<your-api-token>"
     aidrCollectorBaseApiUrl: "https://api.example.com"
-    namespaces: "app1,app2,app3"  # Explicit namespace list
+    namespaces: "namespace-1,namespace-2,namespace-3"  # Explicit namespace list
 ```
 
 > [!NOTE]
 > The `aidrCollectorBaseApiUrl` and `aidrCollectorApiToken` are both required when using the `namespaces`
-> or `allNamespaces` options. When `useExternalSecret` is `true`, only `aidrCollectorBaseApiUrl` is required.
-> The external secret is required to already contain the AIDR collector API token with the `.collector-aidr-token`
+> or `allNamespaces` options. When `useExistingSecret` is `true`, only `aidrCollectorBaseApiUrl` is required.
+> The existing secret is required to already contain the AI-DR collector API token with the `.collector-aidr-token`
 > secret key.
 
 #### Enabling AI Tap Per Namespace or Per Pod
@@ -408,18 +408,18 @@ container:
 
 If you prefer to have granular control of AI Tap, you can enable AI Tap for specific pods only.
 To enable AI Tap for specific pods, you must annotate the pod with `sensor.falcon-system.crowdstrike.com/enable-aitap-events: "true"`.
-You must also set `useExternalSecret: true` and `aidrSecretName: <your-aidr-secret-name>`,
-and create your own AIDR secret in each applicable namespace.
+You must also set `useExistingSecret: true` and `aidrSecretName: <your-aidr-secret-name>`,
+and create your own AI-DR secret in each applicable namespace.
 
 ```yaml
 container:
   aitap:
-    useExternalSecret: true
+    useExistingSecret: true
     aidrSecretName: "<your-aidr-secret-name>"
     aidrCollectorBaseApiUrl: "https://api.example.com"
 ```
 
-With `useExternalSecret: true`:
+With `useExistingSecret: true`:
 - Falcon sensor does not enable AI Tap for any namespaces by default.
 - Helm does NOT create AI-DR secrets in any namespace.
 - You must create secrets with the `aidrSecretName` in target namespaces.
@@ -431,7 +431,9 @@ You can use a combination of `namespaces` and the `sensor.falcon-system.crowdstr
 ```yaml
 container:
   aitap:
-    namespaces: "namespace-1,namespace-2" # namespace-3 has a 1 pod with `enable-aitap-events` annotation
+    namespaces: "namespace-1,namespace-2"
+    # If namespace-3 has a 1 pod with `sensor.falcon-system.crowdstrike.com/enable-aitap-events: "true"`
+    # the aidrSecretName must match the existing AI-DR secret in namespace-3.
     aidrSecretName: "<your-aidr-secret-name>"
     aidrCollectorApiToken: "<your-api-token>"
     aidrCollectorBaseApiUrl: "https://api.example.com"

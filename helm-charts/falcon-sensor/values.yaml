@@ -279,10 +279,10 @@ container:
     # AI-DR Kubernetes secret name
     aidrSecretName:
     # Use existing secrets instead of Helm-managed secrets.
-    # When `useExternalSecret` is true, Helm will NOT create AI-DR secrets.
-    # When `useExternalSecret` is false, the AI-DR token (aidrCollectorApiToken) will be added
+    # When `useExistingSecret` is true, Helm will NOT create AI-DR secrets.
+    # When `useExistingSecret` is false, the AI-DR token (aidrCollectorApiToken) will be added
     # as a Secret to each of the namespaces specified at the time of installation.
-    useExternalSecret: false
+    useExistingSecret: false
 
 serviceAccount:
   name: crowdstrike-falcon-sa

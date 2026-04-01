@@ -341,11 +341,11 @@ Validate AITap configuration.
 {{- if not .Values.container.aitap.aidrCollectorBaseApiUrl -}}
 {{- fail "AI Tap: 'container.aitap.aidrCollectorBaseApiUrl' is required. Provide the base URL for the AI-DR collector API (e.g. https://your-collector-host)." -}}
 {{- end -}}
-{{- if and (not .Values.container.aitap.useExternalSecret) (not .Values.container.aitap.aidrCollectorApiToken) -}}
+{{- if and (not .Values.container.aitap.useExistingSecret) (not .Values.container.aitap.aidrCollectorApiToken) -}}
 {{- fail "AI Tap: 'container.aitap.aidrCollectorApiToken' is required." -}}
 {{- end -}}
 {{- end -}}
-{{- if and .Values.container.aitap.useExternalSecret (not .Values.container.aitap.aidrSecretName) -}}
-{{- fail "AI Tap: 'container.aitap.aidrSecretName' is required when 'container.aitap.useExternalSecret' is true. Set this to the name of the existing secret that contains the AI-DR collector token." -}}
+{{- if and .Values.container.aitap.useExistingSecret (not .Values.container.aitap.aidrSecretName) -}}
+{{- fail "AI Tap: 'container.aitap.aidrSecretName' is required when 'container.aitap.useExistingSecret' is true. Set this to the name of the existing secret that contains the AI-DR collector token." -}}
 {{- end -}}
 {{- end -}}
