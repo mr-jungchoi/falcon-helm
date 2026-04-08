@@ -267,6 +267,8 @@ container:
     # namespaces: ns1,ns2,ns3
     namespaces: ""
     # Set `allNamespaces` to true to enable AITap in all namespaces in the cluster.
+    # NOTE: ArgoCD does not support the Helm `lookup` function. If using ArgoCD,
+    # specify all target namespaces using the `namespaces` field instead.
     allNamespaces: false
     # AI-DR Collector Base API URL for the Application Collector
     aidrCollectorBaseApiUrl:

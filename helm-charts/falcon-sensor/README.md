@@ -370,6 +370,9 @@ helm upgrade --install falcon-helm crowdstrike/falcon-sensor \
 ### AITap Configuration
 AITap (AI-Driven Runtime Protection) requires configuration of the AI-DR Collector credentials for the Application Collector. The following parameters control how AI-DR secrets are managed and distributed across namespaces:
 
+> [!NOTE]
+> AITap is only active for pods where the Falcon container sensor is injected. Namespaces or pods not configured for container sensor injection will not have AITap enabled regardless of AITap configuration.
+
 #### Basic AITap Configuration
 To enable AITap, you must provide both the API token and base URL:
 
@@ -456,7 +459,7 @@ AI Tap will be enabled in:
 
 The following namespaces are automatically excluded:
 - `kube-system`, `kube-public`, `kube-node-lease`
-- `falcon-system`
+- `falcon-system`, `falcon-kac`, `falcon-image-analyzer`
 - The deployment namespace
 
 ### Uninstall Helm Chart
