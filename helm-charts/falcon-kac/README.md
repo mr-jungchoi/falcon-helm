@@ -212,11 +212,16 @@ The following tables lists the Falcon KAC configurable parameters and their defa
 | `falcon.billing`                               | Utilize default or metered billing                                                                                                 | None                                                          |
 | `falcon.tags`                                  | Comma separated list of tags for sensor grouping                                                                                   | None                                                          |
 | `falcon.provisioning_token`                    | Provisioning token value                                                                                                           | None                                                          |
-| `clusterVisibility.resourceSnapshots.enabled`  | Enable cluster snapshots                                                                                                           | `true`                                                        |
+| `clusterVisibility.resourceWatcher.enabled`    | Enable Cluster Visibility. When set to `false`, also disables resource snapshots and ConfigMap watching.                           | `true`                                                        |
+| `clusterVisibility.resourceSnapshots.enabled`  | Enable cluster snapshots. Only takes effect when `clusterVisibility.resourceWatcher.enabled` is `true`.                                                 | `true`                                                        |
 | `clusterVisibility.resourceSnapshots.interval` | Interval between cluster snapshots                                                                                                 | `22h`                                                         |
-| `clusterVisibility.resourceWatcher.enabled`    | Enable Cluster Visibility                                                                                                          | `true`                                                        |
+| `clusterVisibility.resourceConfigMap.enabled`  | Enable ConfigMap watching. Only takes effect when `clusterVisibility.resourceWatcher.enabled` is `true`.                          | `true`                                                        |
 | `admissionControl.enabled`                     | Enable Admission Control                                                                                                           | `true`                                                        |
 | `falconSecret.enabled`                         | Enable k8s secrets to inject sensitive Falcon values                                                                               | false      (Must be true if falcon.cid is not set)            |
 | `falconSecret.secretName`                      | Existing k8s secret name to inject sensitive Falcon values.<br> The secret must be under the same namespace as the KAC deployment. | None       (Existing secret must include `FALCONCTL_OPT_CID`) |
 | `clusterName`                                  | Manually set cluster name for self-hosted Kubernetes clusters where auto-discovery fails (e.g., MicroK8s). Displayed as hostname in Host Management UI. | None (auto-discovery used) |
 | `falconImageAnalyzerNamespace`                 | Falcon Image Analyzer namespace | falcon-image-analyzer |
+
+#### Watcher Dependency
+
+When `clusterVisibility.resourceWatcher.enabled` is `false`, the watcher is deployed but inactive, **`clusterVisibility.resourceSnapshots.enabled` and `clusterVisibility.resourceConfigMap.enabled` are ignored** - both features are effectively disabled regardless of their individual values.

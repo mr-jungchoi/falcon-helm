@@ -76,6 +76,16 @@ falconSecret:
 # resources on your Kubernetes cluster. The variables are initially set to the
 # default values which will be used if they are commented out.
 clusterVisibility:
+  # KAC watches Kubernetes cluster continuously for any action - creation, updates and deletion -
+  # on resources and sends events with the resource representation and the type of action
+  # to the CrowdStrike cloud.
+  resourceWatcher:
+    # If set to false, KAC does not watch the Kubernetes cluster, and you will not be able
+    # to see the latest state of the Kubernetes resources in the Falcon UI until a resource
+    # snapshot has been taken. Any resources deleted when KAC does not watch the Kubernetes
+    # cluster will not be shown as deleted in the Falcon UI.
+    enabled: true
+
   # KAC snapshots Kubernetes resources on a periodic basis and sends them to CrowdStrike
   # cloud. This enables long living resources to be maintained in CrowdStrike cloud databases.
   resourceSnapshots:
@@ -87,15 +97,6 @@ clusterVisibility:
     # for this variable is HHhMMm. Some examples are 12h, 45m and 1h30m.
     interval: 22h
 
-  # KAC watches Kubernetes cluster continuously for any action - creation, updates and deletion -
-  # on resources and sends events with the resource representation and the type of action
-  # to the CrowdStrike cloud.
-  resourceWatcher:
-    # If set to false, KAC does not watch the Kubernetes cluster and you will not be ables
-    # to see the latest state of the Kubernetes resources in the Falcon UI until a resource
-    # snapshot has been taken. Any resources deleted when KAC does not watch the Kubernetes
-    # cluster will not be shown as deleted in the Falcon UI.
-    enabled: true
   # KAC watches configmaps by default. It tries to redact sensitive information by doing
   # regex pattern matching for known sensitive patterns, before sending the events to
   # CrowdStrike cloud.

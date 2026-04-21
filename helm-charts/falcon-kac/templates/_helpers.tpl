@@ -102,6 +102,15 @@ Create Watcher container environment variables
 {{- $watcherEnabled := true -}}
 {{- $configMapEnabled := true -}}
 {{- if .Values.clusterVisibility -}}
+{{- if .Values.clusterVisibility.resourceWatcher -}}
+  {{- if ne .Values.clusterVisibility.resourceWatcher.enabled nil -}}
+  {{ $watcherEnabled = .Values.clusterVisibility.resourceWatcher.enabled -}}
+  {{- end -}}
+{{- end -}}
+{{- if not $watcherEnabled -}}
+  {{- $snapshotsEnabled = false -}}
+  {{- $configMapEnabled = false -}}
+{{- else -}}
 {{- if .Values.clusterVisibility.resourceSnapshots -}}
   {{- if ne .Values.clusterVisibility.resourceSnapshots.enabled nil -}}
   {{ $snapshotsEnabled = .Values.clusterVisibility.resourceSnapshots.enabled -}}
@@ -110,15 +119,11 @@ Create Watcher container environment variables
   {{ $snapshotInterval = .Values.clusterVisibility.resourceSnapshots.interval -}}
   {{- end -}}
 {{- end -}}
-{{- if .Values.clusterVisibility.resourceWatcher -}}
-  {{- if ne .Values.clusterVisibility.resourceWatcher.enabled nil -}}
-  {{ $watcherEnabled = .Values.clusterVisibility.resourceWatcher.enabled -}}
-  {{- end -}}
-{{- end -}}
 {{- if .Values.clusterVisibility.resourceConfigMap -}}
   {{- if ne .Values.clusterVisibility.resourceConfigMap.enabled nil -}}
   {{ $configMapEnabled = .Values.clusterVisibility.resourceConfigMap.enabled -}}
   {{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 __CS_SNAPSHOTS_ENABLED: {{ $snapshotsEnabled | toString | quote }}
@@ -129,7 +134,7 @@ __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 
 {{- define "validateValues" }}
   {{- if and (eq (include "admissionControlEnabled" .) "false") (eq (include "visibilityEnabled" .) "false") }}
-    {{- fail "Error: .Values.admissionControl.enabled, .Values.clusterVisibility.resourceSnapshots.enabled, .Values.clusterVisibility.resourceWatcher.enabled cannot all be false." }}
+    {{- fail "Error: .Values.admissionControl.enabled, .Values.clusterVisibility.resourceWatcher.enabled, and .Values.clusterVisibility.resourceSnapshots.enabled cannot all be false." }}
   {{- end }}
 {{- end }}
 
