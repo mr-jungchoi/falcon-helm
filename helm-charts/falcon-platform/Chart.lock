@@ -1,12 +1,12 @@
 dependencies:
 - name: falcon-sensor
   repository: file://../falcon-sensor
-  version: 1.35.0
+  version: 1.35.0-falconstore
 - name: falcon-kac
   repository: file://../falcon-kac
   version: 1.6.0
 - name: falcon-image-analyzer
   repository: file://../falcon-image-analyzer
   version: 1.1.20
-digest: sha256:9c0cb6fa3e989b7939d4450995e16c15d8a4c3ccee5e9ec9a0e5b006c363ff50
-generated: "2026-03-04T14:59:56.118982-05:00"
+digest: sha256:e9a44e4c38c11eebe4b540dac7e06813176173e56e0fca3402a30de285c8b312
+generated: "2026-04-23T17:30:32.745774-04:00"
