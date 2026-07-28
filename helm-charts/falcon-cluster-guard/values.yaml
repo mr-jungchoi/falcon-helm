@@ -1,0 +1,320 @@
+# Default values for falcon-cluster-guard.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+#
+# Falcon Cluster Guard (FCG) is a unified Kubernetes security service that combines:
+#   - Falcon node-sensor DaemonSet (kernel/eBPF endpoint protection)
+#   - Falcon admission controller (validating webhook for K8s workloads)
+#   - Central gRPC K8s metadata service (replaces per-node API server queries)
+#
+# The `image` block below is unified across both workloads - a single FCG container
+# image is used by both the node DaemonSet and the admission controller Deployment.
+
+image:
+  # Unified FCG container image (runs both node sensor and admission control modes)
+  repository: registry.crowdstrike.com/falcon-cluster-guard/release/falcon-cluster-guard
+  pullPolicy: Always
+
+  # Registry authentication - configure ONE of the following:
+  # pullSecrets: name of an existing docker-registry Secret (comma-separated for multiple)
+  pullSecrets:
+  # registryConfigJSON: base64 of docker config.json; the chart creates the Secret for you.
+  # $ cat ~/.docker/config.json | base64 -w 0
+  # This setting conflicts with image.pullSecrets.
+  registryConfigJSON:
+
+  # Overrides the image tag. In general, tags should not be used (including semver tags or `latest`).
+  # This variable is provided for those who have yet to move off of using tags. The sha256 digest
+  # should be used in place of tags for increased security and image immutability.
+  tag: "latest"
+  # Setting a digest will override any tag and should be used instead of tags.
+  #
+  # Example digest variable configuration:
+  # digest: sha256:ffdc91f66ef8570bd7612cf19145563a787f552656f5eec43cd80ef9caca0398
+  digest:
+
+# =============================================================================
+# Falcon CTL options (shared across node sensor and admission control)
+# =============================================================================
+# falcon.cid is required unless falconSecret.enabled is true and FALCONCTL_OPT_CID is
+# defined in an existing secret referenced by falconSecret.secretName.
+falcon:
+  cid:
+  cloud:
+  apd:
+  aph:
+  app:
+  trace: none
+  feature:
+  billing:
+  tags:
+  provisioning_token:
+
+# If falcon.cid is not defined, falconSecret.enabled must be true, and FALCONCTL_OPT_CID
+# must be defined in the referenced existing secret.
+falconSecret:
+  enabled: false
+  secretName: ""
+
+# =============================================================================
+# Node sensor DaemonSet configuration (inherited from falcon-sensor)
+# =============================================================================
+node:
+  # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
+  enabled: true
+
+  # Falcon KAC can usually discover the clusterName automatically so setting clusterName here is normally
+  # not necessary, but in some cases the clusterName cannot be discovered, e.g. for self-hosted
+  # kubernetes clusters such as MicroK8s. In those cases, the clusterName can be manually set here.
+  clusterName: ""
+
+  # ServiceAccount for the node sensor DaemonSet and post-delete cleanup DaemonSet.
+  # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).
+  serviceAccount:
+    name: crowdstrike-falcon-cluster-guard-node-sa
+    annotations: { }
+
+  # Enable for use on Google's GKE Autopilot clusters
+  gke:
+    autopilot: false
+    # deployAllowListVersion: ""
+    # cleanupAllowListVersion: ""
+
+  daemonset:
+    # Annotations to apply to the daemonset
+    annotations: {}
+
+    # The key that is used to handle enabling/disabling sensor injection at the pod/node level
+    podAnnotationKey: sensor.falcon-system.crowdstrike.com/injection
+
+    # Additional labels
+    labels: {}
+
+    # Enable the priorityClass creation on chart installation
+    priorityClassCreate: false
+    # Assign a PriorityClassName to pods if set
+    priorityClassName: ""
+    priorityClassValue: 1000000000
+
+    tolerations:
+      # We want to schedule on control plane nodes where they are accessible
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+      # Future taint for K8s >=1.24
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+
+    # https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
+    nodeAffinity: {}
+
+    # Resource settings that apply when backend is set to bpf only. Ignored when backend is kernel.
+    # resources:
+    #   limits:
+    #     cpu: 250m
+    #     ephemeral-storage: 100Mi
+    #     memory: 500Mi
+    #   requests:
+    #     cpu: 250m
+    #     ephemeral-storage: 100Mi
+    #     memory: 500Mi
+
+    # Update strategy to roll out new daemonset configuration to the nodes.
+    updateStrategy: RollingUpdate
+
+    # Sets the max unavailable nodes. Default is 1 when no value exists.
+    maxUnavailable: 1
+
+  # Pod-level annotations for the node DaemonSet
+  podAnnotations: {}
+
+  # How long to wait for FCG pods to stop gracefully
+  terminationGracePeriod: 60
+
+  hooks:
+    # Settings for the node post-delete helm hook
+    postDelete:
+      enabled: true
+
+  # Enable to run cleanup for the prior daemonset deployment (skip main DaemonSet)
+  cleanupOnly: false
+
+# =============================================================================
+# Admission control configuration (inherited from falcon-kac, namespaced under `admission`)
+# =============================================================================
+admission:
+  # Toggle admission control on/off. When false, no Deployment/Service/Webhook/TLS Secret/
+  # ResourceQuota resources are rendered. Defaults to enabled for comprehensive protection.
+  enabled: true
+
+  # ServiceAccount for the admission controller Deployment.
+  # Uses restricted-v2 SCC on OpenShift by default (no host access required).
+  # A custom SCC is created only when openshift.enabled=true and admission.hostNetwork=true.
+  serviceAccount:
+    name: crowdstrike-falcon-cluster-guard-admission-sa
+    annotations: {}
+
+  # Number of admission controller replicas. Currently the metadata service is single-instance
+  # (architectural constraint), so keep this at 1 unless you understand the implications.
+  replicas: 1
+
+  # ResourceQuota for admission pods (scoped to system-cluster-critical PriorityClass)
+  resourceQuota:
+    pods: 2
+
+  # Specifies if the admission controller pod should use hostNetwork mode. This is required
+  # in some scenarios such as when a custom CNI is in use where control plane nodes cannot
+  # establish network communication with pods.
+  hostNetwork: false
+
+  # Configure the webhook Port (HTTPS)
+  webhookPort: 4443
+
+  # Configure the watcher Port (HTTP, internal)
+  watcherPort: 4080
+
+  # Define admission controller Pod DNS Policy. Follows cluster default when unset;
+  # set to "ClusterFirstWithHostNet" automatically when hostNetwork = true unless overridden.
+  dnsPolicy:
+
+  # Auto update the TLS certificates every time there is a helm upgrade.
+  # Set to false to preserve existing certs across upgrades.
+  autoCertificateUpdate: true
+
+  # Certificate validity duration in number of days
+  certExpiration: 3650
+
+  # For custom DNS configurations when .svc requires a domain for services.
+  # For example if service.my-namespace.svc doesn't resolve and the cluster uses
+  # service.my-namespace.svc.testing.io, you would add testing.io as the value below.
+  domainName:
+
+  # Minimum TLS version accepted by the webhook (TLS1.2 or TLS1.3). Optional.
+  tlsVersionMinimum:
+
+  webhook:
+    # Ignore = misconfigured webhook allows admission requests through (recommended default)
+    # Fail   = misconfigured webhook rejects admission requests (stricter, may block workloads)
+    failurePolicy: Ignore
+    # Comma separated list of namespaces in which to disable validation e.g. "test1,test2"
+    disableNamespaces:
+
+  # Resource limits for admission controller containers
+  resources:
+    # falcon-client (webhook receiver) - when admission control is enabled
+    client:
+      limits:
+        memory: 384Mi
+      requests:
+        cpu: 250m
+        memory: 384Mi
+
+    # falcon-client - lighter footprint when admission is disabled (visibility-only mode)
+    clientNoWebhook:
+      limits:
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+    # falcon-watcher (K8s event streamer & metadata service)
+    watcher:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+    # falcon-ac (admission controller decision engine)
+    admissionController:
+      limits:
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+  # Scheduling controls for the admission Deployment
+  tolerations: []
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - arm64
+
+  # Update Webhook and roll out new Deployment on helm upgrade (adds annotation to force restart)
+  autoDeploymentUpdate: true
+
+  # Annotations for the admission deployment
+  annotations: {}
+
+  # Additional labels for the admission deployment
+  labels: {}
+
+  # Pod-level annotations for admission pods
+  podAnnotations: {}
+
+# =============================================================================
+# Cluster visibility settings (K8s metadata service, control-loop driven)
+# =============================================================================
+# These variables control how FCG provides visibility into resources on your Kubernetes cluster.
+clusterVisibility:
+  # FCG snapshots Kubernetes resources on a periodic basis and sends them to CrowdStrike cloud.
+  # This enables long-living resources to be maintained in CrowdStrike cloud databases.
+  resourceSnapshots:
+    # If set to false, snapshots are not taken, and you may not see long-lived Kubernetes
+    # resources in Falcon UI after about 7 days.
+    enabled: true
+    # The time interval between periodic snapshots. Default 22h is also the maximum.
+    # Minimum is 30 minutes. Format is HHhMMm. Examples: 12h, 45m, 1h30m.
+    interval: 22h
+
+  # FCG watches the Kubernetes cluster continuously for any action - creation, updates and
+  # deletion - on resources and sends events to the CrowdStrike cloud.
+  resourceWatcher:
+    # If set to false, FCG does not watch the Kubernetes cluster. The latest state of resources
+    # will not be reflected in the Falcon UI until a resource snapshot is taken.
+    enabled: true
+
+  # FCG watches ConfigMaps by default. Redacts known sensitive patterns before sending.
+  resourceConfigMap:
+    # If set to false, ConfigMap events are not watched.
+    enabled: true
+
+# Falcon Image Analyzer namespace. Override its default value of "falcon-image-analyzer".
+falconImageAnalyzerNamespace: ""
+
+# Deploys the test suite during install for testing purposes.
+testing:
+  enabled: false
+  # Set to true to apply privileged PSS labels to the install namespace as a pre-install hook.
+  labelNamespace: false
+
+# Override various naming aspects of this chart
+# Only edit these if you know what you're doing
+nameOverride: ""
+fullnameOverride: ""
+
+# OpenShift configuration.
+# NOTE: OpenShift is NOT A RECOMMENDED configuration. The official Red Hat certified operator
+# (https://catalog.redhat.com/en/software/container-stacks/detail/62f2d38f76d039249424703d) is the
+# recommended installation method for OpenShift clusters.
+openshift:
+  # Set to true to enable OpenShift compatibility mode for the node DaemonSet.
+  enabled: false
+  # Set to true to create a SecurityContextConstraints (SCC) resource granting the
+  # DaemonSet service account the privileges required by the Falcon node sensor.
+  createSCC: true
+  # Name of the SCC to create or use.
+  sccName: ""
+
