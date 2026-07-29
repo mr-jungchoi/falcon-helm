@@ -354,13 +354,24 @@ Get container registry config JSON
 {{- end -}}
 
 {{/*
-OpenShift SCC name for the node DaemonSet
+OpenShift SCC name for the node sensor DaemonSet (privileged SCC)
 */}}
-{{- define "falcon-cluster-guard.sccName" -}}
-{{- if .Values.node.openshift.sccName -}}
-{{- .Values.node.openshift.sccName -}}
+{{- define "falcon-cluster-guard.nodeSccName" -}}
+{{- if .Values.openshift.nodeSCCName -}}
+{{- .Values.openshift.nodeSCCName -}}
 {{- else -}}
 {{- printf "%s-node-sensor" (include "falcon-cluster-guard.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+OpenShift SCC name for the admission controller Deployment (hostNetwork SCC)
+*/}}
+{{- define "falcon-cluster-guard.admissionSccName" -}}
+{{- if .Values.openshift.admissionSCCName -}}
+{{- .Values.openshift.admissionSCCName -}}
+{{- else -}}
+{{- printf "%s-admission" (include "falcon-cluster-guard.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
@@ -368,12 +379,19 @@ OpenShift SCC name for the node DaemonSet
 OpenShift mode enabled
 */}}
 {{- define "falcon-cluster-guard.openshiftEnabled" -}}
-{{- .Values.node.openshift.enabled -}}
+{{- .Values.openshift.enabled -}}
 {{- end -}}
 
 {{/*
-OpenShift createSCC
+OpenShift node createSCC — true when openshift.enabled and openshift.createSCC
 */}}
-{{- define "falcon-cluster-guard.openshiftCreateSCC" -}}
-{{- .Values.node.openshift.createSCC -}}
+{{- define "falcon-cluster-guard.openshiftNodeCreateSCC" -}}
+{{- and .Values.openshift.enabled .Values.openshift.createSCC -}}
+{{- end -}}
+
+{{/*
+OpenShift admission createSCC — true when openshift.enabled, openshift.createSCC, and admission.hostNetwork
+*/}}
+{{- define "falcon-cluster-guard.openshiftAdmissionCreateSCC" -}}
+{{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.admission.hostNetwork -}}
 {{- end -}}

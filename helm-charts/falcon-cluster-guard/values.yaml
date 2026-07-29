@@ -71,7 +71,7 @@ node:
   # ServiceAccount for the node sensor DaemonSet and post-delete cleanup DaemonSet.
   # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).
   serviceAccount:
-    name: crowdstrike-falcon-cluster-guard-node-sa
+    name: falcon-cluster-guard-node-sa
     annotations: { }
 
   # Enable for use on Google's GKE Autopilot clusters
@@ -156,7 +156,7 @@ admission:
   # Uses restricted-v2 SCC on OpenShift by default (no host access required).
   # A custom SCC is created only when openshift.enabled=true and admission.hostNetwork=true.
   serviceAccount:
-    name: crowdstrike-falcon-cluster-guard-admission-sa
+    name: falcon-cluster-guard-admission-sa
     annotations: {}
 
   # Number of admission controller replicas. Currently the metadata service is single-instance
@@ -310,11 +310,17 @@ fullnameOverride: ""
 # (https://catalog.redhat.com/en/software/container-stacks/detail/62f2d38f76d039249424703d) is the
 # recommended installation method for OpenShift clusters.
 openshift:
-  # Set to true to enable OpenShift compatibility mode for the node DaemonSet.
+  # Set to true to enable OpenShift compatibility mode.
   enabled: false
-  # Set to true to create a SecurityContextConstraints (SCC) resource granting the
-  # DaemonSet service account the privileges required by the Falcon node sensor.
+  # Set to true to create a privileged SCC for the node sensor DaemonSet,
+  # and a hostNetwork SCC for the admission controller Deployment.
+  # Required for the node sensor to run as root with host access (hostPID, hostNetwork, hostIPC).
+  # Only needed for admission controller when admission.hostNetwork=true.
   createSCC: true
-  # Name of the SCC to create or use.
-  sccName: ""
+
+  # Name of the node sensor SCC. Defaults to "<release-fullname>-node-sensor".
+  nodeSCCName: ""
+
+  # Name of the admission SCC. Defaults to "<release-fullname>-admission".
+  admissionSCCName: ""
 
