@@ -1,0 +1,33 @@
+{{- include "falcon-cluster-guard.validateOneOfFalconCidOrFalconSecret" . -}}
+{{- include "falcon-cluster-guard.validateValues" . -}}
+{{- $falconSecretKeys := list "cid" "provisioning_token" -}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "falcon-cluster-guard.configMapName" . }}
+  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+data:
+  __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.admission.enabled | quote }}
+  {{- if .Values.admission.tlsVersionMinimum }}
+  __CS_TLS_PROTOCOL_MIN: {{ .Values.admission.tlsVersionMinimum | quote }}
+  {{- end }}
+  {{- include "falcon-cluster-guard.generateWatcherEnvVars" . | nindent 2 }}
+  {{- if not (include "falcon-cluster-guard.falconSecretEnabled" . | eq "true") }}
+  FALCONCTL_OPT_CID: {{ include "falcon-cluster-guard.falconCid" . | quote }}
+  {{- if .Values.falcon.provisioning_token }}
+  FALCONCTL_OPT_PROVISIONING_TOKEN: {{ .Values.falcon.provisioning_token | quote }}
+  {{- end }}
+  {{- end }}
+
+  {{- range $key, $value := .Values.falcon }}
+  {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
+  FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.node.clusterName }}
+  FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
+  {{- end }}
