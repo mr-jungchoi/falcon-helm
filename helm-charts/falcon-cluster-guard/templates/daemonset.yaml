@@ -1,0 +1,199 @@
+{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+{{- $imagePullSecretName := include "falcon-cluster-guard.imagePullSecret" . -}}
+{{- $registryConfigJson := include "falcon-cluster-guard.registryConfigJson" . -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "falcon-cluster-guard.fullname" . }}
+  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-sensor
+    {{- range $key, $value := .Values.node.daemonset.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- with .Values.node.daemonset.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "falcon-cluster-guard.nodeSelectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: {{ .Values.node.daemonset.updateStrategy }}
+    {{- if and (eq .Values.node.daemonset.updateStrategy "RollingUpdate") (ne (int .Values.node.daemonset.maxUnavailable) 1) }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.node.daemonset.maxUnavailable }}
+    {{- end }}
+  template:
+    metadata:
+      annotations:
+        {{ .Values.node.daemonset.podAnnotationKey }}: disabled
+        {{- if include "falcon-cluster-guard.openshiftEnabled" . | eq "true" }}
+        openshift.io/scc: {{ include "falcon-cluster-guard.nodeSccName" . }}
+        {{- end }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+        {{- range $key, $value := .Values.node.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      labels:
+        {{- include "falcon-cluster-guard.labels" . | nindent 8 }}
+        {{- include "falcon-cluster-guard.nodeSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cluster-guard
+        {{ include "falcon-cluster-guard.workloadDeployAllowlistLabel" . }}
+        {{- range $key, $value := .Values.node.daemonset.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
+      {{- fail "image.pullSecrets and image.registryConfigJSON cannot be used together." }}
+      {{- else if or (len $imagePullSecretName) (len $registryConfigJson) }}
+      imagePullSecrets:
+        {{- if len $imagePullSecretName }}
+        - name: {{ $imagePullSecretName }}
+        {{- end }}
+        {{- if len $registryConfigJson }}
+        - name: {{ include "falcon-cluster-guard.fullname" . }}-pull-secret
+        {{- end }}
+      {{- end }}
+      {{- with .Values.node.daemonset.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      {{- if .Values.node.daemonset.nodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- toYaml .Values.node.daemonset.nodeAffinity | nindent 10 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 65534
+      serviceAccountName: {{ include "falcon-cluster-guard.nodeServiceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
+      {{- if or .Values.node.daemonset.priorityClassName .Values.node.gke.autopilot }}
+      priorityClassName: {{ include "falcon-cluster-guard.priorityClassName" . }}
+      {{- end }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      hostPID: true
+      hostIPC: true
+      initContainers:
+      # Creates the falconstore file on the host so Kubernetes mounts it as a file
+      # (not a directory), preserving the AID across container restarts.
+      - name: init-falconstore
+        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        command:
+          - /bin/bash
+        {{ include "falcon-cluster-guard.initArgs" . | nindent 8 }}
+        {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+        resources:
+          requests:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+          limits:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+        {{- end }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+          allowPrivilegeEscalation: true
+          {{- if .Values.node.gke.autopilot }}
+          readOnlyRootFilesystem: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SYS_PTRACE
+              - SYS_CHROOT
+              - DAC_READ_SEARCH
+          {{- else }}
+          readOnlyRootFilesystem: false
+          {{- end }}
+        env:
+          - name: POD_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: API_SERVICE_NAME
+            value: "api.falcon-system.svc"
+        envFrom:
+          - configMapRef:
+              name: {{ include "falcon-cluster-guard.configMapName" . }}
+        volumeMounts:
+          - name: cs-config
+            mountPath: /opt/CrowdStrike/config
+          - name: falcon-cluster-guard-tls-certs
+            mountPath: /run/secrets/tls
+            readOnly: true
+          - name: falcon-api-ca
+            mountPath: /run/secrets/ca
+            readOnly: true
+      containers:
+      - name: falcon-cluster-guard-node
+        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          {{- if .Values.node.gke.autopilot }}
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SETGID
+              - SETUID
+              - SYS_PTRACE
+              - SYS_CHROOT
+              - DAC_OVERRIDE
+              - SETPCAP
+              - DAC_READ_SEARCH
+              - BPF
+              - PERFMON
+              - SYS_RESOURCE
+              - NET_RAW
+              - CHOWN
+              - NET_ADMIN
+          {{- end }}
+        {{- include "falcon-cluster-guard.daemonsetResources" . | nindent 8 }}
+        env:
+          - name: POD_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: API_SERVICE_NAME
+            value: "api.falcon-system.svc"
+        envFrom:
+          - configMapRef:
+              name: {{ include "falcon-cluster-guard.configMapName" . }}
+          {{- if .Values.falconSecret.enabled }}
+          - secretRef:
+              name: {{ .Values.falconSecret.secretName }}
+          {{- end }}
+        volumeMounts:
+          - name: cs-config
+            mountPath: /opt/CrowdStrike/config
+          - name: falcon-cluster-guard-tls-certs
+            mountPath: /run/secrets/tls
+            readOnly: true
+          - name: falcon-api-ca
+            mountPath: /run/secrets/ca
+            readOnly: true
+      volumes:
+        - name: cs-config
+          hostPath:
+            path: /opt/CrowdStrike/config
+        - name: falcon-cluster-guard-tls-certs
+          secret:
+            secretName: falcon-sensor-tls
+        - name: falcon-api-ca
+          secret:
+            secretName: falcon-api-ca
+{{- end }}

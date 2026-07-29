@@ -1,0 +1,149 @@
+{{- if and .Values.node.enabled .Values.node.hooks.postDelete.enabled }}
+{{- $imagePullSecretName := include "falcon-cluster-guard.imagePullSecret" . -}}
+{{- $registryConfigJson := include "falcon-cluster-guard.registryConfigJson" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
+  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-guard-cleanup
+  annotations:
+    {{- if not .Values.node.cleanupOnly }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "0"
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "falcon-cluster-guard.fullname" . }}-node-cleanup
+  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-guard-cleanup
+    {{- range $key, $value := .Values.node.daemonset.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  annotations:
+    {{- if not .Values.node.cleanupOnly }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- end }}
+    {{- range $key, $value := .Values.node.daemonset.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "falcon-cluster-guard.name" . }}-node-cleanup
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cluster-guard-cleanup
+  template:
+    metadata:
+      annotations:
+        {{ .Values.node.daemonset.podAnnotationKey }}: disabled
+        {{- if include "falcon-cluster-guard.openshiftEnabled" . | eq "true" }}
+        openshift.io/scc: {{ include "falcon-cluster-guard.nodeSccName" . }}
+        {{- end }}
+        {{- range $key, $value := .Values.node.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "falcon-cluster-guard.name" . }}-node-cleanup
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: cluster-guard-cleanup
+        {{ include "falcon-cluster-guard.workloadCleanupAllowlistLabel" . }}
+        {{- range $key, $value := .Values.node.daemonset.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
+      {{- fail "image.pullSecrets and image.registryConfigJSON cannot be used together." }}
+      {{- else if or (len $imagePullSecretName) (len $registryConfigJson) }}
+      imagePullSecrets:
+        {{- if len $imagePullSecretName }}
+        - name: {{ $imagePullSecretName }}
+        {{- end }}
+        {{- if len $registryConfigJson }}
+        - name: {{ include "falcon-cluster-guard.fullname" . }}-pull-secret
+        {{- end }}
+      {{- end }}
+      {{- with .Values.node.daemonset.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      {{- if .Values.node.daemonset.nodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- toYaml .Values.node.daemonset.nodeAffinity | nindent 10 }}
+      {{- end }}
+      serviceAccountName: {{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
+      hostPID: true
+      initContainers:
+      - name: cleanup-opt-crowdstrike
+        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        command:
+          - /bin/bash
+        args:
+          - '-c'
+          - >-
+            echo "Running /opt/CrowdStrike/falcon-daemonset-init -u";
+            /opt/CrowdStrike/falcon-daemonset-init -u
+        {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+        resources:
+          requests:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+          limits:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+        {{- end }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+          allowPrivilegeEscalation: true
+          {{- if .Values.node.gke.autopilot }}
+          readOnlyRootFilesystem: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SYS_PTRACE
+              - SYS_CHROOT
+              - DAC_READ_SEARCH
+          {{- else }}
+          readOnlyRootFilesystem: false
+          {{- end }}
+      containers:
+      - name: cleanup-sleep
+        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        command:
+          - /bin/bash
+        args:
+          - -c
+          - sleep infinity
+        {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+        resources:
+          requests:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+          limits:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+        {{- end }}
+        securityContext:
+          privileged: false
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: true
+{{- end }}
