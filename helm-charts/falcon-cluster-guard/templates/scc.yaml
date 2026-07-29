@@ -1,0 +1,102 @@
+{{- if and (include "falcon-cluster-guard.openshiftEnabled" . | eq "true") (include "falcon-cluster-guard.openshiftNodeCreateSCC" . | eq "true") }}
+# NOTE: Helm on an OpenShift cluster is NOT THE RECOMMENDED configuration. The official Red Hat
+# certified operator (https://catalog.redhat.com/en/software/container-stacks/detail/62f2d38f76d039249424703d)
+# is the recommended installation method for OpenShift clusters.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: {{ include "falcon-cluster-guard.nodeSccName" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-guard
+  annotations:
+    kubernetes.io/description: >-
+      Grants the Falcon Cluster Guard node sensor DaemonSet the privileges required to monitor
+      and protect cluster nodes. The node sensor runs as a privileged process in the host kernel.
+allowHostDirVolumePlugin: true
+allowHostIPC: true
+allowHostNetwork: true
+allowHostPID: true
+allowHostPorts: false
+allowPrivilegeEscalation: true
+allowPrivilegedContainer: true
+allowedCapabilities:
+  - '*'
+defaultAddCapabilities: []
+fsGroup:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+requiredDropCapabilities: []
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+seccompProfiles:
+  - '*'
+supplementalGroups:
+  type: RunAsAny
+users:
+  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.nodeServiceAccountName" . }}
+  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
+groups: []
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - hostPath
+  - persistentVolumeClaim
+  - projected
+  - secret
+{{- end }}
+{{- if and (include "falcon-cluster-guard.openshiftEnabled" . | eq "true") (include "falcon-cluster-guard.openshiftAdmissionCreateSCC" . | eq "true") }}
+---
+# SCC for the admission controller Deployment — only needed when admission.hostNetwork=true.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: {{ include "falcon-cluster-guard.admissionSccName" . }}
+  labels:
+    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admission-controller
+  annotations:
+    kubernetes.io/description: >-
+      Grants the Falcon Cluster Guard admission controller hostNetwork access.
+      Only required when admission.hostNetwork=true (e.g. custom CNI environments).
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: true
+allowHostPID: false
+allowHostPorts: true
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 1
+      max: 65535
+readOnlyRootFilesystem: true
+requiredDropCapabilities:
+  - ALL
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+seccompProfiles:
+  - runtime/default
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+    - min: 1
+      max: 65535
+users:
+  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.admissionServiceAccountName" . }}
+groups: []
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - projected
+  - secret
+{{- end }}

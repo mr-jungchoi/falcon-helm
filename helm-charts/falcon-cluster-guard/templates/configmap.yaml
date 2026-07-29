@@ -10,6 +10,7 @@ metadata:
   labels:
     {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
 data:
+  FALCON_MODE: daemonset
   __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.admission.enabled | quote }}
   {{- if .Values.admission.tlsVersionMinimum }}
   __CS_TLS_PROTOCOL_MIN: {{ .Values.admission.tlsVersionMinimum | quote }}
