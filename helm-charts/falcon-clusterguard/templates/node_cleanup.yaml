@@ -1,14 +1,14 @@
 {{- if and .Values.node.enabled .Values.node.hooks.postDelete.enabled }}
-{{- $imagePullSecretName := include "falcon-cluster-guard.imagePullSecret" . -}}
-{{- $registryConfigJson := include "falcon-cluster-guard.registryConfigJson" . -}}
+{{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . -}}
+{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
-  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  name: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cluster-guard-cleanup
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard-cleanup
   annotations:
     {{- if not .Values.node.cleanupOnly }}
     "helm.sh/hook": post-delete
@@ -18,11 +18,11 @@ metadata:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "falcon-cluster-guard.fullname" . }}-node-cleanup
-  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  name: {{ include "falcon-clusterguard.fullname" . }}-node-cleanup
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cluster-guard-cleanup
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard-cleanup
     {{- range $key, $value := .Values.node.daemonset.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
@@ -38,24 +38,24 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "falcon-cluster-guard.name" . }}-node-cleanup
+      app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
       app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: cluster-guard-cleanup
+      app.kubernetes.io/component: clusterguard-cleanup
   template:
     metadata:
       annotations:
         {{ .Values.node.daemonset.podAnnotationKey }}: disabled
-        {{- if include "falcon-cluster-guard.openshiftEnabled" . | eq "true" }}
-        openshift.io/scc: {{ include "falcon-cluster-guard.nodeSccName" . }}
+        {{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
+        openshift.io/scc: {{ include "falcon-clusterguard.nodeSccName" . }}
         {{- end }}
         {{- range $key, $value := .Values.node.podAnnotations }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
       labels:
-        app.kubernetes.io/name: {{ include "falcon-cluster-guard.name" . }}-node-cleanup
+        app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
         app.kubernetes.io/instance: {{ .Release.Name }}
-        app.kubernetes.io/component: cluster-guard-cleanup
-        {{ include "falcon-cluster-guard.workloadCleanupAllowlistLabel" . }}
+        app.kubernetes.io/component: clusterguard-cleanup
+        {{ include "falcon-clusterguard.workloadCleanupAllowlistLabel" . }}
         {{- range $key, $value := .Values.node.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
@@ -68,7 +68,7 @@ spec:
         - name: {{ $imagePullSecretName }}
         {{- end }}
         {{- if len $registryConfigJson }}
-        - name: {{ include "falcon-cluster-guard.fullname" . }}-pull-secret
+        - name: {{ include "falcon-clusterguard.fullname" . }}-pull-secret
         {{- end }}
       {{- end }}
       {{- with .Values.node.daemonset.tolerations }}
@@ -82,12 +82,12 @@ spec:
         nodeAffinity:
           {{- toYaml .Values.node.daemonset.nodeAffinity | nindent 10 }}
       {{- end }}
-      serviceAccountName: {{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
+      serviceAccountName: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
       terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
       hostPID: true
       initContainers:
       - name: cleanup-opt-crowdstrike
-        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        image: {{ include "falcon-clusterguard.image" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
         command:
           - /bin/bash
@@ -124,7 +124,7 @@ spec:
           {{- end }}
       containers:
       - name: cleanup-sleep
-        image: {{ include "falcon-cluster-guard.image" . | quote }}
+        image: {{ include "falcon-clusterguard.image" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
         command:
           - /bin/bash
