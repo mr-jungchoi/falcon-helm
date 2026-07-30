@@ -48,9 +48,6 @@ helm install falcon-clusterguard \
 See `values.yaml` for the complete list.
 
 ## Differences from Legacy Charts
-
-FCG does **not** provide an in-place upgrade path from `falcon-sensor` or `falcon-kac`. Deploy FCG to a new namespace and uninstall the legacy charts once FCG is validated.
-
 Notable differences:
 
 - **Unified image**: single image for node + admission workloads (no separate `node.image` / `container.image`).
