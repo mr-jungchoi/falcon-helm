@@ -1,34 +1,54 @@
 {{- if .Values.admission.enabled }}
 {{- $name := include "falcon-clusterguard.name" . -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
-{{- $svcName := "webhook" -}}
-{{- $fullName := printf "%s.%s.svc" $svcName $ns -}}
-{{- if .Values.admission.domainName -}}
-{{- $fullName = printf "%s.%s.svc.%s" $svcName $ns .Values.admission.domainName -}}
-{{- end -}}
 {{- $certValid := (.Values.admission.certExpiration | int) -}}
-{{- $altNames := list
-    (printf "%s" $fullName)
-    (printf "%s.cluster.local" $fullName)
+
+{{/* Webhook TLS: CA + server cert for the ValidatingWebhook HTTPS endpoint */}}
+{{- $svcName := "webhook" -}}
+{{- $webhookFullName := printf "%s.%s.svc" $svcName $ns -}}
+{{- if .Values.admission.domainName -}}
+{{- $webhookFullName = printf "%s.%s.svc.%s" $svcName $ns .Values.admission.domainName -}}
+{{- end -}}
+{{- $webhookAltNames := list
+    (printf "%s" $webhookFullName)
+    (printf "%s.cluster.local" $webhookFullName)
     (printf "%s.%s" $svcName $ns)
     (printf "%s" $svcName) -}}
-{{- $ca := genCA (printf "%s ca" $ns) $certValid -}}
-{{- $cert := genSignedCert $fullName nil $altNames $certValid $ca -}}
+{{- $webhookCA := genCA (printf "%s ca" $ns) $certValid -}}
+{{- $webhookCert := genSignedCert $webhookFullName nil $webhookAltNames $certValid $webhookCA -}}
 {{- if not .Values.admission.autoCertificateUpdate -}}
 {{- $tlscrt := (lookup "v1" "Secret" $ns (printf "%s-tls" $name)).data -}}
 {{- if kindIs "map" $tlscrt -}}
-{{- $cert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) -}}
+{{- $webhookCert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) -}}
 {{- end -}}
 {{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" $ns $name).webhooks -}}
 {{- if kindIs "slice" $tlsca -}}
 {{- range $tlsca -}}
-{{- $ca = dict "Cert" (.clientConfig.caBundle | b64dec) -}}
+{{- $webhookCA = dict "Cert" (.clientConfig.caBundle | b64dec) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- $tlsCert := $cert.Cert | b64enc -}}
-{{- $tlsKey := $cert.Key | b64enc -}}
-{{- $caCert := $ca.Cert | b64enc -}}
+{{- $tlsCert := $webhookCert.Cert | b64enc -}}
+{{- $tlsKey := $webhookCert.Key | b64enc -}}
+{{- $caCert := $webhookCA.Cert | b64enc -}}
+
+{{/* gRPC mTLS: separate CA + server cert (falcon-api-tls) + client cert (falcon-sensor-tls) */}}
+{{- $apiSvcName := "api" -}}
+{{- $apiFullName := printf "%s.%s.svc" $apiSvcName $ns -}}
+{{- $apiAltNames := list
+    (printf "%s" $apiFullName)
+    (printf "%s.cluster.local" $apiFullName)
+    (printf "%s.%s" $apiSvcName $ns)
+    (printf "%s" $apiSvcName) -}}
+{{- $grpcCA := genCA (printf "%s-clusterguard ca" $ns) $certValid -}}
+{{- $grpcServerCert := genSignedCert $apiFullName nil $apiAltNames $certValid $grpcCA -}}
+{{- $grpcClientCert := genSignedCert (printf "falcon-sensor.%s.svc" $ns) nil (list (printf "falcon-sensor.%s.svc" $ns)) $certValid $grpcCA -}}
+{{- $grpcCACert := $grpcCA.Cert | b64enc -}}
+{{- $grpcServerCrt := $grpcServerCert.Cert | b64enc -}}
+{{- $grpcServerKey := $grpcServerCert.Key | b64enc -}}
+{{- $grpcClientCrt := $grpcClientCert.Cert | b64enc -}}
+{{- $grpcClientKey := $grpcClientCert.Key | b64enc -}}
+
 {{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . -}}
 {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
 apiVersion: v1
@@ -45,22 +65,35 @@ data:
   tls.key: {{ $tlsKey }}
   ca.crt: {{ $caCert }}
 ---
-# Also create the node-sensor-facing TLS secret and CA so node pods can establish
-# mTLS connections to the admission controller's gRPC metadata service.
-# The secret names must match node.tlsSecretName and node.apiCaSecretName in values.yaml.
+# Node sensor client cert — signed by the gRPC CA, separate from the webhook cert.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: "falcon-sensor-tls"
+  name: falcon-sensor-tls
   namespace: {{ $ns }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
     app.kubernetes.io/component: clusterguard
 type: kubernetes.io/tls
 data:
-  tls.crt: {{ $tlsCert }}
-  tls.key: {{ $tlsKey }}
-  ca.crt: {{ $caCert }}
+  tls.crt: {{ $grpcClientCrt }}
+  tls.key: {{ $grpcClientKey }}
+  ca.crt: {{ $grpcCACert }}
+---
+# gRPC server cert for falcon-watcher — signed by its own CA.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falcon-api-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $grpcServerCrt }}
+  tls.key: {{ $grpcServerKey }}
+  ca.crt: {{ $grpcCACert }}
 ---
 apiVersion: v1
 kind: Secret
@@ -72,7 +105,7 @@ metadata:
     app.kubernetes.io/component: clusterguard
 type: Opaque
 data:
-  ca.crt: {{ $caCert }}
+  ca.crt: {{ $grpcCACert }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -167,7 +200,7 @@ spec:
                   fieldPath: metadata.labels['helm.sh/chart']
           envFrom:
             - configMapRef:
-                name: {{ include "falcon-clusterguard.configMapName" . }}
+                name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
           {{- if .Values.falconSecret.enabled }}
             - secretRef:
                 name: {{ .Values.falconSecret.secretName }}
@@ -175,6 +208,8 @@ spec:
           resources:
             {{- toYaml .Values.admission.resources.ac | nindent 12 }}
           securityContext:
+            seccompProfile:
+              type: RuntimeDefault
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -238,7 +273,7 @@ spec:
             {{- end }}
           envFrom:
             - configMapRef:
-                name: {{ include "falcon-clusterguard.configMapName" . }}
+                name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
             {{- if .Values.falconSecret.enabled }}
             - secretRef:
                 name: {{ .Values.falconSecret.secretName }}
@@ -249,6 +284,8 @@ spec:
           resources:
             {{- toYaml .Values.admission.resources.client | nindent 12 }}
           securityContext:
+            seccompProfile:
+              type: RuntimeDefault
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -310,7 +347,7 @@ spec:
                   fieldPath: metadata.labels['helm.sh/chart']
           envFrom:
             - configMapRef:
-                name: {{ include "falcon-clusterguard.configMapName" . }}
+                name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
             {{- if .Values.falconSecret.enabled }}
             - secretRef:
                 name: {{ .Values.falconSecret.secretName }}
@@ -324,6 +361,8 @@ spec:
           resources:
             {{- toYaml .Values.admission.resources.watcher | nindent 12 }}
           securityContext:
+            seccompProfile:
+              type: RuntimeDefault
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -365,6 +404,12 @@ spec:
         - name: {{ $name }}-tls-certs
           secret:
             secretName: {{ $name }}-tls
+        - name: falcon-api-tls-certs
+          secret:
+            secretName: falcon-api-tls
+        - name: falcon-api-ca
+          secret:
+            secretName: falcon-api-ca
         - name: crowdstrike-falcon-vol0
           emptyDir:
             sizeLimit: 256Mi
@@ -374,19 +419,13 @@ spec:
         - name: crowdstrike-falcon-vol2
           emptyDir:
             sizeLimit: 64Mi
-        - name: falcon-api-tls-certs
-          secret:
-            secretName: falcon-api-tls
-        - name: falcon-api-ca
-          secret:
-            secretName: falcon-api-ca
 
 ---
 {{- if .Values.admission.enabled }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: validating.falcon-clusterguard.crowdstrike.com
+  name: validating.falcon-kac.crowdstrike.com
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
 webhooks:
@@ -417,7 +456,7 @@ webhooks:
   clientConfig:
     caBundle: {{ $caCert }}
     {{- if .Values.admission.domainName }}
-    url: https://{{ $fullName }}:443/validate
+    url: https://{{ $webhookFullName }}:443/validate
     {{- else }}
     service:
       name: webhook
@@ -439,13 +478,13 @@ webhooks:
     scope: '*'
   sideEffects: None
   timeoutSeconds: 10
-- name: workload.validating.falcon-clusterguard.crowdstrike.com
+- name: workload.validating.falcon-kac.crowdstrike.com
   admissionReviewVersions:
   - v1
   clientConfig:
     caBundle: {{ $caCert }}
     {{- if .Values.admission.domainName }}
-    url: https://{{ $fullName }}:443/validate
+    url: https://{{ $webhookFullName }}:443/validate
     {{- else }}
     service:
       name: webhook
