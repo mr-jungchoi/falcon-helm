@@ -1,0 +1,516 @@
+{{- if .Values.admission.enabled }}
+{{- $name := include "falcon-clusterguard.name" . -}}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+{{- $svcName := "webhook" -}}
+{{- $fullName := printf "%s.%s.svc" $svcName $ns -}}
+{{- if .Values.admission.domainName -}}
+{{- $fullName = printf "%s.%s.svc.%s" $svcName $ns .Values.admission.domainName -}}
+{{- end -}}
+{{- $certValid := (.Values.admission.certExpiration | int) -}}
+{{- $altNames := list
+    (printf "%s" $fullName)
+    (printf "%s.cluster.local" $fullName)
+    (printf "%s.%s" $svcName $ns)
+    (printf "%s" $svcName) -}}
+{{- $ca := genCA (printf "%s ca" $ns) $certValid -}}
+{{- $cert := genSignedCert $fullName nil $altNames $certValid $ca -}}
+{{- if not .Values.admission.autoCertificateUpdate -}}
+{{- $tlscrt := (lookup "v1" "Secret" $ns (printf "%s-tls" $name)).data -}}
+{{- if kindIs "map" $tlscrt -}}
+{{- $cert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) -}}
+{{- end -}}
+{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" $ns $name).webhooks -}}
+{{- if kindIs "slice" $tlsca -}}
+{{- range $tlsca -}}
+{{- $ca = dict "Cert" (.clientConfig.caBundle | b64dec) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $tlsCert := $cert.Cert | b64enc -}}
+{{- $tlsKey := $cert.Key | b64enc -}}
+{{- $caCert := $ca.Cert | b64enc -}}
+{{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . -}}
+{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $tlsCert }}
+  tls.key: {{ $tlsKey }}
+  ca.crt: {{ $caCert }}
+---
+# Also create the node-sensor-facing TLS secret and CA so node pods can establish
+# mTLS connections to the admission controller's gRPC metadata service.
+# The secret names must match node.tlsSecretName and node.apiCaSecretName in values.yaml.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: "falcon-sensor-tls"
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $tlsCert }}
+  tls.key: {{ $tlsKey }}
+  ca.crt: {{ $caCert }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falcon-api-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+type: Opaque
+data:
+  ca.crt: {{ $caCert }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+    {{- range $key, $value := .Values.admission.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- with .Values.admission.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.admission.replicas }}
+  selector:
+    matchLabels:
+      {{- include "falcon-clusterguard.admissionSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "falcon-clusterguard.labels" . | nindent 8 }}
+        {{- include "falcon-clusterguard.admissionSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clusterguard
+        {{- range $key, $value := .Values.admission.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      annotations:
+        sensor.falcon-system.crowdstrike.com/injection: disabled
+        checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+        {{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") .Values.admission.hostNetwork }}
+        openshift.io/scc: {{ include "falcon-clusterguard.admissionSccName" . }}
+        {{- end }}
+        {{- if .Values.admission.autoDeploymentUpdate }}
+        rollme: {{ randAlphaNum 5 | quote }}
+        {{- end }}
+        {{- range $key, $value := .Values.admission.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- if and $imagePullSecret $registryConfigJson }}
+      {{- fail "image.pullSecrets and image.registryConfigJSON cannot be used together." }}
+      {{- else if or $imagePullSecret $registryConfigJson }}
+      imagePullSecrets:
+        {{- if $imagePullSecret }}
+        - name: {{ $imagePullSecret }}
+        {{- end }}
+        {{- if $registryConfigJson }}
+        - name: {{ include "falcon-clusterguard.fullname" . }}-pull-secret
+        {{- end }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: {{ include "falcon-clusterguard.admissionServiceAccountName" . }}
+      shareProcessNamespace: true
+      {{- with .Values.admission.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.admission.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.admission.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: {{ default "ClusterFirstWithHostNet" .Values.admission.dnsPolicy }}
+      {{- else if .Values.admission.dnsPolicy }}
+      dnsPolicy: {{ .Values.admission.dnsPolicy }}
+      {{- end }}
+      containers:
+        - name: falcon-ac
+          image: {{ include "falcon-clusterguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          env:
+            - name: HELM_CHART
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['helm.sh/chart']
+          envFrom:
+            - configMapRef:
+                name: {{ include "falcon-clusterguard.configMapName" . }}
+          {{- if .Values.falconSecret.enabled }}
+            - secretRef:
+                name: {{ .Values.falconSecret.secretName }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.admission.resources.ac | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /startz-kac
+              port: {{ .Values.admission.webhookPort }}
+              scheme: HTTPS
+            periodSeconds: 2
+            successThreshold: 1
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /livez-kac
+              port: {{ .Values.admission.webhookPort }}
+              scheme: HTTPS
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: crowdstrike-falcon-vol0
+              mountPath: /tmp
+            - name: crowdstrike-falcon-vol1
+              mountPath: /var/private
+            - name: crowdstrike-falcon-vol2
+              mountPath: /var/falcon-watcher
+        - name: falcon-client
+          image: {{ include "falcon-clusterguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          args:
+            - client
+            - "-port={{ .Values.admission.webhookPort }}"
+          env:
+            - name: __CS_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: __CS_POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: __CS_POD_NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: HELM_CHART
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['helm.sh/chart']
+            {{- if .Values.falconImageAnalyzerNamespace }}
+            - name: __CS_IAR_NAMESPACE
+              value: {{ .Values.falconImageAnalyzerNamespace | quote }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "falcon-clusterguard.configMapName" . }}
+            {{- if .Values.falconSecret.enabled }}
+            - secretRef:
+                name: {{ .Values.falconSecret.secretName }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.admission.webhookPort }}
+              name: webhook-port
+          resources:
+            {{- toYaml .Values.admission.resources.client | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /startz
+              port: {{ .Values.admission.webhookPort }}
+              scheme: HTTPS
+            periodSeconds: 2
+            successThreshold: 1
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /livez
+              port: {{ .Values.admission.webhookPort }}
+              scheme: HTTPS
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: {{ $name }}-tls-certs
+              mountPath: /run/secrets/tls
+              readOnly: true
+            - name: crowdstrike-falcon-vol0
+              mountPath: /tmp
+            - name: crowdstrike-falcon-vol1
+              mountPath: /var/private
+        - name: falcon-watcher
+          image: {{ include "falcon-clusterguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          args:
+            - "client"
+            - "-app=watcher"
+            - "-http-port={{ .Values.admission.watcherPort }}"
+          env:
+            - name: __CS_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: __CS_POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: __CS_POD_NODENAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: HELM_CHART
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['helm.sh/chart']
+          envFrom:
+            - configMapRef:
+                name: {{ include "falcon-clusterguard.configMapName" . }}
+            {{- if .Values.falconSecret.enabled }}
+            - secretRef:
+                name: {{ .Values.falconSecret.secretName }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.admission.watcherPort }}
+              name: healthcheck
+            - containerPort: 50051
+              name: grpc-port
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.admission.resources.watcher | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /startz
+              port: {{ .Values.admission.watcherPort }}
+              scheme: HTTP
+            periodSeconds: 2
+            successThreshold: 1
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /livez
+              port: {{ .Values.admission.watcherPort }}
+              scheme: HTTP
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: crowdstrike-falcon-vol0
+              mountPath: /tmp
+            - name: crowdstrike-falcon-vol1
+              mountPath: /var/private
+            - name: crowdstrike-falcon-vol2
+              mountPath: /var/falcon-watcher
+            - name: falcon-api-tls-certs
+              mountPath: /run/secrets/tls
+              readOnly: true
+            - name: falcon-api-ca
+              mountPath: /run/secrets/ca
+              readOnly: true
+      volumes:
+        - name: {{ $name }}-tls-certs
+          secret:
+            secretName: {{ $name }}-tls
+        - name: crowdstrike-falcon-vol0
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: crowdstrike-falcon-vol1
+          emptyDir:
+            sizeLimit: 4Ki
+        - name: crowdstrike-falcon-vol2
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: falcon-api-tls-certs
+          secret:
+            secretName: falcon-api-tls
+        - name: falcon-api-ca
+          secret:
+            secretName: falcon-api-ca
+
+---
+{{- if .Values.admission.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating.falcon-clusterguard.crowdstrike.com
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+webhooks:
+- name: validating.{{ include "falcon-clusterguard.webhookName" . }}
+  admissionReviewVersions:
+    - v1
+  matchPolicy: Equivalent
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - {{ $ns }}
+          - kube-system
+          - kube-public
+          - falcon-system
+          - falcon-kubernetes-protection
+          {{- if .Values.admission.webhook.disableNamespaces }}
+          {{- range splitList "," .Values.admission.webhook.disableNamespaces }}
+          - {{ . | trim }}
+          {{- end }}
+          {{- end }}
+          {{ include "falcon-clusterguard.openshiftNamespaces" . | nindent 10 }}
+      - key: {{ include "falcon-clusterguard.webhookName" . }}/admission-review
+        operator: NotIn
+        values:
+          - disabled
+  clientConfig:
+    caBundle: {{ $caCert }}
+    {{- if .Values.admission.domainName }}
+    url: https://{{ $fullName }}:443/validate
+    {{- else }}
+    service:
+      name: webhook
+      namespace: {{ $ns }}
+      path: "/validate"
+    {{- end }}
+  failurePolicy: {{ .Values.admission.webhook.failurePolicy }}
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - pods
+    - pods/ephemeralcontainers
+    scope: '*'
+  sideEffects: None
+  timeoutSeconds: 10
+- name: workload.validating.falcon-clusterguard.crowdstrike.com
+  admissionReviewVersions:
+  - v1
+  clientConfig:
+    caBundle: {{ $caCert }}
+    {{- if .Values.admission.domainName }}
+    url: https://{{ $fullName }}:443/validate
+    {{- else }}
+    service:
+      name: webhook
+      namespace: {{ $ns }}
+      path: /validate
+    {{- end }}
+  failurePolicy: Ignore
+  matchPolicy: Equivalent
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - {{ $ns }}
+          - kube-system
+          - kube-public
+          - falcon-system
+          - falcon-kubernetes-protection
+          {{- if .Values.admission.webhook.disableNamespaces }}
+          {{- range splitList "," .Values.admission.webhook.disableNamespaces }}
+          - {{ . | trim }}
+          {{- end }}
+          {{- end }}
+          {{- include "falcon-clusterguard.openshiftNamespaces" . | nindent 10 }}
+      - key: {{ include "falcon-clusterguard.webhookName" . }}/admission-review
+        operator: NotIn
+        values:
+          - disabled
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - replicationcontrollers
+    - services
+    scope: '*'
+  - apiGroups:
+    - apps
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - daemonsets
+    - deployments
+    - replicasets
+    - statefulsets
+    scope: '*'
+  - apiGroups:
+    - batch
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cronjobs
+    - jobs
+    scope: '*'
+  sideEffects: None
+  timeoutSeconds: 10
+{{- end }}
+{{- end }}

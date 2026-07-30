@@ -1,23 +1,23 @@
-{{- include "falcon-cluster-guard.validateOneOfFalconCidOrFalconSecret" . -}}
-{{- include "falcon-cluster-guard.validateValues" . -}}
+{{- include "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" . -}}
+{{- include "falcon-clusterguard.validateValues" . -}}
 {{- $falconSecretKeys := list "cid" "provisioning_token" -}}
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "falcon-cluster-guard.configMapName" . }}
-  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  name: {{ include "falcon-clusterguard.configMapName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
 data:
   FALCON_MODE: daemonset
   __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.admission.enabled | quote }}
   {{- if .Values.admission.tlsVersionMinimum }}
   __CS_TLS_PROTOCOL_MIN: {{ .Values.admission.tlsVersionMinimum | quote }}
   {{- end }}
-  {{- include "falcon-cluster-guard.generateWatcherEnvVars" . | nindent 2 }}
-  {{- if not (include "falcon-cluster-guard.falconSecretEnabled" . | eq "true") }}
-  FALCONCTL_OPT_CID: {{ include "falcon-cluster-guard.falconCid" . | quote }}
+  {{- include "falcon-clusterguard.generateWatcherEnvVars" . | nindent 2 }}
+  {{- if not (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
+  FALCONCTL_OPT_CID: {{ include "falcon-clusterguard.falconCid" . | quote }}
   {{- if .Values.falcon.provisioning_token }}
   FALCONCTL_OPT_PROVISIONING_TOKEN: {{ .Values.falcon.provisioning_token | quote }}
   {{- end }}

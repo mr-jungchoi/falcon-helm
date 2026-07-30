@@ -1,5 +1,5 @@
 apiVersion: v2
-name: falcon-cluster-guard
+name: falcon-clusterguard
 description: A Helm chart to deploy CrowdStrike Falcon Cluster Guard (FCG) - a unified K8s security service combining node sensor and admission controller.
 
 # A chart can be either an 'application' or a 'library' chart.
@@ -27,7 +27,7 @@ keywords:
   - monitoring
   - alerting
   - admission-controller
-  - cluster-guard
+  - clusterguard
 
 home: https://crowdstrike.com
 
