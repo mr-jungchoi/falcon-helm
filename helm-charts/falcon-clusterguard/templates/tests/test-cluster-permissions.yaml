@@ -1,0 +1,61 @@
+{{- if .Values.testing.enabled -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-test-access-role
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: [pods, namespaces, configmaps, serviceaccounts, services, secrets, events]
+  verbs: [get, list]
+- apiGroups: [apps]
+  resources: [deployments, daemonsets]
+  verbs: [get, list, watch]
+- apiGroups: [rbac.authorization.k8s.io]
+  resources: [clusterroles, clusterrolebindings, roles, rolebindings]
+  verbs: [get, list]
+- apiGroups: [admissionregistration.k8s.io]
+  resources: [validatingwebhookconfigurations]
+  verbs: [get, list]
+- apiGroups: [scheduling.k8s.io]
+  resources: [priorityclasses]
+  verbs: [get, list]
+{{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
+- apiGroups: [security.openshift.io]
+  resources: [securitycontextconstraints]
+  verbs: [get, list]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-test-access-binding
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+- kind: ServiceAccount
+  name: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "falcon-clusterguard.fullname" . }}-test-access-role
+  apiGroup: rbac.authorization.k8s.io
+{{- end -}}

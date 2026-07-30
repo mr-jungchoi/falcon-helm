@@ -1,0 +1,155 @@
+{{- if and .Values.testing.enabled .Values.admission.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-admission-running"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          FAILED=0
+
+          echo "--- Waiting for admission Deployment to be available ---"
+          kubectl wait deployment \
+            "{{ include "falcon-clusterguard.name" . }}" \
+            -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            --for=condition=Available \
+            --timeout=300s
+
+          echo "--- Checking admission pods are running ---"
+          ALL_PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -l "app={{ include "falcon-clusterguard.name" . }}-admission" \
+            --field-selector=status.phase!=Running \
+            -o jsonpath="{.items[*].metadata.name}" 2>&1)
+          NON_RUNNING=""
+          for POD in ${ALL_PODS}; do
+            if [[ ! "${POD}" =~ test- ]]; then
+              NON_RUNNING="${NON_RUNNING} ${POD}"
+            fi
+          done
+          if [ -n "${NON_RUNNING}" ]; then
+            echo "[FAIL]: Not all admission pods are running: ${NON_RUNNING}"
+            FAILED=1
+          else
+            echo "[OK]: All admission pods are running"
+          fi
+
+          echo "--- Checking admission ServiceAccount ---"
+          SA_NAME="{{ include "falcon-clusterguard.admissionServiceAccountName" . }}"
+          if ! kubectl get serviceaccount "${SA_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: ServiceAccount '${SA_NAME}' not found"
+            FAILED=1
+          else
+            echo "[OK]: ServiceAccount '${SA_NAME}' exists"
+          fi
+
+          echo "--- Checking resource-reader ClusterRole ---"
+          if ! kubectl get clusterrole "{{ include "falcon-clusterguard.fullname" . }}-resource-reader" > /dev/null 2>&1; then
+            echo "[FAIL]: ClusterRole 'resource-reader' not found"
+            FAILED=1
+          else
+            echo "[OK]: ClusterRole 'resource-reader' exists"
+          fi
+
+          echo "--- Checking webhook Service ---"
+          if ! kubectl get service webhook -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: Service 'webhook' not found"
+            FAILED=1
+          else
+            echo "[OK]: Service 'webhook' exists"
+          fi
+
+          echo "--- Checking API Service ---"
+          if ! kubectl get service api -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: Service 'api' not found"
+            FAILED=1
+          else
+            echo "[OK]: Service 'api' exists"
+          fi
+
+          echo "--- Checking ValidatingWebhookConfiguration ---"
+          WEBHOOK_CONFIG="validating.{{ .Chart.Name }}.crowdstrike.com"
+          if ! kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" > /dev/null 2>&1; then
+            echo "[FAIL]: ValidatingWebhookConfiguration '${WEBHOOK_CONFIG}' not found"
+            FAILED=1
+          else
+            echo "[OK]: ValidatingWebhookConfiguration '${WEBHOOK_CONFIG}' exists"
+          fi
+
+          echo "--- Checking TLS Secret ---"
+          TLS_SECRET="{{ include "falcon-clusterguard.name" . }}-tls"
+          if ! kubectl get secret "${TLS_SECRET}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: TLS Secret '${TLS_SECRET}' not found"
+            FAILED=1
+          else
+            echo "[OK]: TLS Secret '${TLS_SECRET}' exists"
+          fi
+
+          echo "--- Checking pod annotations and HELM_CHART env ---"
+          EXPECTED_CHART="{{ include "falcon-clusterguard.chart" . }}"
+          PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -l "app={{ include "falcon-clusterguard.name" . }}-admission" \
+            -o json 2>/dev/null | jq -r '.items[] | select(.metadata.annotations["helm.sh/hook"] == null) | .metadata.name')
+          if [ -z "${PODS}" ]; then
+            echo "[FAIL]: No admission pods found"
+            FAILED=1
+          else
+            for POD in ${PODS}; do
+              INJECT=$(kubectl get pod "${POD}" -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.metadata.annotations.sensor\.falcon-system\.crowdstrike\.com/injection}" 2>&1)
+              if [ "${INJECT}" != "disabled" ]; then
+                echo "[FAIL]: Pod '${POD}' injection annotation is '${INJECT}', expected 'disabled'"
+                FAILED=1
+              else
+                echo "[OK]: Pod '${POD}' has injection=disabled"
+              fi
+
+              CHART_LABEL=$(kubectl get pod "${POD}" -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.metadata.labels.helm\.sh/chart}" 2>&1)
+              if [ "${CHART_LABEL}" != "${EXPECTED_CHART}" ]; then
+                echo "[FAIL]: Pod '${POD}' helm.sh/chart='${CHART_LABEL}', expected '${EXPECTED_CHART}'"
+                FAILED=1
+              else
+                echo "[OK]: Pod '${POD}' helm.sh/chart matches"
+              fi
+
+              {{- if .Values.admission.hostNetwork }}
+              HOST_NETWORK=$(kubectl get deployment "{{ include "falcon-clusterguard.name" . }}" \
+                -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.spec.template.spec.hostNetwork}")
+              if [ "${HOST_NETWORK}" != "true" ]; then
+                echo "[FAIL]: hostNetwork is '${HOST_NETWORK}', expected 'true'"
+                FAILED=1
+              else
+                echo "[OK]: hostNetwork=true"
+              fi
+              {{- end }}
+            done
+          fi
+
+          if [ "${FAILED}" -eq 1 ]; then exit 1; fi
+          exit 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}
