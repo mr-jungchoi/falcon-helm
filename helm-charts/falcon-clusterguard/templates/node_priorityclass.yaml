@@ -3,10 +3,10 @@
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: {{ include "falcon-cluster-guard.priorityClassName" . }}
+  name: {{ include "falcon-clusterguard.priorityClassName" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cluster-guard
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
 value: {{ .Values.node.daemonset.priorityClassValue }}
 globalDefault: false
 description: "Priority class for the CrowdStrike Falcon Cluster Guard node sensor DaemonSet."

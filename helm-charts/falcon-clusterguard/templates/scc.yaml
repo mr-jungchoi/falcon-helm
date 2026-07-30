@@ -1,14 +1,14 @@
-{{- if and (include "falcon-cluster-guard.openshiftEnabled" . | eq "true") (include "falcon-cluster-guard.openshiftNodeCreateSCC" . | eq "true") }}
+{{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftNodeCreateSCC" . | eq "true") }}
 # NOTE: Helm on an OpenShift cluster is NOT THE RECOMMENDED configuration. The official Red Hat
 # certified operator (https://catalog.redhat.com/en/software/container-stacks/detail/62f2d38f76d039249424703d)
 # is the recommended installation method for OpenShift clusters.
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
-  name: {{ include "falcon-cluster-guard.nodeSccName" . }}
+  name: {{ include "falcon-clusterguard.nodeSccName" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cluster-guard
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
   annotations:
     kubernetes.io/description: >-
       Grants the Falcon Cluster Guard node sensor DaemonSet the privileges required to monitor
@@ -36,8 +36,8 @@ seccompProfiles:
 supplementalGroups:
   type: RunAsAny
 users:
-  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.nodeServiceAccountName" . }}
-  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.cleanupServiceAccountName" . }}
+  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.nodeServiceAccountName" . }}
+  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
 groups: []
 volumes:
   - configMap
@@ -48,16 +48,16 @@ volumes:
   - projected
   - secret
 {{- end }}
-{{- if and (include "falcon-cluster-guard.openshiftEnabled" . | eq "true") (include "falcon-cluster-guard.openshiftAdmissionCreateSCC" . | eq "true") }}
+{{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftAdmissionCreateSCC" . | eq "true") }}
 ---
 # SCC for the admission controller Deployment — only needed when admission.hostNetwork=true.
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
-  name: {{ include "falcon-cluster-guard.admissionSccName" . }}
+  name: {{ include "falcon-clusterguard.admissionSccName" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: admission-controller
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
   annotations:
     kubernetes.io/description: >-
       Grants the Falcon Cluster Guard admission controller hostNetwork access.
@@ -91,7 +91,7 @@ supplementalGroups:
     - min: 1
       max: 65535
 users:
-  - system:serviceaccount:{{ include "falcon-cluster-guard.namespace" . }}:{{ include "falcon-cluster-guard.admissionServiceAccountName" . }}
+  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.admissionServiceAccountName" . }}
 groups: []
 volumes:
   - configMap

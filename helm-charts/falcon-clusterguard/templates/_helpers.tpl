@@ -1,14 +1,22 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "falcon-cluster-guard.name" -}}
+{{- define "falcon-clusterguard.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
+gRPC API service name for the central metadata service.
+Hardcoded — always api.<release-namespace>.svc, not user-configurable.
+*/}}
+{{- define "falcon-clusterguard.apiServiceName" -}}
+{{- printf "api.%s.svc" (include "falcon-clusterguard.namespace" .) -}}
+{{- end -}}
+
+{{/*
 Set the webhook name (used in ValidatingWebhookConfiguration)
 */}}
-{{- define "falcon-cluster-guard.webhookName" -}}
+{{- define "falcon-clusterguard.webhookName" -}}
 {{ printf "%s.crowdstrike.com" .Chart.Name }}
 {{- end }}
 
@@ -17,7 +25,7 @@ Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
 */}}
-{{- define "falcon-cluster-guard.fullname" -}}
+{{- define "falcon-clusterguard.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -33,16 +41,16 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "falcon-cluster-guard.chart" -}}
+{{- define "falcon-clusterguard.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "falcon-cluster-guard.labels" -}}
-helm.sh/chart: {{ include "falcon-cluster-guard.chart" . }}
-{{ include "falcon-cluster-guard.selectorLabels" . }}
+{{- define "falcon-clusterguard.labels" -}}
+helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+{{ include "falcon-clusterguard.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -53,43 +61,43 @@ crowdstrike.com/provider: crowdstrike
 {{/*
 Selector labels
 */}}
-{{- define "falcon-cluster-guard.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "falcon-cluster-guard.name" . }}
+{{- define "falcon-clusterguard.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Admission-specific selector labels (used by the admission Deployment/Service/Webhook)
 */}}
-{{- define "falcon-cluster-guard.admissionSelectorLabels" -}}
-app: {{ include "falcon-cluster-guard.name" . }}-admission
+{{- define "falcon-clusterguard.admissionSelectorLabels" -}}
+app: {{ include "falcon-clusterguard.name" . }}-admission
 {{- end }}
 
 {{/*
 Node-sensor-specific selector labels (used by the node DaemonSet)
 */}}
-{{- define "falcon-cluster-guard.nodeSelectorLabels" -}}
-app: {{ include "falcon-cluster-guard.name" . }}-node
+{{- define "falcon-clusterguard.nodeSelectorLabels" -}}
+app: {{ include "falcon-clusterguard.name" . }}-node
 {{- end }}
 
 {{/*
 ServiceAccount name for the node sensor DaemonSet (privileged; bound to node SCC on OpenShift)
 */}}
-{{- define "falcon-cluster-guard.nodeServiceAccountName" -}}
-{{- default (printf "%s-node-sa" (include "falcon-cluster-guard.fullname" .)) .Values.node.serviceAccount.name }}
+{{- define "falcon-clusterguard.nodeServiceAccountName" -}}
+{{- default (printf "%s-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.node.serviceAccount.name }}
 {{- end }}
 
 {{/*
 ServiceAccount name for the admission controller Deployment (restricted; no host access)
 */}}
-{{- define "falcon-cluster-guard.admissionServiceAccountName" -}}
-{{- default (printf "%s-admission-sa" (include "falcon-cluster-guard.fullname" .)) .Values.admission.serviceAccount.name }}
+{{- define "falcon-clusterguard.admissionServiceAccountName" -}}
+{{- default (printf "%s-admission-sa" (include "falcon-clusterguard.fullname" .)) .Values.admission.serviceAccount.name }}
 {{- end }}
 
 {{/*
 Build the unified FCG image reference. Digest takes precedence over tag.
 */}}
-{{- define "falcon-cluster-guard.image" -}}
+{{- define "falcon-clusterguard.image" -}}
 {{- if .Values.image.digest -}}
 {{- if contains "sha256:" .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
@@ -104,17 +112,17 @@ Build the unified FCG image reference. Digest takes precedence over tag.
 {{/*
 PriorityClass name for the node DaemonSet
 */}}
-{{- define "falcon-cluster-guard.priorityClassName" -}}
+{{- define "falcon-clusterguard.priorityClassName" -}}
 {{- printf "%s" .Values.node.daemonset.priorityClassName -}}
 {{- if not .Values.node.daemonset.priorityClassName -}}
-{{- printf "%s" "falcon-cluster-guard-node-security-critical" -}}
+{{- printf "%s" "falcon-clusterguard-node-security-critical" -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 DaemonSet resource block (GKE Autopilot enforces minimum defaults)
 */}}
-{{- define "falcon-cluster-guard.daemonsetResources" -}}
+{{- define "falcon-clusterguard.daemonsetResources" -}}
 {{- if .Values.node.gke.autopilot -}}
 resources:
   {{- if (.Values.node.daemonset.resources | default dict).limits }}
@@ -150,7 +158,7 @@ resources:
 {{/*
 Init container args for the node daemonset (falconstore setup + cluster-id configure)
 */}}
-{{- define "falcon-cluster-guard.initArgs" -}}
+{{- define "falcon-clusterguard.initArgs" -}}
 args:
   - '-c'
   - >-
@@ -172,18 +180,18 @@ args:
 {{/*
 Config map name for FCG (GKE Autopilot requires an exact name for WorkloadAllowlist)
 */}}
-{{- define "falcon-cluster-guard.configMapName" -}}
+{{- define "falcon-clusterguard.configMapName" -}}
 {{- if .Values.node.gke.autopilot -}}
-{{- printf "falcon-cluster-guard-config" -}}
+{{- printf "falcon-clusterguard-config" -}}
 {{- else -}}
-{{- printf "%s-config" (include "falcon-cluster-guard.fullname" .) -}}
+{{- printf "%s-config" (include "falcon-clusterguard.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 GKE WorkloadAllowlist label for the deploy DaemonSet
 */}}
-{{- define "falcon-cluster-guard.workloadDeployAllowlistLabel" -}}
+{{- define "falcon-clusterguard.workloadDeployAllowlistLabel" -}}
 {{- if and .Values.node.gke.autopilot .Values.node.enabled .Values.node.gke.deployAllowListVersion -}}
 {{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-deploy-allowlist-%s\"" .Values.node.gke.deployAllowListVersion -}}
 {{- end -}}
@@ -192,7 +200,7 @@ GKE WorkloadAllowlist label for the deploy DaemonSet
 {{/*
 GKE WorkloadAllowlist label for the cleanup DaemonSet
 */}}
-{{- define "falcon-cluster-guard.workloadCleanupAllowlistLabel" -}}
+{{- define "falcon-clusterguard.workloadCleanupAllowlistLabel" -}}
 {{- if and .Values.node.gke.autopilot .Values.node.enabled .Values.node.gke.cleanupAllowListVersion -}}
 {{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-cleanup-allowlist-%s\"" .Values.node.gke.cleanupAllowListVersion -}}
 {{- end -}}
@@ -201,31 +209,27 @@ GKE WorkloadAllowlist label for the cleanup DaemonSet
 {{/*
 Service account name used by the post-delete cleanup DaemonSet
 */}}
-{{- define "falcon-cluster-guard.cleanupServiceAccountName" -}}
+{{- define "falcon-clusterguard.cleanupServiceAccountName" -}}
 {{- if not .Values.node.cleanupOnly -}}
-{{- printf "%s-node-cleanup" (include "falcon-cluster-guard.nodeServiceAccountName" .) -}}
+{{- printf "%s-node-cleanup" (include "falcon-clusterguard.nodeServiceAccountName" .) -}}
 {{- else -}}
-{{- printf "%s-node-cleanup-standalone" (include "falcon-cluster-guard.nodeServiceAccountName" .) -}}
+{{- printf "%s-node-cleanup-standalone" (include "falcon-clusterguard.nodeServiceAccountName" .) -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 Return namespace based on .Values.namespaceOverride or Release.Namespace
-namespaceOverride should only be used when installing falcon-cluster-guard as a subchart.
+namespaceOverride should only be used when installing falcon-clusterguard as a subchart.
 */}}
-{{- define "falcon-cluster-guard.namespace" -}}
-{{- if .Values.namespaceOverride -}}
-{{- .Values.namespaceOverride -}}
-{{- else -}}
+{{- define "falcon-clusterguard.namespace" -}}
 {{- .Release.Namespace -}}
-{{- end -}}
 {{- end -}}
 
 {{/*
 On OpenShift lookup namespaces and emit namespaces prefixed with "openshift-"
 (used by webhook namespaceSelector to exclude system namespaces).
 */}}
-{{- define "falcon-cluster-guard.openshiftNamespaces" -}}
+{{- define "falcon-clusterguard.openshiftNamespaces" -}}
 {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" -}}
 {{- range $index, $namespace := (lookup "v1" "Namespace" "" "").items -}}
 {{- if hasPrefix "openshift" $namespace.metadata.name -}}
@@ -239,7 +243,7 @@ On OpenShift lookup namespaces and emit namespaces prefixed with "openshift-"
 Generate the __CS_* env vars for the watcher/metadata containers.
 Reads .Values.clusterVisibility.* with safe defaults if values are missing.
 */}}
-{{- define "falcon-cluster-guard.generateWatcherEnvVars" -}}
+{{- define "falcon-clusterguard.generateWatcherEnvVars" -}}
 {{- $snapshotsEnabled := true -}}
 {{- $snapshotInterval := "22h" -}}
 {{- $watcherEnabled := true -}}
@@ -273,7 +277,7 @@ __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{/*
 Admission control enabled? True iff .Values.admission.enabled is truthy.
 */}}
-{{- define "falcon-cluster-guard.admissionEnabled" -}}
+{{- define "falcon-clusterguard.admissionEnabled" -}}
 {{- if .Values.admission.enabled -}}
 true
 {{- else -}}
@@ -284,7 +288,7 @@ false
 {{/*
 Visibility enabled? True if either snapshots or watcher is enabled.
 */}}
-{{- define "falcon-cluster-guard.visibilityEnabled" -}}
+{{- define "falcon-clusterguard.visibilityEnabled" -}}
 {{- if or .Values.clusterVisibility.resourceSnapshots.enabled .Values.clusterVisibility.resourceWatcher.enabled -}}
 true
 {{- else -}}
@@ -295,8 +299,8 @@ false
 {{/*
 At least one of admission control or visibility must be enabled.
 */}}
-{{- define "falcon-cluster-guard.validateValues" -}}
-{{- if and (eq (include "falcon-cluster-guard.admissionEnabled" .) "false") (eq (include "falcon-cluster-guard.visibilityEnabled" .) "false") -}}
+{{- define "falcon-clusterguard.validateValues" -}}
+{{- if and (eq (include "falcon-clusterguard.admissionEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") -}}
 {{- fail "Error: at least one of admission.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
 {{- end -}}
 {{- end -}}
@@ -304,31 +308,31 @@ At least one of admission control or visibility must be enabled.
 {{/*
 Get Falcon CID
 */}}
-{{- define "falcon-cluster-guard.falconCid" -}}
+{{- define "falcon-clusterguard.falconCid" -}}
 {{- .Values.falcon.cid | default "" -}}
 {{- end -}}
 
 {{/*
 Check if Falcon secret is enabled
 */}}
-{{- define "falcon-cluster-guard.falconSecretEnabled" -}}
+{{- define "falcon-clusterguard.falconSecretEnabled" -}}
 {{- .Values.falconSecret.enabled -}}
 {{- end -}}
 
 {{/*
 Get Falcon secret name
 */}}
-{{- define "falcon-cluster-guard.falconSecretName" -}}
+{{- define "falcon-clusterguard.falconSecretName" -}}
 {{- .Values.falconSecret.secretName | default "" -}}
 {{- end -}}
 
 {{/*
 Validate exactly one of falcon.cid or falconSecret is configured
 */}}
-{{- define "falcon-cluster-guard.validateOneOfFalconCidOrFalconSecret" -}}
-{{- $hasCid := include "falcon-cluster-guard.falconCid" . -}}
-{{- $secretEnabled := (include "falcon-cluster-guard.falconSecretEnabled" . | eq "true") -}}
-{{- $hasSecret := include "falcon-cluster-guard.falconSecretName" . -}}
+{{- define "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" -}}
+{{- $hasCid := include "falcon-clusterguard.falconCid" . -}}
+{{- $secretEnabled := (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") -}}
+{{- $hasSecret := include "falcon-clusterguard.falconSecretName" . -}}
 
 {{- if and (not $hasCid) (or (not $secretEnabled) (not $hasSecret)) -}}
 {{- fail "Must configure one of falcon.cid or falconSecret with FALCONCTL_OPT_CID data" }}
@@ -342,56 +346,56 @@ Validate exactly one of falcon.cid or falconSecret is configured
 {{/*
 Get container registry pull secret name
 */}}
-{{- define "falcon-cluster-guard.imagePullSecret" -}}
+{{- define "falcon-clusterguard.imagePullSecret" -}}
 {{- .Values.image.pullSecrets | default "" -}}
 {{- end -}}
 
 {{/*
 Get container registry config JSON
 */}}
-{{- define "falcon-cluster-guard.registryConfigJson" -}}
+{{- define "falcon-clusterguard.registryConfigJson" -}}
 {{- .Values.image.registryConfigJSON | default "" -}}
 {{- end -}}
 
 {{/*
 OpenShift SCC name for the node sensor DaemonSet (privileged SCC)
 */}}
-{{- define "falcon-cluster-guard.nodeSccName" -}}
+{{- define "falcon-clusterguard.nodeSccName" -}}
 {{- if .Values.openshift.nodeSCCName -}}
 {{- .Values.openshift.nodeSCCName -}}
 {{- else -}}
-{{- printf "%s-node-sensor" (include "falcon-cluster-guard.fullname" .) -}}
+{{- printf "%s-node-sensor" (include "falcon-clusterguard.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 OpenShift SCC name for the admission controller Deployment (hostNetwork SCC)
 */}}
-{{- define "falcon-cluster-guard.admissionSccName" -}}
+{{- define "falcon-clusterguard.admissionSccName" -}}
 {{- if .Values.openshift.admissionSCCName -}}
 {{- .Values.openshift.admissionSCCName -}}
 {{- else -}}
-{{- printf "%s-admission" (include "falcon-cluster-guard.fullname" .) -}}
+{{- printf "%s-admission" (include "falcon-clusterguard.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
 OpenShift mode enabled
 */}}
-{{- define "falcon-cluster-guard.openshiftEnabled" -}}
+{{- define "falcon-clusterguard.openshiftEnabled" -}}
 {{- .Values.openshift.enabled -}}
 {{- end -}}
 
 {{/*
 OpenShift node createSCC — true when openshift.enabled and openshift.createSCC
 */}}
-{{- define "falcon-cluster-guard.openshiftNodeCreateSCC" -}}
+{{- define "falcon-clusterguard.openshiftNodeCreateSCC" -}}
 {{- and .Values.openshift.enabled .Values.openshift.createSCC -}}
 {{- end -}}
 
 {{/*
 OpenShift admission createSCC — true when openshift.enabled, openshift.createSCC, and admission.hostNetwork
 */}}
-{{- define "falcon-cluster-guard.openshiftAdmissionCreateSCC" -}}
+{{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
 {{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.admission.hostNetwork -}}
 {{- end -}}
