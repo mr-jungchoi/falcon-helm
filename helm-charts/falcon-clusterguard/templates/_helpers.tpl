@@ -399,3 +399,12 @@ OpenShift admission createSCC — true when openshift.enabled, openshift.createS
 {{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
 {{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.admission.hostNetwork -}}
 {{- end -}}
+
+{{/*
+Labels for test pods/resources
+*/}}
+{{- define "falcon-clusterguard.testLabels" -}}
+{{ include "falcon-clusterguard.labels" . }}
+helm.sh/hook: test-success
+helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+{{- end -}}
