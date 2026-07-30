@@ -2,11 +2,11 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "falcon-cluster-guard.fullname" . }}-role
-  namespace: {{ include "falcon-cluster-guard.namespace" . }}
+  name: {{ include "falcon-clusterguard.fullname" . }}-role
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-cluster-guard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cluster-guard
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
 rules:
 - apiGroups:
   - ""
@@ -37,7 +37,7 @@ rules:
   - list
   - watch
   - update
-{{- if (include "falcon-cluster-guard.falconSecretEnabled" . | eq "true") }}
+{{- if (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
 - apiGroups:
   - ""
   resources:

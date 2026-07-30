@@ -21,20 +21,20 @@ FCG replaces the separate `falcon-sensor` (node-only) and `falcon-kac` (admissio
 ## Quick Start
 
 ```bash
-helm install falcon-cluster-guard \
+helm install falcon-clusterguard \
   --create-namespace \
   --namespace falcon-system \
   --set falcon.cid=<YOUR-CID> \
-  --set image.repository=<REGISTRY>/falcon-cluster-guard \
+  --set image.repository=<REGISTRY>/falcon-clusterguard \
   --set image.tag=<VERSION> \
-  ./falcon-cluster-guard
+  ./falcon-clusterguard
 ```
 
 ## Key Configuration Options
 
 | Value                                         | Default                | Purpose                                                                      |
 |-----------------------------------------------|------------------------|------------------------------------------------------------------------------|
-| `image.repository`                            | `falcon-cluster-guard` | Unified FCG container image (used by both node sensor and admission control) |
+| `image.repository`                            | `falcon-clusterguard` | Unified FCG container image (used by both node sensor and admission control) |
 | `image.tag`                                   | `latest`               | Image tag (prefer `image.digest` for immutability)                           |
 | `node.enabled`                                | `true`                 | Deploy the node sensor DaemonSet                                             |
 | `node.backend`                                | `bpf`                  | Sensor backend: `kernel` or `bpf`                                            |
@@ -61,7 +61,7 @@ Notable differences:
 ## Uninstalling
 
 ```bash
-helm uninstall falcon-cluster-guard --namespace falcon-system
+helm uninstall falcon-clusterguard --namespace falcon-system
 ```
 
 The post-delete cleanup DaemonSet (enabled by default via `node.hooks.postDelete.enabled`) will run a final teardown before resources are removed.

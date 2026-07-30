@@ -1,0 +1,35 @@
+# Binds the node-access-role to the node sensor ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-node-crb
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "falcon-clusterguard.fullname" . }}-node-access-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "falcon-clusterguard.nodeServiceAccountName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+---
+{{- if .Values.admission.enabled }}
+# Binds the resource-reader role to the admission controller ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-admission-crb
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "falcon-clusterguard.fullname" . }}-resource-reader
+subjects:
+- kind: ServiceAccount
+  name: {{ include "falcon-clusterguard.admissionServiceAccountName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+{{- end }}

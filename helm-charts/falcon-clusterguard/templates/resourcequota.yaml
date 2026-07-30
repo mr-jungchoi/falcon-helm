@@ -1,0 +1,19 @@
+{{- if .Values.admission.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-rq
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+spec:
+  hard:
+    pods: {{ .Values.admission.resourceQuota.pods }}
+  scopeSelector:
+    matchExpressions:
+      - operator: In
+        scopeName: PriorityClass
+        values:
+          - system-cluster-critical
+{{- end }}

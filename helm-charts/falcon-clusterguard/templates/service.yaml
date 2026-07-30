@@ -1,0 +1,16 @@
+{{- if .Values.admission.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+spec:
+  ports:
+    - port: 443
+      targetPort: webhook-port
+  selector:
+    {{- include "falcon-clusterguard.admissionSelectorLabels" . | nindent 4 }}
+{{- end }}
