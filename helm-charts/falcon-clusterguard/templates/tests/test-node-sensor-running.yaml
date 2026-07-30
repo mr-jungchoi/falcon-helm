@@ -1,0 +1,131 @@
+{{- if and .Values.testing.enabled .Values.node.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-node-running"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          FAILED=0
+
+          echo "--- Waiting for DaemonSet rollout ---"
+          kubectl rollout status daemonset \
+            "{{ include "falcon-clusterguard.fullname" . }}" \
+            -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            --timeout=300s
+
+          echo "--- Checking node sensor pods are running ---"
+          ALL_PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -l "app={{ include "falcon-clusterguard.name" . }}-node" \
+            --field-selector=status.phase!=Running \
+            -o jsonpath="{.items[*].metadata.name}" 2>&1)
+          NON_RUNNING=""
+          for POD in ${ALL_PODS}; do
+            if [[ ! "${POD}" =~ test- ]]; then
+              NON_RUNNING="${NON_RUNNING} ${POD}"
+            fi
+          done
+          if [ -n "${NON_RUNNING}" ]; then
+            echo "[FAIL]: Not all node sensor pods are running: ${NON_RUNNING}"
+            FAILED=1
+          else
+            echo "[OK]: All node sensor pods are running"
+          fi
+
+          echo "--- Checking ConfigMap ---"
+          CM_NAME="{{ include "falcon-clusterguard.configMapName" . }}"
+          if ! kubectl get configmap "${CM_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: ConfigMap '${CM_NAME}' not found"
+            FAILED=1
+          else
+            echo "[OK]: ConfigMap '${CM_NAME}' exists"
+          fi
+
+          echo "--- Checking DaemonSet exists ---"
+          DS_NAME="{{ include "falcon-clusterguard.fullname" . }}"
+          if ! kubectl get daemonset "${DS_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: DaemonSet '${DS_NAME}' not found"
+            FAILED=1
+          else
+            echo "[OK]: DaemonSet '${DS_NAME}' exists"
+          fi
+
+          echo "--- Checking node ServiceAccount ---"
+          SA_NAME="{{ include "falcon-clusterguard.nodeServiceAccountName" . }}"
+          if ! kubectl get serviceaccount "${SA_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: ServiceAccount '${SA_NAME}' not found"
+            FAILED=1
+          else
+            echo "[OK]: ServiceAccount '${SA_NAME}' exists"
+          fi
+
+          echo "--- Checking pod annotations ---"
+          PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -l "app={{ include "falcon-clusterguard.name" . }}-node" \
+            -o json 2>/dev/null | jq -r '.items[] | select(.metadata.annotations["helm.sh/hook"] == null) | .metadata.name')
+          if [ -z "${PODS}" ]; then
+            echo "[FAIL]: No node sensor pods found"
+            FAILED=1
+          else
+            for POD in ${PODS}; do
+              INJECT=$(kubectl get pod "${POD}" -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.metadata.annotations.sensor\.falcon-system\.crowdstrike\.com/injection}" 2>&1)
+              if [ "${INJECT}" != "disabled" ]; then
+                echo "[FAIL]: Pod '${POD}' injection annotation is '${INJECT}', expected 'disabled'"
+                FAILED=1
+              else
+                echo "[OK]: Pod '${POD}' has injection=disabled"
+              fi
+              CHECKSUM=$(kubectl get pod "${POD}" -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.metadata.annotations.checksum/configmap}" 2>&1)
+              if [ -z "${CHECKSUM}" ]; then
+                echo "[FAIL]: Pod '${POD}' missing checksum/configmap annotation"
+                FAILED=1
+              else
+                echo "[OK]: Pod '${POD}' has checksum/configmap annotation"
+              fi
+            done
+          fi
+
+          {{- if .Values.testing.labelNamespace }}
+          echo "--- Checking PSS namespace labels ---"
+          NS_NAME="{{ include "falcon-clusterguard.namespace" . }}"
+          for LABEL in "pod-security.kubernetes.io/enforce=privileged" "pod-security.kubernetes.io/warn=privileged" "pod-security.kubernetes.io/audit=privileged"; do
+            KEY="${LABEL%%=*}"; VALUE="${LABEL##*=}"
+            ACTUAL=$(kubectl get namespace "${NS_NAME}" -o json 2>&1 | jq -r --arg key "${KEY}" '.metadata.labels[$key] // ""')
+            if [ "${ACTUAL}" != "${VALUE}" ]; then
+              echo "[FAIL]: Namespace '${NS_NAME}' label '${KEY}' is '${ACTUAL}', expected '${VALUE}'"
+              FAILED=1
+            else
+              echo "[OK]: Namespace label '${KEY}=${VALUE}'"
+            fi
+          done
+          {{- end }}
+
+          if [ "${FAILED}" -eq 1 ]; then exit 1; fi
+          exit 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

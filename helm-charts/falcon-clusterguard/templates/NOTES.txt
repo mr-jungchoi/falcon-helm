@@ -1,0 +1,63 @@
+Falcon Cluster Guard has been installed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ include "falcon-clusterguard.namespace" . }}
+Version:   {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WORKLOADS
+{{- if .Values.node.enabled }}
+  Node Sensor DaemonSet:
+    kubectl rollout status daemonset/{{ include "falcon-clusterguard.fullname" . }} \
+      -n {{ include "falcon-clusterguard.namespace" . }}
+{{- else }}
+  Node Sensor: disabled (node.enabled=false)
+{{- end }}
+{{- if .Values.admission.enabled }}
+
+  Admission Controller Deployment:
+    kubectl rollout status deployment/{{ include "falcon-clusterguard.name" . }} \
+      -n {{ include "falcon-clusterguard.namespace" . }}
+{{- else }}
+
+  Admission Controller: disabled (admission.enabled=false)
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FALCON SENSOR CONFIGURATION
+{{- if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
+  CID source: existing Secret "{{ include "falcon-clusterguard.falconSecretName" . }}"
+{{- else }}
+  CID: configured via falcon.cid
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.admission.enabled }}
+
+WEBHOOK
+  ValidatingWebhookConfiguration: validating.{{ .Chart.Name }}.crowdstrike.com
+  Webhook Service:  webhook.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+  Metadata Service: api.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+
+  TLS certificates are auto-generated on install.
+  {{- if .Values.admission.autoCertificateUpdate }}
+  Auto-rotation is ENABLED — certs refresh on every helm upgrade.
+  {{- else }}
+  Auto-rotation is DISABLED — certs are preserved across upgrades.
+  {{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+{{- if .Values.testing.enabled }}
+
+HELM TESTS
+  Run the test suite:
+    helm test {{ .Release.Name }} -n {{ include "falcon-clusterguard.namespace" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+
+For support, visit https://crowdstrike.com or open an issue at
+https://github.com/CrowdStrike/falcon-helm
