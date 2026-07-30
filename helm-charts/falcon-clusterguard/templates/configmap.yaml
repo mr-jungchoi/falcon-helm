@@ -9,9 +9,39 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-sensor
 data:
   FALCON_MODE: daemonset
+  __CS_ENABLE_K8S_METADATA_SERVICE: "true"
+  {{- include "falcon-clusterguard.generateWatcherEnvVars" . | nindent 2 }}
+  {{- if not (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
+  FALCONCTL_OPT_CID: {{ include "falcon-clusterguard.falconCid" . | quote }}
+  {{- if .Values.falcon.provisioning_token }}
+  FALCONCTL_OPT_PROVISIONING_TOKEN: {{ .Values.falcon.provisioning_token | quote }}
+  {{- end }}
+  {{- end }}
+  {{- range $key, $value := .Values.falcon }}
+  {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
+  FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.node.clusterName }}
+  FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
+  {{- end }}
+{{- if .Values.admission.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admission-controller
+data:
+  FALCON_MODE: kac
   __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.admission.enabled | quote }}
+  __CS_GRPC_API_ENABLED: "true"
   {{- if .Values.admission.tlsVersionMinimum }}
   __CS_TLS_PROTOCOL_MIN: {{ .Values.admission.tlsVersionMinimum | quote }}
   {{- end }}
@@ -22,13 +52,12 @@ data:
   FALCONCTL_OPT_PROVISIONING_TOKEN: {{ .Values.falcon.provisioning_token | quote }}
   {{- end }}
   {{- end }}
-
   {{- range $key, $value := .Values.falcon }}
   {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
   FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
   {{- end }}
   {{- end }}
-
   {{- if .Values.node.clusterName }}
   FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
   {{- end }}
+{{- end }}

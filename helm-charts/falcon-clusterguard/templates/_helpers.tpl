@@ -70,14 +70,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Admission-specific selector labels (used by the admission Deployment/Service/Webhook)
 */}}
 {{- define "falcon-clusterguard.admissionSelectorLabels" -}}
-app: {{ include "falcon-clusterguard.name" . }}-admission
+app: falcon-kac
 {{- end }}
 
 {{/*
-Node-sensor-specific selector labels (used by the node DaemonSet)
+Node-sensor-specific selector labels (used by the node DaemonSet sensor)
 */}}
 {{- define "falcon-clusterguard.nodeSelectorLabels" -}}
-app: {{ include "falcon-clusterguard.name" . }}-node
+app: {{ include "falcon-clusterguard.name" . }}-sensor
 {{- end }}
 
 {{/*
@@ -178,14 +178,18 @@ args:
 {{- end -}}
 
 {{/*
-Config map name for FCG (GKE Autopilot requires an exact name for WorkloadAllowlist)
+ConfigMap name for the node sensor DaemonSet.
+Fixed name — required by GKE Autopilot WorkloadAllowlist and matches the reference manifest.
 */}}
 {{- define "falcon-clusterguard.configMapName" -}}
-{{- if .Values.node.gke.autopilot -}}
-{{- printf "falcon-clusterguard-config" -}}
-{{- else -}}
-{{- printf "%s-config" (include "falcon-clusterguard.fullname" .) -}}
+{{- printf "falcon-sensor-config" -}}
 {{- end -}}
+
+{{/*
+ConfigMap name for the admission controller Deployment.
+*/}}
+{{- define "falcon-clusterguard.admissionConfigMapName" -}}
+{{- printf "falcon-clusterguard-config" -}}
 {{- end -}}
 
 {{/*

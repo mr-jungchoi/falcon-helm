@@ -4,7 +4,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "falcon-clusterguard.fullname" . }}
+  name: falcon-sensor
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
@@ -129,6 +129,8 @@ spec:
         volumeMounts:
           - name: cs-config
             mountPath: /opt/CrowdStrike/config
+          - name: falconstore
+            mountPath: /opt/CrowdStrike/falconstore
           - name: falcon-sensor-tls-certs
             mountPath: /run/secrets/tls
             readOnly: true
@@ -136,7 +138,7 @@ spec:
             mountPath: /run/secrets/ca
             readOnly: true
       containers:
-      - name: falcon-clusterguard-node
+      - name: falcon-sensor
         image: {{ include "falcon-clusterguard.image" . | quote }}
         imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
         securityContext:
@@ -180,6 +182,8 @@ spec:
         volumeMounts:
           - name: cs-config
             mountPath: /opt/CrowdStrike/config
+          - name: falconstore
+            mountPath: /opt/CrowdStrike/falconstore
           - name: falcon-sensor-tls-certs
             mountPath: /run/secrets/tls
             readOnly: true
@@ -190,6 +194,9 @@ spec:
         - name: cs-config
           hostPath:
             path: /opt/CrowdStrike/config
+        - name: falconstore
+          hostPath:
+            path: /opt/CrowdStrike/falconstore
         - name: falcon-sensor-tls-certs
           secret:
             secretName: "falcon-sensor-tls"
