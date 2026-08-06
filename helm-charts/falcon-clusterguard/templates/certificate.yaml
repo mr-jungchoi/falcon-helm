@@ -1,0 +1,82 @@
+{{- if and .Values.admission.enabled .Values.admission.certManager.enabled }}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+
+# Self-signed CA certificate for gRPC mTLS.
+# Both the server cert and client cert are signed by this CA so they share a trust root.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-grpc-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: falcon-clusterguard
+spec:
+  secretName: falcon-grpc-ca
+  issuerRef:
+    {{- toYaml .Values.admission.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+  commonName: falcon-clusterguard-grpc-ca
+  isCA: true
+  usages:
+    - cert sign
+    - crl sign
+---
+# Namespaced CA Issuer backed by the CA cert above.
+# Both leaf certs reference this issuer so they share the same CA trust root.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: falcon-grpc-ca-issuer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: falcon-clusterguard
+spec:
+  ca:
+    secretName: falcon-grpc-ca
+---
+# gRPC API server certificate — presented by falcon-watcher to node sensors.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-api-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: falcon-clusterguard
+spec:
+  secretName: falcon-api-tls
+  issuerRef:
+    name: falcon-grpc-ca-issuer
+    kind: Issuer
+  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+  dnsNames:
+    - api.{{ $ns }}.svc
+    - api.{{ $ns }}.svc.cluster.local
+    - api.{{ $ns }}
+    - api
+  usages:
+    - server auth
+---
+# Node sensor client certificate — presented by falcon-sensor pods to the gRPC server.
+# SPIFFE URI SAN allows the gRPC server to enforce identity-based authorization.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-sensor-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: falcon-clusterguard-sensor
+spec:
+  secretName: falcon-sensor-tls
+  issuerRef:
+    name: falcon-grpc-ca-issuer
+    kind: Issuer
+  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+  uris:
+    - spiffe://cluster.local/ns/{{ $ns }}/sa/{{ include "falcon-clusterguard.nodeServiceAccountName" . }}
+  usages:
+    - client auth
+{{- end }}
