@@ -187,6 +187,16 @@ admission:
   # Certificate validity duration in number of days
   certExpiration: 3650
 
+  # cert-manager integration for gRPC mTLS certificates.
+  # When enabled, cert-manager Certificate resources are created for the API server
+  # and node sensor client certs instead of using Helm-generated self-signed certs.
+  # Requires cert-manager to be installed in the cluster and an issuerRef to be configured.
+  certManager:
+    enabled: false
+    issuerRef: {}
+    #  name: selfsigned-cluster-issuer
+    #  kind: ClusterIssuer
+
   # For custom DNS configurations when .svc requires a domain for services.
   # For example if service.my-namespace.svc doesn't resolve and the cluster uses
   # service.my-namespace.svc.testing.io, you would add testing.io as the value below.
