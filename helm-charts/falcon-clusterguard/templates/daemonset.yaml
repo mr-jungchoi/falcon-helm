@@ -202,5 +202,9 @@ spec:
             secretName: "falcon-sensor-tls"
         - name: falcon-api-ca
           secret:
+            {{- if .Values.admission.certManager.enabled }}
+            secretName: "falcon-grpc-ca"
+            {{- else }}
             secretName: "falcon-api-ca"
+            {{- end }}
 {{- end }}
