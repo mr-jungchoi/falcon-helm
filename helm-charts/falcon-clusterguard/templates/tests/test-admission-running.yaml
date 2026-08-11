@@ -1,4 +1,4 @@
-{{- if and .Values.testing.enabled .Values.admission.enabled -}}
+{{- if and .Values.testing.enabled .Values.cluster.enabled -}}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -47,7 +47,7 @@ spec:
           fi
 
           echo "--- Checking admission ServiceAccount ---"
-          SA_NAME="{{ include "falcon-clusterguard.admissionServiceAccountName" . }}"
+          SA_NAME="{{ include "falcon-clusterguard.clusterServiceAccountName" . }}"
           if ! kubectl get serviceaccount "${SA_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: ServiceAccount '${SA_NAME}' not found"
             FAILED=1
@@ -89,7 +89,7 @@ spec:
           fi
 
           echo "--- Checking TLS Secret ---"
-          TLS_SECRET="{{ include "falcon-clusterguard.name" . }}-tls"
+          TLS_SECRET="falcon-cluster-sensor-tls"
           if ! kubectl get secret "${TLS_SECRET}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: TLS Secret '${TLS_SECRET}' not found"
             FAILED=1
@@ -125,7 +125,7 @@ spec:
                 echo "[OK]: Pod '${POD}' helm.sh/chart matches"
               fi
 
-              {{- if .Values.admission.hostNetwork }}
+              {{- if .Values.cluster.hostNetwork }}
               HOST_NETWORK=$(kubectl get deployment "{{ include "falcon-clusterguard.name" . }}" \
                 -n "{{ include "falcon-clusterguard.namespace" . }}" \
                 -o jsonpath="{.spec.template.spec.hostNetwork}")
