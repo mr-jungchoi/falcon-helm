@@ -91,7 +91,7 @@ supplementalGroups:
     - min: 1
       max: 65535
 users:
-  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.admissionServiceAccountName" . }}
+  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.clusterServiceAccountName" . }}
 groups: []
 volumes:
   - configMap
