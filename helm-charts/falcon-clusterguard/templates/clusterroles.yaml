@@ -14,7 +14,6 @@ rules:
   - pods
   - secrets
   - services
-  - persistentvolumes
   verbs:
   - get
   - list

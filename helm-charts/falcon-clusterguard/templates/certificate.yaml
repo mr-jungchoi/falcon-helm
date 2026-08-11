@@ -1,4 +1,4 @@
-{{- if and .Values.admission.enabled .Values.admission.certManager.enabled }}
+{{- if and .Values.cluster.enabled .Values.cluster.certManager.enabled }}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 
 # Self-signed CA certificate for gRPC mTLS.
@@ -12,10 +12,10 @@ metadata:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
     app.kubernetes.io/component: falcon-clusterguard
 spec:
-  secretName: falcon-grpc-ca
+  secretName: falcon-api-ca
   issuerRef:
-    {{- toYaml .Values.admission.certManager.issuerRef | nindent 4 }}
-  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+    {{- toYaml .Values.cluster.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
   commonName: falcon-clusterguard-grpc-ca
   isCA: true
   usages:
@@ -34,7 +34,7 @@ metadata:
     app.kubernetes.io/component: falcon-clusterguard
 spec:
   ca:
-    secretName: falcon-grpc-ca
+    secretName: falcon-api-ca
 ---
 # gRPC API server certificate — presented by falcon-watcher to node sensors.
 apiVersion: cert-manager.io/v1
@@ -50,7 +50,7 @@ spec:
   issuerRef:
     name: falcon-grpc-ca-issuer
     kind: Issuer
-  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
   dnsNames:
     - api.{{ $ns }}.svc
     - api.{{ $ns }}.svc.cluster.local
@@ -64,17 +64,17 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: falcon-sensor-tls
+  name: falcon-node-sensor-tls
   namespace: {{ $ns }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
     app.kubernetes.io/component: falcon-clusterguard-sensor
 spec:
-  secretName: falcon-sensor-tls
+  secretName: falcon-node-sensor-tls
   issuerRef:
     name: falcon-grpc-ca-issuer
     kind: Issuer
-  duration: "{{ mul .Values.admission.certExpiration 24 }}h"
+  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
   uris:
     - spiffe://cluster.local/ns/{{ $ns }}/sa/{{ include "falcon-clusterguard.nodeServiceAccountName" . }}
   usages:
