@@ -1,4 +1,4 @@
-{{- if .Values.admission.enabled }}
+{{- if .Values.cluster.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,5 +15,5 @@ spec:
       protocol: TCP
       name: grpc-api
   selector:
-    {{- include "falcon-clusterguard.admissionSelectorLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.clusterSensorSelectorLabels" . | nindent 4 }}
 {{- end }}

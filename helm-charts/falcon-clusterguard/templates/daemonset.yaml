@@ -21,7 +21,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 6 }}
+      {{- include "falcon-clusterguard.nodeSensorSelectorLabels" . | nindent 6 }}
   updateStrategy:
     type: {{ .Values.node.daemonset.updateStrategy }}
     {{- if and (eq .Values.node.daemonset.updateStrategy "RollingUpdate") (ne (int .Values.node.daemonset.maxUnavailable) 1) }}
@@ -41,7 +41,7 @@ spec:
         {{- end }}
       labels:
         {{- include "falcon-clusterguard.labels" . | nindent 8 }}
-        {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 8 }}
+        {{- include "falcon-clusterguard.nodeSensorSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clusterguard
         {{ include "falcon-clusterguard.workloadDeployAllowlistLabel" . }}
         {{- range $key, $value := .Values.node.daemonset.labels }}
@@ -131,7 +131,7 @@ spec:
             mountPath: /opt/CrowdStrike/config
           - name: falconstore
             mountPath: /opt/CrowdStrike/falconstore
-          - name: falcon-sensor-tls-certs
+          - name: falcon-node-sensor-tls-certs
             mountPath: /run/secrets/tls
             readOnly: true
           - name: falcon-api-ca
@@ -184,7 +184,7 @@ spec:
             mountPath: /opt/CrowdStrike/config
           - name: falconstore
             mountPath: /opt/CrowdStrike/falconstore
-          - name: falcon-sensor-tls-certs
+          - name: falcon-node-sensor-tls-certs
             mountPath: /run/secrets/tls
             readOnly: true
           - name: falcon-api-ca
@@ -197,14 +197,10 @@ spec:
         - name: falconstore
           hostPath:
             path: /opt/CrowdStrike/falconstore
-        - name: falcon-sensor-tls-certs
+        - name: falcon-node-sensor-tls-certs
           secret:
-            secretName: "falcon-sensor-tls"
+            secretName: "falcon-node-sensor-tls"
         - name: falcon-api-ca
           secret:
-            {{- if .Values.admission.certManager.enabled }}
-            secretName: "falcon-grpc-ca"
-            {{- else }}
             secretName: "falcon-api-ca"
-            {{- end }}
 {{- end }}

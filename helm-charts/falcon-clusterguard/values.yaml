@@ -4,11 +4,10 @@
 #
 # Falcon Cluster Guard (FCG) is a unified Kubernetes security service that combines:
 #   - Falcon node-sensor DaemonSet (kernel/eBPF endpoint protection)
-#   - Falcon admission controller (validating webhook for K8s workloads)
-#   - Central gRPC K8s metadata service (replaces per-node API server queries)
+#   - Falcon cluster-sensor (validating webhook for K8s workloads + metadata service for visibility)
 #
 # The `image` block below is unified across both workloads - a single FCG container
-# image is used by both the node DaemonSet and the admission controller Deployment.
+# image is used by both the node DaemonSet and the cluster sensor Deployment.
 
 image:
   # Unified FCG container image (runs both node sensor and admission control modes)
@@ -71,7 +70,7 @@ node:
   # ServiceAccount for the node sensor DaemonSet and post-delete cleanup DaemonSet.
   # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).
   serviceAccount:
-    name: falcon-clusterguard-sensor-sa
+    name: falcon-node-sensor-sa
     annotations: { }
 
   # Enable for use on Google's GKE Autopilot clusters
@@ -143,29 +142,27 @@ node:
   cleanupOnly: false
 
 # =============================================================================
-# Admission control configuration (inherited from falcon-kac, namespaced under `admission`)
+# Cluster sensor configuration (inherited from falcon-kac)
 # =============================================================================
-admission:
-  # Toggle admission control on/off. When false, no Deployment/Service/Webhook/TLS Secret/
+cluster:
+  # Toggle cluster sensor on/off. When false, no Deployment/Service/Webhook/TLS Secret/
   # ResourceQuota resources are rendered. Defaults to enabled for comprehensive protection.
   enabled: true
 
-  # ServiceAccount for the admission controller Deployment.
-  # Uses restricted-v2 SCC on OpenShift by default (no host access required).
-  # A custom SCC is created only when openshift.enabled=true and admission.hostNetwork=true.
+  # ServiceAccount for the cluster-sensor Deployment.
   serviceAccount:
-    name: falcon-clusterguard-admission-sa
+    name: falcon-cluster-sensor-sa
     annotations: {}
 
-  # Number of admission controller replicas. Currently the metadata service is single-instance
+  # Number of cluster-sensor replicas. Currently, the metadata service is single-instance
   # (architectural constraint), so keep this at 1 unless you understand the implications.
   replicas: 1
 
-  # ResourceQuota for admission pods (scoped to system-cluster-critical PriorityClass)
+  # ResourceQuota for cluster-sensor pods (scoped to system-cluster-critical PriorityClass)
   resourceQuota:
     pods: 2
 
-  # Specifies if the admission controller pod should use hostNetwork mode. This is required
+  # Specifies if the cluster sensor pod should use hostNetwork mode. This is required
   # in some scenarios such as when a custom CNI is in use where control plane nodes cannot
   # establish network communication with pods.
   hostNetwork: false
@@ -176,7 +173,7 @@ admission:
   # Configure the watcher Port (HTTP, internal)
   watcherPort: 4080
 
-  # Define admission controller Pod DNS Policy. Follows cluster default when unset;
+  # Define cluster sensor pod DNS Policy. Follows cluster default when unset;
   # set to "ClusterFirstWithHostNet" automatically when hostNetwork = true unless overridden.
   dnsPolicy:
 
@@ -212,9 +209,9 @@ admission:
     # Comma separated list of namespaces in which to disable validation e.g. "test1,test2"
     disableNamespaces:
 
-  # Resource limits for admission controller containers
+  # Resource limits for cluster sensor containers
   resources:
-    # falcon-client (webhook receiver) - when admission control is enabled
+    # falcon-client (webhook receiver) - when cluster sensor is enabled
     client:
       limits:
         memory: 384Mi
@@ -222,7 +219,7 @@ admission:
         cpu: 250m
         memory: 384Mi
 
-    # falcon-client - lighter footprint when admission is disabled (visibility-only mode)
+    # falcon-client - lighter footprint when webhook is disabled (visibility-only mode)
     clientNoWebhook:
       limits:
         memory: 128Mi
@@ -238,7 +235,7 @@ admission:
         cpu: 250m
         memory: 512Mi
 
-    # falcon-ac (admission controller decision engine)
+    # falcon-ac (cluster sensor decision engine)
     admissionController:
       limits:
         memory: 256Mi
@@ -246,7 +243,7 @@ admission:
         cpu: 100m
         memory: 256Mi
 
-  # Scheduling controls for the admission Deployment
+  # Scheduling controls for the cluster-sensor Deployment
   tolerations: []
 
   affinity:
@@ -263,13 +260,13 @@ admission:
   # Update Webhook and roll out new Deployment on helm upgrade (adds annotation to force restart)
   autoDeploymentUpdate: true
 
-  # Annotations for the admission deployment
+  # Annotations for the cluster-sensor deployment
   annotations: {}
 
-  # Additional labels for the admission deployment
+  # Additional labels for the cluster-sensor deployment
   labels: {}
 
-  # Pod-level annotations for admission pods
+  # Pod-level annotations for cluster-sensor pods
   podAnnotations: {}
 
 # =============================================================================
@@ -321,9 +318,9 @@ openshift:
   # Set to true to enable OpenShift compatibility mode.
   enabled: false
   # Set to true to create a privileged SCC for the node sensor DaemonSet,
-  # and a hostNetwork SCC for the admission controller Deployment.
+  # and a hostNetwork SCC for the cluster sensor Deployment.
   # Required for the node sensor to run as root with host access (hostPID, hostNetwork, hostIPC).
-  # Only needed for admission controller when admission.hostNetwork=true.
+  # Only needed for cluster sensor when cluster.hostNetwork=true.
   createSCC: true
 
   # Name of the node sensor SCC. Defaults to "<release-fullname>-node-sensor".

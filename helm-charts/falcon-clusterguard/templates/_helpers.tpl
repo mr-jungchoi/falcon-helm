@@ -69,29 +69,29 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 Admission-specific selector labels (used by the admission Deployment/Service/Webhook)
 */}}
-{{- define "falcon-clusterguard.admissionSelectorLabels" -}}
-app: falcon-kac
+{{- define "falcon-clusterguard.clusterSensorSelectorLabels" -}}
+app: cluster-sensor
 {{- end }}
 
 {{/*
 Node-sensor-specific selector labels (used by the node DaemonSet sensor)
 */}}
-{{- define "falcon-clusterguard.nodeSelectorLabels" -}}
-app: {{ include "falcon-clusterguard.name" . }}-sensor
+{{- define "falcon-clusterguard.nodeSensorSelectorLabels" -}}
+app: node-sensor
 {{- end }}
 
 {{/*
 ServiceAccount name for the node sensor DaemonSet (privileged; bound to node SCC on OpenShift)
 */}}
 {{- define "falcon-clusterguard.nodeServiceAccountName" -}}
-{{- default (printf "%s-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.node.serviceAccount.name }}
+{{- default (printf "%s-node-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.node.serviceAccount.name }}
 {{- end }}
 
 {{/*
 ServiceAccount name for the admission controller Deployment (restricted; no host access)
 */}}
-{{- define "falcon-clusterguard.admissionServiceAccountName" -}}
-{{- default (printf "%s-admission-sa" (include "falcon-clusterguard.fullname" .)) .Values.admission.serviceAccount.name }}
+{{- define "falcon-clusterguard.clusterServiceAccountName" -}}
+{{- default (printf "%s-cluster-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.cluster.serviceAccount.name }}
 {{- end }}
 
 {{/*
@@ -278,11 +278,9 @@ __CS_WATCH_EVENTS_ENABLED: {{ $watcherEnabled | toString | quote }}
 __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{- end -}}
 
-{{/*
-Admission control enabled? True iff .Values.admission.enabled is truthy.
-*/}}
-{{- define "falcon-clusterguard.admissionEnabled" -}}
-{{- if .Values.admission.enabled -}}
+
+{{- define "falcon-clusterguard.clusterSensorEnabled" -}}
+{{- if .Values.cluster.enabled -}}
 true
 {{- else -}}
 false
@@ -304,7 +302,7 @@ false
 At least one of admission control or visibility must be enabled.
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.admissionEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") -}}
+{{- if and (eq (include "falcon-clusterguard.clusterSensorEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") -}}
 {{- fail "Error: at least one of admission.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
 {{- end -}}
 {{- end -}}
@@ -401,7 +399,7 @@ OpenShift node createSCC — true when openshift.enabled and openshift.createSCC
 OpenShift admission createSCC — true when openshift.enabled, openshift.createSCC, and admission.hostNetwork
 */}}
 {{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
-{{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.admission.hostNetwork -}}
+{{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.cluster.hostNetwork -}}
 {{- end -}}
 
 {{/*

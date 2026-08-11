@@ -1,4 +1,4 @@
-{{- if .Values.admission.enabled }}
+{{- if .Values.cluster.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,5 +12,5 @@ spec:
     - port: 443
       targetPort: webhook-port
   selector:
-    {{- include "falcon-clusterguard.admissionSelectorLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.clusterSensorSelectorLabels" . | nindent 4 }}
 {{- end }}

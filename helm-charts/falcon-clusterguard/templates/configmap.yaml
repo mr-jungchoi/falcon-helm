@@ -28,7 +28,7 @@ data:
   {{- if .Values.node.clusterName }}
   FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
   {{- end }}
-{{- if .Values.admission.enabled }}
+{{- if .Values.cluster.enabled }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -40,10 +40,10 @@ metadata:
     app.kubernetes.io/component: admission-controller
 data:
   FALCON_MODE: kac
-  __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.admission.enabled | quote }}
+  __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.cluster.enabled | quote }}
   __CS_GRPC_API_ENABLED: "true"
-  {{- if .Values.admission.tlsVersionMinimum }}
-  __CS_TLS_PROTOCOL_MIN: {{ .Values.admission.tlsVersionMinimum | quote }}
+  {{- if .Values.cluster.tlsVersionMinimum }}
+  __CS_TLS_PROTOCOL_MIN: {{ .Values.cluster.tlsVersionMinimum | quote }}
   {{- end }}
   {{- include "falcon-clusterguard.generateWatcherEnvVars" . | nindent 2 }}
   {{- if not (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
