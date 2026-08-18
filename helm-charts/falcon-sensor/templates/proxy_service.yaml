@@ -1,0 +1,33 @@
+{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) .Values.node.guardian.proxy.enabled }}
+# Service for falcon-proxy - routes node-local only.
+# The selector matches the node sensor DaemonSet pods (kernel_sensor component)
+# so traffic is delivered to the falcon-proxy listener on each node.
+apiVersion: v1
+kind: Service
+metadata:
+  name: falcon-proxy
+  namespace: {{ include "falcon-sensor.namespace" . }}
+  labels:
+    app: "{{ include "falcon-sensor.name" . }}"
+    app.kubernetes.io/name: {{ include "falcon-sensor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: "kernel_sensor"
+    crowdstrike.com/provider: crowdstrike
+    helm.sh/chart: {{ include "falcon-sensor.chart" . }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "falcon-sensor.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: "kernel_sensor"
+    crowdstrike.com/provider: crowdstrike
+  # internalTrafficPolicy is intentionally fixed to Local: the proxy is a
+  # node-local listener, so a request must be served only by the sensor on the
+  # same node that received it.
+  internalTrafficPolicy: Local
+  ports:
+  - name: proxy
+    port: {{ .Values.node.guardian.proxy.port }}
+    targetPort: proxy
+    protocol: TCP
+{{- end }}

@@ -111,6 +111,51 @@ node:
   # How long to wait for Falcon pods to stop gracefully
   terminationGracePeriod: 60
 
+  # Guardian settings for the node sensor.
+  guardian:
+    # Guardian Local Proxy (falcon-proxy) support. The proxy provides visibility
+    # into AI applications running on the node: it sits in front of the AI
+    # application traffic so the sensor can observe and protect those workloads.
+    # Note this is inbound traffic to the node and is unrelated to the sensor's
+    # outbound proxy to the CrowdStrike cloud (see falcon.apd/aph/app). When
+    # enabled, the sensor exposes the falcon-proxy port on each node and a
+    # node-local Service is created that routes traffic to the proxy. The
+    # Guardian Local Proxy must also be enabled in the Falcon console for it to
+    # run. This feature is only supported on bpf daemonset sensors.
+    proxy:
+      # When enabled, adds the proxy container port and the falcon-proxy Service
+      # to the daemonset deployment.
+      enabled: false
+      # Container port and Service port for falcon-proxy. This does not
+      # configure the port the proxy server listens on -- that is set by the
+      # Guardian Policy in the Falcon console -- so this must match the port
+      # configured there, or the Service will route traffic to a port nothing is
+      # listening on.
+      port: 48080
+      # Name of an optional secret containing CA certificate(s) that the proxy
+      # uses to verify the TLS certificate presented by upstream endpoints it
+      # forwards to. It is mounted read-only at /opt/CrowdStrike/certs. The
+      # mount is skipped if the secret does not exist (optional: true).
+      tlsSecretName: falcon-proxy-tls
+
+  # Custom DNS for the node sensor pod. This applies to the whole sensor pod,
+  # not just Guardian. The Guardian Local Proxy resolves
+  # backend hostnames from the sensor pod's DNS context, so names must resolve
+  # from the sensor pod. Prefer a CoreDNS stub-domain / forward rule for
+  # cluster-wide zones; use the option below for sensor-scoped DNS. One sensor
+  # pod serves all agent pods on its node, so this assumes uniform custom DNS.
+  dns:
+    # Maps to the pod spec dnsConfig (merged into /etc/resolv.conf). Leave empty
+    # to inherit node/cluster defaults.
+    config: {}
+    #  nameservers:
+    #    - "10.0.0.53"
+    #  searches:
+    #    - "corp.internal"
+    #  options:
+    #    - name: ndots
+    #      value: "2"
+
   hooks:
     # Settings for the node post-delete helm hook
     postDelete:
