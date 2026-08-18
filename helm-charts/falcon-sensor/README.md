@@ -21,6 +21,9 @@ more.
   - [Pod Security Standards](#pod-security-standards)
   - [Install CrowdStrike Falcon Helm Chart on Kubernetes Nodes](#install-crowdstrike-falcon-helm-chart-on-kubernetes-nodes)
   - [Node Configuration](#node-configuration)
+  - [Guardian Local Proxy](#guardian-local-proxy)
+    - [Verifying upstream endpoints (TLS)](#verifying-upstream-endpoints-tls)
+    - [Custom DNS for the Guardian Local Proxy](#custom-dns-for-the-guardian-local-proxy)
   - [GKE Autopilot Configuration](#gke-autopilot-configuration)
 - [Installing in Kubernetes Cluster as a Sidecar](#installing-in-kubernetes-cluster-as-a-sidecar)
   - [Deployment Considerations](#deployment-considerations-1)
@@ -297,6 +300,10 @@ The following tables lists the more common configurable parameters of the chart 
 | `falconSecret.enabled`          | Enable k8s secrets to inject sensitive Falcon values                                                                                                                                                                                                                                                  | false       (Must be true if falcon.cid is not set)                                                                        |
 | `falconSecret.secretName`       | Existing k8s secret name to inject sensitive Falcon values.<br> The secret must be under the same namespace as the sensor deployment.<br><br> Secret name must be `"falcon-node-sensor-secret"` if deploying to a GKE Autopilot cluster.                                                              | None       (Existing secret must include `FALCONCTL_OPT_CID`)                                                              |
 | `node.podLabels`              | Additional labels to add to node DaemonSet pod metadata. Note: may affect WorkloadAllowlists in GKE Autopilot. Example: `azure.workload.identity/use: "true"`.                                                                                                                                        | `{}`                                                                                                                       |
+| `node.guardian.proxy.enabled`            | Enable the Guardian Local Proxy (falcon-proxy), which gives the sensor visibility into AI applications on the node. Adds the proxy container port and a node-local `falcon-proxy` Service. Only supported on bpf DaemonSet sensors. The Guardian Local Proxy must also be enabled in the Falcon console.                                                                                          | `false`                                                                                                                   |
+| `node.guardian.proxy.port`               | Container port and Service port for falcon-proxy. Does not configure the port the proxy server listens on — that is set by the Guardian Policy in the Falcon console — so this must match the port configured there.                                                                                                                                                                    | `48080`                                                                                                                   |
+| `node.guardian.proxy.tlsSecretName`      | Name of an optional secret with CA certificate(s) the proxy uses to verify the TLS certificate of upstream endpoints it forwards to. Mounted read-only at `/opt/CrowdStrike/certs`; the mount is skipped if the secret does not exist (`optional: true`). See [Verifying upstream endpoints (TLS)](#verifying-upstream-endpoints-tls).                                                      | `falcon-proxy-tls`                                                                                                        |
+| `node.dns.config`               | Maps to the pod spec `dnsConfig` (merged into `/etc/resolv.conf`): `nameservers`, `searches`, `options`. Only rendered when set. See [Custom DNS for the Guardian Local Proxy](#custom-dns-for-the-guardian-local-proxy).                                                                               | `{}`                                                                                                                      |
 
 `falcon.cid` and `node.image.repository` are required values.
 
@@ -305,6 +312,66 @@ For a complete listing of configurable parameters, run the following command:
 ```
 helm show values crowdstrike/falcon-sensor
 ```
+
+### Guardian Local Proxy
+
+The node sensor can run the Guardian Local Proxy (falcon-proxy), a reverse proxy that provides visibility into AI applications running on the node. It sits in front of the AI application traffic so the sensor can observe and protect those workloads; it is not a general-purpose proxy for other cluster traffic. It is only supported on bpf DaemonSet sensors.
+
+> [!NOTE]
+> The Guardian Local Proxy handles **inbound** traffic on the node. It is unrelated to the sensor's **outbound** proxy to the CrowdStrike cloud, which is configured with [`falcon.apd` / `falcon.aph` / `falcon.app`](#falcon-configuration-options).
+
+The Guardian Local Proxy must be enabled in the Falcon console for it to run. Setting `node.guardian.proxy.enabled=true` prepares the DaemonSet for it by:
+
+- exposing the proxy container port (`node.guardian.proxy.port`, default `48080`) on the sensor pod. This value does not configure the port the proxy server listens on — that is set by the Guardian Policy in the Falcon console — so it must match the port configured there, otherwise the Service routes traffic to a port nothing is listening on;
+- mounting an optional CA trust bundle (`node.guardian.proxy.tlsSecretName`, default `falcon-proxy-tls`) read-only at `/opt/CrowdStrike/certs` so the proxy can verify upstream endpoints — the mount is skipped if the secret does not exist (see [Verifying upstream endpoints (TLS)](#verifying-upstream-endpoints-tls));
+- creating a node-local Service named `falcon-proxy` that selects the node sensor pods and routes to the proxy port. The Service always uses `internalTrafficPolicy: Local` so a request is served only by the sensor on the same node; this is required for node-local proxy semantics and is not configurable.
+
+```
+helm install falcon-sensor crowdstrike/falcon-sensor -n falcon-system --create-namespace \
+    --set node.image.repository="<Your_Registry>/falcon-node-sensor" \
+    --set falcon.cid="<CrowdStrike_CID>" \
+    --set node.guardian.proxy.enabled=true
+```
+
+Verify the proxy is running on a node (the sensor image may not include `ss`, so check for the `falcon-proxy` process instead):
+
+```
+kubectl exec -n falcon-system <falcon-sensor-pod> -- ps -ef | grep [f]alcon-proxy
+```
+
+#### Verifying upstream endpoints (TLS)
+
+When the proxy forwards a request to an upstream endpoint over TLS, it validates the endpoint's server certificate against a set of trusted CA certificates. Any certificate files placed in `/opt/CrowdStrike/certs` are added to that trust store. This is only needed when the upstream endpoints present certificates issued by a private or internal CA that the sensor image's default trust store does not already include; endpoints with publicly trusted certificates work without it.
+
+Provide the CA certificate(s) as a secret named by `node.guardian.proxy.tlsSecretName` (default `falcon-proxy-tls`) in the sensor's namespace. Each key in the secret becomes a file under `/opt/CrowdStrike/certs`:
+
+```
+kubectl create secret generic falcon-proxy-tls \
+    -n falcon-system \
+    --from-file=ca.crt=/path/to/upstream-ca.crt
+```
+
+The mount is optional: if the secret is absent the proxy simply relies on its default CA trust store. The secret is mounted read-only with mode `0400`.
+
+#### Custom DNS for the Guardian Local Proxy
+
+The proxy resolves target hostnames from the **sensor pod's** DNS context, so a name must be resolvable from the sensor pod (otherwise the client sees `502 Bad Gateway`). For cluster-wide custom zones, prefer a CoreDNS stub-domain / `forward` rule — the proxy inherits it automatically. For sensor-scoped DNS, set `node.dns.config`, which maps to the pod's `dnsConfig`:
+
+```yaml
+node:
+  dns:
+    config:
+      nameservers:
+        - "10.0.0.53"
+      searches:
+        - "corp.internal"
+      options:
+        - name: ndots
+          value: "2"
+```
+
+> [!WARNING]
+> One sensor pod serves all agent pods on its node, so this assumes custom DNS is uniform across the node/cluster.
 
 ### GKE Autopilot Configuration
 #### Configuring the AllowlistSynchronizer

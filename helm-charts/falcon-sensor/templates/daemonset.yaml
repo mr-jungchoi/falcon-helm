@@ -148,6 +148,12 @@ spec:
       - name: falcon-node-sensor
         image: "{{ include "falcon-sensor.image" . }}"
         imagePullPolicy: "{{ .Values.node.image.pullPolicy }}"
+        {{- if .Values.node.guardian.proxy.enabled }}
+        ports:
+        - name: proxy
+          containerPort: {{ .Values.node.guardian.proxy.port }}
+          protocol: TCP
+        {{- end }}
         # Various pod security context settings. Bear in mind that many of these have an impact
         # on the Falcon Sensor working correctly.
         #
@@ -184,6 +190,10 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+          - name: HOST_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
         {{- if include "falcon-sensor.csiEnabled" . | eq "true" }}
           - name: FALCONCTL_OPT_CID
             valueFrom:
@@ -217,6 +227,11 @@ spec:
             mountPath: /mnt/secrets-store
             readOnly: true
           {{- end }}
+          {{- if .Values.node.guardian.proxy.enabled }}
+          - name: proxy-tls
+            mountPath: /opt/CrowdStrike/certs
+            readOnly: true
+          {{- end }}
       volumes:
         - name: falconstore
           hostPath:
@@ -232,13 +247,27 @@ spec:
             volumeAttributes:
               secretProviderClass: {{ include "falcon-sensor.fullname" . }}-csi
         {{- end }}
+        {{- if .Values.node.guardian.proxy.enabled }}
+        - name: proxy-tls
+          secret:
+            secretName: {{ .Values.node.guardian.proxy.tlsSecretName }}
+            optional: true
+            defaultMode: 0400
+        {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
     {{- if or .Values.node.daemonset.priorityClassName .Values.node.gke.autopilot }}
       priorityClassName: {{ include "falcon-sensor.priorityClassName" . }}
     {{- end }}
       hostNetwork: true
+      # dnsPolicy is fixed to ClusterFirstWithHostNet: the sensor pod runs with
+      # hostNetwork: true, and this is the only policy that lets it use cluster
+      # DNS in that mode. It is not configurable.
       dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.node.dns.config }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       hostPID: true
       hostIPC: true
 {{- end }}
