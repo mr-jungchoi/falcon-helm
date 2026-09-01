@@ -55,8 +55,31 @@ falconSecret:
   enabled: false
   secretName: ""
 
+# Secrets Store CSI Driver integration.
+# Requires secrets-store-csi-driver and the appropriate provider addon to be installed.
+# When enabled, FALCONCTL_OPT_CID (and optionally FALCONCTL_OPT_PROVISIONING_TOKEN)
+# are sourced from the secrets store rather than from falcon.cid or falconSecret.
+# Auth wiring (pod annotations/labels, serviceAccount annotations) is provider-specific
+# and left to the user via podAnnotations/podLabels/serviceAccount.annotations.
+# Component-level setting overrides global setting.
+secretsStore:
+  enabled: false
+  provider: ""
+  secretName: ""
+  azure:
+    vaultName: ""
+    tenantID: ""
+    clientID: ""
+  vault:
+    address: ""
+    roleName: ""
+    secretPath: ""
+    cidSecretKey: "cid"
+    provisioningTokenSecretKey: "provisioning_token"
+    additionalParameters: {}
+
 # =============================================================================
-# Node sensor DaemonSet configuration (inherited from falcon-sensor)
+# Node sensor DaemonSet configuration
 # =============================================================================
 node:
   # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
@@ -142,7 +165,7 @@ node:
   cleanupOnly: false
 
 # =============================================================================
-# Cluster sensor configuration (inherited from falcon-kac)
+# Cluster sensor configuration
 # =============================================================================
 cluster:
   # Toggle cluster sensor on/off. When false, no Deployment/Service/Webhook/TLS Secret/
@@ -270,7 +293,7 @@ cluster:
   podAnnotations: {}
 
 # =============================================================================
-# Cluster visibility settings (K8s metadata service, control-loop driven)
+# Cluster visibility settings (K8s metadata service)
 # =============================================================================
 # These variables control how FCG provides visibility into resources on your Kubernetes cluster.
 clusterVisibility:
@@ -329,3 +352,26 @@ openshift:
   # Name of the admission SCC. Defaults to "<release-fullname>-admission".
   admissionSCCName: ""
 
+# Global values — used when falcon-clusterguard is deployed as a subchart of falcon-platform.
+# These mirror the global values schema of the other falcon-platform subcharts.
+# Chart-level values take precedence over globals when both are set.
+global:
+  falcon:
+    cid:
+  falconSecret:
+    enabled: false
+    secretName: ""
+  containerRegistry:
+    pullSecret: ""
+    configJSON: ""
+  openshift:
+    enabled: false
+    createSCC: true
+  secretsStore:
+    enabled: false
+    provider: ""
+    secretName: ""
+    azure:
+      vaultName: ""
+      tenantID: ""
+      clientID: ""
