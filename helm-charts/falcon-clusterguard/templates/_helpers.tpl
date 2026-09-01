@@ -311,33 +311,42 @@ At least one of admission control or visibility must be enabled.
 Get Falcon CID
 */}}
 {{- define "falcon-clusterguard.falconCid" -}}
+{{- if and .Values.global.falcon.cid (not .Values.falcon.cid) -}}
+{{- .Values.global.falcon.cid -}}
+{{- else -}}
 {{- .Values.falcon.cid | default "" -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
-Check if Falcon secret is enabled
+Check if Falcon secret is enabled — true if either chart-level or global is true.
 */}}
 {{- define "falcon-clusterguard.falconSecretEnabled" -}}
-{{- .Values.falconSecret.enabled -}}
+{{- or .Values.global.falconSecret.enabled .Values.falconSecret.enabled -}}
 {{- end -}}
 
 {{/*
 Get Falcon secret name
 */}}
 {{- define "falcon-clusterguard.falconSecretName" -}}
+{{- if and .Values.global.falconSecret.secretName (not .Values.falconSecret.secretName) -}}
+{{- .Values.global.falconSecret.secretName -}}
+{{- else -}}
 {{- .Values.falconSecret.secretName | default "" -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
-Validate exactly one of falcon.cid or falconSecret is configured
+Validate exactly one of falcon.cid, falconSecret, or secretsStore is configured.
 */}}
 {{- define "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" -}}
 {{- $hasCid := include "falcon-clusterguard.falconCid" . -}}
 {{- $secretEnabled := (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") -}}
 {{- $hasSecret := include "falcon-clusterguard.falconSecretName" . -}}
+{{- $csiEnabled := (include "falcon-clusterguard.csiEnabled" . | eq "true") -}}
 
-{{- if and (not $hasCid) (or (not $secretEnabled) (not $hasSecret)) -}}
-{{- fail "Must configure one of falcon.cid or falconSecret with FALCONCTL_OPT_CID data" }}
+{{- if and (not $hasCid) (or (not $secretEnabled) (not $hasSecret)) (not $csiEnabled) -}}
+{{- fail "Must configure one of falcon.cid, falconSecret with FALCONCTL_OPT_CID data, or secretsStore" }}
 {{- end -}}
 
 {{- if and ($hasCid) ($secretEnabled) -}}
@@ -349,14 +358,53 @@ Validate exactly one of falcon.cid or falconSecret is configured
 Get container registry pull secret name
 */}}
 {{- define "falcon-clusterguard.imagePullSecret" -}}
+{{- if and .Values.global.containerRegistry.pullSecret (not .Values.image.pullSecrets) -}}
+{{- .Values.global.containerRegistry.pullSecret -}}
+{{- else -}}
 {{- .Values.image.pullSecrets | default "" -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
 Get container registry config JSON
 */}}
 {{- define "falcon-clusterguard.registryConfigJson" -}}
+{{- if and .Values.global.containerRegistry.configJSON (not .Values.image.registryConfigJSON) -}}
+{{- .Values.global.containerRegistry.configJSON -}}
+{{- else -}}
 {{- .Values.image.registryConfigJSON | default "" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Get the name of the Kubernetes secret created by the CSI driver.
+*/}}
+{{- define "falcon-clusterguard.csiSecretName" -}}
+{{- $csiSecretName := .Values.secretsStore.secretName | default .Values.global.secretsStore.secretName -}}
+{{- if $csiSecretName -}}
+{{- $csiSecretName -}}
+{{- else -}}
+{{- printf "%s-csi" (include "falcon-clusterguard.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Returns true when Secrets Store CSI is enabled.
+Component-level setting overrides global.
+*/}}
+{{- define "falcon-clusterguard.csiEnabled" -}}
+{{- if eq .Values.secretsStore.enabled false -}}
+{{- /* Explicitly disabled at chart level — don't check global */ -}}
+{{- else if or .Values.secretsStore.enabled .Values.global.secretsStore.enabled -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Returns the effective CSI provider (chart-level overrides global).
+*/}}
+{{- define "falcon-clusterguard.csiProvider" -}}
+{{- .Values.secretsStore.provider | default .Values.global.secretsStore.provider -}}
 {{- end -}}
 
 {{/*
@@ -382,24 +430,24 @@ OpenShift SCC name for the admission controller Deployment (hostNetwork SCC)
 {{- end -}}
 
 {{/*
-OpenShift mode enabled
+OpenShift mode enabled — true if either chart-level or global is true.
 */}}
 {{- define "falcon-clusterguard.openshiftEnabled" -}}
-{{- .Values.openshift.enabled -}}
+{{- or .Values.openshift.enabled .Values.global.openshift.enabled -}}
 {{- end -}}
 
 {{/*
-OpenShift node createSCC — true when openshift.enabled and openshift.createSCC
+OpenShift node createSCC — false if either chart-level or global disables it.
 */}}
 {{- define "falcon-clusterguard.openshiftNodeCreateSCC" -}}
-{{- and .Values.openshift.enabled .Values.openshift.createSCC -}}
+{{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC -}}
 {{- end -}}
 
 {{/*
-OpenShift admission createSCC — true when openshift.enabled, openshift.createSCC, and admission.hostNetwork
+OpenShift cluster sensor createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
 */}}
 {{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
-{{- and .Values.openshift.enabled .Values.openshift.createSCC .Values.cluster.hostNetwork -}}
+{{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}
 {{- end -}}
 
 {{/*
