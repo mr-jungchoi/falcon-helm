@@ -47,6 +47,9 @@ spec:
         {{- range $key, $value := .Values.node.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
+        {{- range $key, $value := .Values.node.podLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
     spec:
       {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
       {{- fail "image.pullSecrets and image.registryConfigJSON cannot be used together." }}
