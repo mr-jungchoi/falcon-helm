@@ -40,7 +40,7 @@ metadata:
     app.kubernetes.io/component: admission-controller
 data:
   FALCON_MODE: kac
-  __CS_ADMISSION_CONTROL_ENABLED: {{ .Values.cluster.enabled | quote }}
+  __CS_ADMISSION_CONTROL_ENABLED: {{ include "falcon-clusterguard.admissionControlEnabled" . | quote }}
   __CS_GRPC_API_ENABLED: "true"
   {{- if .Values.cluster.tlsVersionMinimum }}
   __CS_TLS_PROTOCOL_MIN: {{ .Values.cluster.tlsVersionMinimum | quote }}

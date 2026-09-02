@@ -153,6 +153,9 @@ node:
   # Pod-level annotations for the node DaemonSet
   podAnnotations: {}
 
+  # Pod-level labels for the node DaemonSet
+  podLabels: {}
+
   # How long to wait for FCG pods to stop gracefully
   terminationGracePeriod: 60
 
@@ -168,9 +171,15 @@ node:
 # Cluster sensor configuration
 # =============================================================================
 cluster:
-  # Toggle cluster sensor on/off. When false, no Deployment/Service/Webhook/TLS Secret/
-  # ResourceQuota resources are rendered. Defaults to enabled for comprehensive protection.
+  # Toggle cluster sensor on/off. When false, no Deployment/gRPC Service/TLS Secrets/
+  # ResourceQuota resources are rendered.
   enabled: true
+
+  # Toggle admission control (ValidatingWebhookConfiguration + webhook Service) on/off.
+  # When false, the cluster sensor Deployment still runs for K8s metadata visibility,
+  # but does not act as a validating webhook.
+  admissionControl:
+    enabled: false
 
   # ServiceAccount for the cluster-sensor Deployment.
   serviceAccount:
@@ -291,6 +300,9 @@ cluster:
 
   # Pod-level annotations for cluster-sensor pods
   podAnnotations: {}
+
+  # Pod-level labels for cluster-sensor pods
+  podLabels: {}
 
 # =============================================================================
 # Cluster visibility settings (K8s metadata service)
