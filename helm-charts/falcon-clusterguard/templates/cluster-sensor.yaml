@@ -152,6 +152,9 @@ spec:
         {{- range $key, $value := .Values.cluster.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
+        {{- range $key, $value := .Values.cluster.podLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
       annotations:
         sensor.falcon-system.crowdstrike.com/injection: disabled
         checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
@@ -430,7 +433,7 @@ spec:
             sizeLimit: 64Mi
 
 ---
-{{- if .Values.cluster.enabled }}
+{{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:

@@ -288,6 +288,17 @@ false
 {{- end -}}
 
 {{/*
+Admission control enabled? True if both cluster AND admissionControl are enabled.
+*/}}
+{{- define "falcon-clusterguard.admissionControlEnabled" -}}
+{{- if and .Values.cluster.enabled .Values.cluster.admissionControl.enabled -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
 Visibility enabled? True if either snapshots or watcher is enabled.
 */}}
 {{- define "falcon-clusterguard.visibilityEnabled" -}}
