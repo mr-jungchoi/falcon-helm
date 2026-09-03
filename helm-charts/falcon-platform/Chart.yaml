@@ -42,10 +42,6 @@ dependencies:
     version: 1.37.0
     repository: file://../falcon-sensor
     condition: falcon-sensor.enabled
-  - name: falcon-kac
-    version: 1.7.0
-    repository: file://../falcon-kac
-    condition: falcon-kac.enabled
   - name: falcon-image-analyzer
     version: 1.2.1
     repository: file://../falcon-image-analyzer
