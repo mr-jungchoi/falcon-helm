@@ -226,7 +226,11 @@ Return namespace based on .Values.namespaceOverride or Release.Namespace
 namespaceOverride should only be used when installing falcon-clusterguard as a subchart.
 */}}
 {{- define "falcon-clusterguard.namespace" -}}
+{{- if .Values.namespaceOverride -}}
+{{- .Values.namespaceOverride -}}
+{{- else -}}
 {{- .Release.Namespace -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

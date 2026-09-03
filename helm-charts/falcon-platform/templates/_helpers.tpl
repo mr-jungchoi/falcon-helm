@@ -39,11 +39,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* Component namespaces */}}
 {{- define "falcon-platform.componentNamespaces" -}}
 {{- $namespaces := list -}}
-{{- if and (index .Values "falcon-sensor").enabled (index .Values "falcon-sensor").namespaceOverride -}}
-{{- $namespaces = append $namespaces (index .Values "falcon-sensor").namespaceOverride -}}
-{{- end -}}
-{{- if and (index .Values "falcon-kac").enabled (index .Values "falcon-kac").namespaceOverride -}}
-{{- $namespaces = append $namespaces (index .Values "falcon-kac").namespaceOverride -}}
+{{- if and (index .Values "falcon-clusterguard").enabled (index .Values "falcon-clusterguard").namespaceOverride -}}
+{{- $namespaces = append $namespaces (index .Values "falcon-clusterguard").namespaceOverride -}}
 {{- end -}}
 {{- if and (index .Values "falcon-image-analyzer").enabled (index .Values "falcon-image-analyzer").namespaceOverride -}}
 {{- $namespaces = append $namespaces (index .Values "falcon-image-analyzer").namespaceOverride -}}
