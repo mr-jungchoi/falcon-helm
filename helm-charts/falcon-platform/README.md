@@ -31,6 +31,13 @@ unified deployment and configuration.
   - [Uninstall a Single Component](#uninstall-a-single-component)
   - [Uninstall the Falcon Platform Helm Chart](#uninstall-the-falcon-platform-helm-chart)
 - [Migrating from Individual Component Helm Charts](#migrating-from-individual-component-helm-charts)
+- [Migrating to Falcon Cluster Guard (FCG)](#migrating-to-falcon-cluster-guard-fcg)
+  - [What changed](#what-changes)
+  - [Run the migration script](#step-1--run-the-migration-script)
+  - [Step 4 — Apply the upgrade](#step-4--apply-the-upgrade)
+  - [Step 5 — Clean up deprecated namespaces](#step-5--clean-up-deprecated-namespaces)
+  - [Example: before and after values](#example-before-and-after-values)
+  - [Container sensor + FCG together](#container-sensor--fcg-together)
 - [Troubleshooting](#troubleshooting)
   - [Partial Falcon Platform Installation - Release Failure](#partial-falcon-platform-installation---release-failure)
   - [Falcon Sensor Troubleshooting Guides](#falcon-sensor-troubleshooting-guides)
@@ -729,6 +736,229 @@ kubectl delete namespace falcon-platform falcon-system falcon-kac falcon-image-a
 > to make updates to the unified falcon-platform Helm chart. Migrating to the unified
 > falcon-platform Helm chart requires completely uninstalling and reinstalling your
 > Falcon components, which is not recommended.
+
+## Migrating to Falcon Cluster Guard (FCG)
+
+Falcon Cluster Guard (`falcon-clusterguard`) replaces `falcon-sensor` (node mode) and
+`falcon-kac` with a single unified chart and container image. If you are upgrading to a version
+of `falcon-platform` that includes FCG, follow the steps below.
+
+> [!IMPORTANT]
+> **`falcon-sensor` is NOT fully deprecated.** It still supports the Falcon Container sensor.
+> **Container mode** (`container.enabled: true`) — has no FCG equivalent. `falcon-sensor`
+> must remain deployed for any cluster running container sensor workloads.
+>
+> `falcon-kac` and `falcon-image-analyzer` are fully deprecated and equivalent features have been migrated to `falcon-cluster-guard`.
+
+### What Changed
+
+| Area             | Before                                                 | After                                 |
+|------------------|--------------------------------------------------------|---------------------------------------|
+| Node sensor      | `falcon-sensor` subchart, `falcon-sensor.node.*`       | `falcon-clusterguard.node.*` — `falcon-sensor` subchart removed |
+| Container sensor | `falcon-sensor.container.*`                            | **Unchanged** — `falcon-sensor` subchart retained if container mode is needed |
+| KAC              | `falcon-kac` subchart, `falcon-kac.*`                  | `falcon-clusterguard.cluster.*` — `falcon-kac` subchart removed |
+| Image scanning   | `falcon-image-analyzer.*`                              | Deprecated — see `falcon-image-analyzer` subchart docs |
+| Container image  | Separate images per component                          | Single unified FCG image              |
+| Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer` | `falcon-system` for FCG               |
+
+> [!NOTE]
+> `falcon-sensor` (node mode) and `falcon-kac` have been **removed as subchart dependencies**
+> from `falcon-platform`. Their existing Kubernetes resources are automatically pruned by
+> `helm upgrade` — no manual deletion needed, and the `falcon-sensor` cleanup DaemonSet
+> will not run.
+
+### Step 1 — Run the migration script
+
+The migration script automatically remaps your existing values file to the FCG schema.
+
+**Prerequisites:**
+```bash
+pip3 install ruamel.yaml
+```
+
+**Preview the migration (no files written):**
+```bash
+python3 scripts/migrate-to-fcg.py --input my-values.yaml --dry-run
+```
+
+Review the warnings printed to stderr — they flag deprecated keys and anything that needs
+manual attention before proceeding.
+
+**Write the migrated file:**
+```bash
+python3 scripts/migrate-to-fcg.py --input my-values.yaml --output my-values-fcg.yaml
+```
+
+**Diff the result:**
+```bash
+diff my-values.yaml my-values-fcg.yaml
+```
+
+> [!NOTE]
+> See [`scripts/README.md`](../../scripts/README.md) for full script documentation, including
+> all key mappings, renamed resource keys, and how deprecated keys are annotated in the output.
+
+### Step 2 — Check for deprecated keys
+
+The migrated file annotates deprecated keys with inline `# DEPRECATED:` comments. Review and
+remove any that are flagged, particularly:
+
+| Deprecated key | Action |
+|----------------|--------|
+| `falcon-sensor.node.backend` | Removed automatically — FCG auto-selects eBPF/kernel |
+| `falcon-kac.tlsVersionMinimum` | Remove — not supported in FCG |
+| `falcon-kac.podLabels` | Remove — not supported in FCG cluster sensor |
+
+### Step 3 — Confirm namespace references
+
+The migration script automatically updates `falcon-image-analyzer.kac.namespace` to match
+the FCG namespace (taken from `falcon-sensor.namespaceOverride`, defaulting to `falcon-system`).
+Confirm the value in the migrated file is correct for your cluster:
+
+```yaml
+falcon-image-analyzer:
+  kac:
+    namespace: falcon-system   # updated by migration script from old falcon-kac namespace
+```
+
+If you use a custom namespace override, verify this matches `falcon-clusterguard.namespaceOverride`.
+
+### Step 4 — Apply the upgrade
+
+```bash
+helm upgrade falcon-platform crowdstrike/falcon-platform \
+  -n falcon-platform \
+  --reuse-values \
+  -f my-values-fcg.yaml
+```
+
+> [!NOTE]
+> `falcon-sensor` (node mode) and `falcon-kac` have been removed as subchart dependencies
+> from `falcon-platform`. Running `helm upgrade` will automatically remove their Kubernetes
+> resources (DaemonSet, Deployment, RBAC, etc.) as part of the normal diff — no explicit
+> `enabled: false` flag is required, and the `falcon-sensor` cleanup DaemonSet will **not**
+> run (that only fires on `helm uninstall`).
+
+### Step 5 — Clean up deprecated namespaces
+
+Once the upgrade is confirmed stable:
+
+```bash
+kubectl delete ns falcon-kac falcon-image-analyzer
+```
+
+### Example: before and after values
+
+**Before:**
+```yaml
+global:
+  falcon:
+    cid: YOUR-CID-HERE
+
+falcon-sensor:
+  enabled: true
+  namespaceOverride: falcon-system
+  node:
+    clusterName: "my-cluster"
+    daemonset:
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+falcon-kac:
+  enabled: true
+  clusterName: "my-cluster"
+  admissionControl:
+    enabled: true
+  clusterVisibility:
+    resourceWatcher:
+      enabled: true
+  falconClientResources:
+    limits:
+      memory: 384Mi
+    requests:
+      cpu: 250m
+      memory: 384Mi
+
+falcon-image-analyzer:
+  enabled: true
+  crowdstrikeConfig:
+    clientID: "abc123"
+    clientSecret: "secret"
+```
+
+**After (output of migration script):**
+```yaml
+global:
+  falcon:
+    cid: YOUR-CID-HERE
+
+# Falcon Cluster Guard — replaces falcon-sensor.node and falcon-kac.
+falcon-clusterguard:
+  enabled: true
+  namespaceOverride: falcon-system
+  image:
+    repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
+    tag: "<fcg-tag>"
+
+  node:
+    clusterName: my-cluster
+    daemonset:
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+
+  cluster:
+    enabled: true
+    resources:
+      client:  # was: falconClientResources
+        limits:
+          memory: 384Mi
+        requests:
+          cpu: 250m
+          memory: 384Mi
+  clusterVisibility:
+    resourceWatcher:
+      enabled: true
+
+  imageAnalyzer:
+    enabled: true
+    crowdstrikeConfig:
+      clientID: "abc123"
+      clientSecret: "secret"
+```
+
+### Container sensor + FCG together
+
+If your cluster uses container sensor, KAC and/or IAR, the migrated values file should have
+**both** `falcon-sensor` and `falcon-clusterguard` enabled:
+
+```yaml
+# Container sensor — stays on falcon-sensor chart
+falcon-sensor:
+  enabled: true
+  node:
+    enabled: false        # node mode moved to falcon-clusterguard
+  container:
+    enabled: true         # container mode continues here
+    image:
+      repository: registry.crowdstrike.com/falcon-container/release/falcon-container
+      tag: "<falcon-container-tag>"
+
+# Node sensor + cluster sensor — new FCG chart
+falcon-clusterguard:
+  enabled: true
+  image:
+    repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
+    tag: "<fcg-tag>"
+
+  node:
+    enabled: false
+  cluster:
+    enabled: true
+```
 
 ## Troubleshooting
 
