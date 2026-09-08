@@ -1,5 +1,5 @@
 {{- if .Values.cluster.enabled }}
-{{- $name := include "falcon-clusterguard.name" . -}}
+{{- $name := "falcon-cluster-sensor" -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 {{- $certValid := (.Values.cluster.certExpiration | int) -}}
 
@@ -176,7 +176,7 @@ spec:
         - name: {{ $imagePullSecret }}
         {{- end }}
         {{- if $registryConfigJson }}
-        - name: {{ include "falcon-clusterguard.fullname" . }}-pull-secret
+        - name: {{ $name }}-pull-secret
         {{- end }}
       {{- end }}
       nodeSelector:
