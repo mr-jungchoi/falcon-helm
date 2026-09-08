@@ -317,8 +317,8 @@ false
 At least one of admission control or visibility must be enabled.
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.clusterSensorEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") -}}
-{{- fail "Error: at least one of admission.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
+{{- if and (eq (include "falcon-clusterguard.clusterSensorEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") (not .Values.node.enabled) -}}
+{{- fail "Error: at least one of node.enabled, cluster.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
 {{- end -}}
 {{- end -}}
 

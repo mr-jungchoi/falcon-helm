@@ -45,5 +45,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (index .Values "falcon-image-analyzer").enabled (index .Values "falcon-image-analyzer").namespaceOverride -}}
 {{- $namespaces = append $namespaces (index .Values "falcon-image-analyzer").namespaceOverride -}}
 {{- end -}}
+{{- if and (index .Values "falcon-sensor").enabled (index .Values "falcon-sensor").namespaceOverride -}}
+{{- $namespaces = append $namespaces (index .Values "falcon-sensor").namespaceOverride -}}
+{{- end -}}
 {{- $namespaces | uniq | join "," -}}
 {{- end }}
