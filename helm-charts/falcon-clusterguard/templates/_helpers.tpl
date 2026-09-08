@@ -17,7 +17,7 @@ Hardcoded — always api.<release-namespace>.svc, not user-configurable.
 Set the webhook name (used in ValidatingWebhookConfiguration)
 */}}
 {{- define "falcon-clusterguard.webhookName" -}}
-{{ printf "%s.crowdstrike.com" .Chart.Name }}
+{{ "falcon-clusterguard.crowdstrike.com" }}
 {{- end }}
 
 {{/*
