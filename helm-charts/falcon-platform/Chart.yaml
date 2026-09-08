@@ -8,7 +8,7 @@ type: application
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 1.5.1-test
+version: 1.5.1-fcg-test.2
 
 keywords:
   - CrowdStrike
@@ -35,7 +35,7 @@ kubeVersion: ">1.22.0-0"
 
 dependencies:
   - name: falcon-clusterguard
-    version: 0.1.0-test.1
+    version: 0.1.0-test.2
     repository: file://../falcon-clusterguard
     condition: falcon-clusterguard.enabled
   - name: falcon-sensor
