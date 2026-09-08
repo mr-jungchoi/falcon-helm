@@ -23,6 +23,7 @@ What this script does:
 """
 
 import argparse
+import os
 import sys
 from copy import deepcopy
 
@@ -397,7 +398,11 @@ def main():
     if args.dry_run:
         yaml.dump(migrated, sys.stdout)
     else:
-        output_path = args.output or args.input.replace(".yaml", ".fcg-migrated.yaml")
+        base, _ = os.path.splitext(args.input)
+        output_path = args.output or f"{base}.fcg-migrated.yaml"
+        if output_path == args.input:
+            print("ERROR: output path would overwrite input file; use --output to specify a different path", file=sys.stderr)
+            sys.exit(1)
         with open(output_path, "w") as f:
             yaml.dump(migrated, f)
         print(f"Migrated values written to: {output_path}")

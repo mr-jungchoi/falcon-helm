@@ -21,7 +21,7 @@
 {{- if kindIs "map" $tlscrt -}}
 {{- $webhookCert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) -}}
 {{- end -}}
-{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" $ns $name).webhooks -}}
+{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $name).webhooks -}}
 {{- if kindIs "slice" $tlsca -}}
 {{- range $tlsca -}}
 {{- $webhookCA = dict "Cert" (.clientConfig.caBundle | b64dec) -}}
@@ -213,12 +213,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
-          {{- if .Values.falconSecret.enabled }}
+          {{- if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
             - secretRef:
-                name: {{ .Values.falconSecret.secretName }}
+                name: {{ include "falcon-clusterguard.falconSecretName" . }}
           {{- end }}
           resources:
-            {{- toYaml .Values.cluster.resources.ac | nindent 12 }}
+            {{- toYaml .Values.cluster.resources.admissionController | nindent 12 }}
           securityContext:
             seccompProfile:
               type: RuntimeDefault
