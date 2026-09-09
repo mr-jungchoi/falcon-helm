@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
-migrate-to-fcg.py — Migrate a falcon-platform values file from falcon-sensor +
-falcon-kac to falcon-clusterguard (FCG).
+migrate-to-fcg.py — Migrate Falcon platform values to falcon-clusterguard (FCG).
 
-Usage:
-    python3 scripts/migrate-to-fcg.py --input my-values.yaml
-    python3 scripts/migrate-to-fcg.py --input my-values.yaml --output migrated-values.yaml
-    python3 scripts/migrate-to-fcg.py --input my-values.yaml --dry-run
+Supports two input modes (mutually exclusive):
+
+  Umbrella chart mode — one falcon-platform values file:
+    python3 scripts/migrate-to-fcg.py --platform-values my-platform-values.yaml
+
+  Individual charts mode — separate values files per chart:
+    python3 scripts/migrate-to-fcg.py \\
+      --sensor-values my-sensor-values.yaml \\
+      --kac-values my-kac-values.yaml \\
+      [--iar-values my-iar-values.yaml]
+
+Common options:
+    --fcg-image-repo  FCG image repository (default: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard)
+    --fcg-image-tag   FCG image tag (default: 8.14.0-12345-1)
+    --output <file>   Write output to this path (default: <first-input>.fcg-migrated.yaml)
+    --dry-run         Print migrated YAML to stdout without writing any file
 
 Requirements:
     pip3 install ruamel.yaml
-
-What this script does:
-  - Moves falcon-sensor.node.* → falcon-clusterguard.node.*
-  - Moves falcon-kac.* → falcon-clusterguard.cluster.* (with renames)
-  - Copies clusterVisibility.*, falconSecret.*, falcon.* verbatim
-  - Marks deprecated keys with inline YAML comments explaining the replacement
-  - Disables falcon-sensor node mode and falcon-kac (sets enabled: false)
-  - Enables falcon-clusterguard (sets enabled: true)
-  - Sets falcon-clusterguard.image to the canonical FCG registry and tag (8.14)
-  - Preserves all original comments and formatting via ruamel.yaml
 """
 
 import argparse
@@ -34,6 +35,9 @@ except ImportError:
     print("ERROR: ruamel.yaml is required. Install it with: pip3 install ruamel.yaml", file=sys.stderr)
     sys.exit(1)
 
+
+FCG_DEFAULT_IMAGE_REPO = "registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard"
+FCG_DEFAULT_IMAGE_TAG  = "8.14.0-12345-1"
 
 # ---------------------------------------------------------------------------
 # Keys that existed in falcon-sensor / falcon-kac but have no FCG equivalent.
@@ -93,7 +97,9 @@ def annotate_deprecated(cm, key, comment):
 # Migration logic
 # ---------------------------------------------------------------------------
 
-def migrate(values: dict, warnings: list) -> dict:
+def migrate(values: dict, warnings: list,
+            fcg_image_repo: str = FCG_DEFAULT_IMAGE_REPO,
+            fcg_image_tag: str = FCG_DEFAULT_IMAGE_TAG) -> dict:
     fcg = CommentedMap()
     fcg["enabled"] = True
 
@@ -109,8 +115,8 @@ def migrate(values: dict, warnings: list) -> dict:
     # image — set canonical FCG registry and tag, then carry over auth/digest from
     # falcon-sensor.node.image or falcon-kac.image (sensor takes precedence).
     fcg_image = CommentedMap()
-    fcg_image["repository"] = "registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard"
-    fcg_image["tag"] = "8.14"
+    fcg_image["repository"] = fcg_image_repo
+    fcg_image["tag"] = fcg_image_tag
 
     sensor_image = get_nested(sensor, "node", "image") or {}
     kac_image = get_nested(values.get("falcon-kac") or {}, "image") or {}
@@ -359,11 +365,53 @@ def migrate(values: dict, warnings: list) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Migrate falcon-platform values from falcon-sensor + falcon-kac to FCG."
+        description="Migrate Falcon platform values to falcon-clusterguard (FCG).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Input modes (mutually exclusive):\n"
+            "  --platform-values    Single falcon-platform umbrella values file\n"
+            "  --sensor-values / --kac-values / --iar-values\n"
+            "                       Individual chart values files\n"
+        ),
     )
-    parser.add_argument("--input", required=True, help="Path to existing values YAML file")
+
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--platform-values",
+        metavar="FILE",
+        help="falcon-platform umbrella values file",
+    )
+    input_group.add_argument(
+        "--sensor-values",
+        metavar="FILE",
+        help="falcon-sensor values file (individual chart mode)",
+    )
+
+    parser.add_argument(
+        "--kac-values",
+        metavar="FILE",
+        help="falcon-kac values file (individual chart mode)",
+    )
+    parser.add_argument(
+        "--iar-values",
+        metavar="FILE",
+        help="falcon-image-analyzer values file (individual chart mode)",
+    )
+    parser.add_argument(
+        "--fcg-image-repo",
+        metavar="REPO",
+        default=FCG_DEFAULT_IMAGE_REPO,
+        help=f"FCG image repository (default: {FCG_DEFAULT_IMAGE_REPO})",
+    )
+    parser.add_argument(
+        "--fcg-image-tag",
+        metavar="TAG",
+        default=FCG_DEFAULT_IMAGE_TAG,
+        help=f"FCG image tag (default: {FCG_DEFAULT_IMAGE_TAG})",
+    )
     parser.add_argument(
         "--output",
+        metavar="FILE",
         help="Path for migrated output file (default: <input>.fcg-migrated.yaml)",
     )
     parser.add_argument(
@@ -373,21 +421,43 @@ def main():
     )
     args = parser.parse_args()
 
+    # Validate individual charts are not mixed with the platform chart
+    if args.platform_values and (args.sensor_values or args.kac_values or args.iar_values):
+        parser.error("--sensor-values, --kac-values, and --iar-values cannot be used with --platform-values")
+
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.width = 120
     yaml.best_sequence_indent = 2
     yaml.best_map_flow_style = False
 
-    with open(args.input, "r") as f:
-        values = yaml.load(f)
+    def load(path):
+        with open(path, "r") as f:
+            return yaml.load(f) or {}
 
-    if values is None:
-        print("ERROR: Input file is empty or invalid YAML.", file=sys.stderr)
-        sys.exit(1)
+    if args.platform_values:
+        # Umbrella mode — values already nested under subchart keys
+        values = load(args.platform_values)
+        primary_input = args.platform_values
+    else:
+        # Individual charts mode — synthesize the same nested structure
+        sensor_vals = load(args.sensor_values)
+        kac_vals    = load(args.kac_values) if args.kac_values else {}
+        iar_vals    = load(args.iar_values) if args.iar_values else {}
+
+        values = CommentedMap()
+        if sensor_vals:
+            values["falcon-sensor"] = sensor_vals
+        if kac_vals:
+            values["falcon-kac"] = kac_vals
+        if iar_vals:
+            values["falcon-image-analyzer"] = iar_vals
+        primary_input = args.sensor_values
 
     warnings = []
-    migrated = migrate(values, warnings)
+    migrated = migrate(values, warnings,
+                       fcg_image_repo=args.fcg_image_repo,
+                       fcg_image_tag=args.fcg_image_tag)
 
     if warnings:
         print("\nMIGRATION WARNINGS — review these before applying:", file=sys.stderr)
@@ -398,9 +468,9 @@ def main():
     if args.dry_run:
         yaml.dump(migrated, sys.stdout)
     else:
-        base, _ = os.path.splitext(args.input)
+        base, _ = os.path.splitext(primary_input)
         output_path = args.output or f"{base}.fcg-migrated.yaml"
-        if output_path == args.input:
+        if output_path == primary_input:
             print("ERROR: output path would overwrite input file; use --output to specify a different path", file=sys.stderr)
             sys.exit(1)
         with open(output_path, "w") as f:

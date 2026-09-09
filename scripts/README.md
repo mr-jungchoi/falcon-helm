@@ -14,15 +14,40 @@ pip3 install ruamel.yaml
 ## Usage
 
 ```bash
-python3 scripts/migrate-to-fcg.py --input <values-file> [--output <output-file>] [--dry-run]
+python3 scripts/migrate-to-fcg.py [--platform-values FILE | --sensor-values FILE] [options]
 ```
+
+### Input modes (mutually exclusive)
+
+**Umbrella chart mode** — single `falcon-platform` values file:
+```bash
+python3 scripts/migrate-to-fcg.py --platform-values my-platform-values.yaml
+```
+
+**Individual charts mode** — separate values files per chart:
+```bash
+python3 scripts/migrate-to-fcg.py \
+  --sensor-values my-sensor-values.yaml \
+  --kac-values my-kac-values.yaml \
+  [--iar-values my-iar-values.yaml]
+```
+
+`--kac-values` and `--iar-values` are optional in individual charts mode. In individual charts
+mode the values files are expected to use root-level keys (as they would be in a standalone
+`helm install falcon-sensor -f my-sensor-values.yaml` invocation), not nested under subchart
+name prefixes.
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `--input` | Path to your existing `values.yaml` (required) |
-| `--output` | Path for the migrated output file. Defaults to `<input>.fcg-migrated.yaml` if omitted |
+| `--platform-values` | Path to `falcon-platform` umbrella values file |
+| `--sensor-values` | Path to standalone `falcon-sensor` values file |
+| `--kac-values` | Path to standalone `falcon-kac` values file |
+| `--iar-values` | Path to standalone `falcon-image-analyzer` values file |
+| `--fcg-image-repo` | FCG image repository (default: `registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard`) |
+| `--fcg-image-tag` | FCG image tag (default: `8.14.0-12345-1`) |
+| `--output` | Path for migrated output file. Defaults to `<input>.fcg-migrated.yaml` |
 | `--dry-run` | Print the migrated YAML to stdout without writing any file |
 
 ## Quickstart
@@ -30,7 +55,14 @@ python3 scripts/migrate-to-fcg.py --input <values-file> [--output <output-file>]
 **1. Preview the migration without writing any files:**
 
 ```bash
-python3 scripts/migrate-to-fcg.py --input my-values.yaml --dry-run
+# Umbrella chart mode
+python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --dry-run
+
+# Individual charts mode
+python3 scripts/migrate-to-fcg.py \
+  --sensor-values sensor-values.yaml \
+  --kac-values kac-values.yaml \
+  --dry-run
 ```
 
 Review the output and any warnings printed to stderr before proceeding.
@@ -38,8 +70,13 @@ Review the output and any warnings printed to stderr before proceeding.
 **2. Write the migrated file:**
 
 ```bash
-python3 scripts/migrate-to-fcg.py --input my-values.yaml
-# Output written to: my-values.fcg-migrated.yaml
+# Umbrella chart mode (output: my-values.fcg-migrated.yaml)
+python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml
+
+# Individual charts mode (output: sensor-values.fcg-migrated.yaml)
+python3 scripts/migrate-to-fcg.py \
+  --sensor-values sensor-values.yaml \
+  --kac-values kac-values.yaml
 ```
 
 **3. Diff the original against the migrated file:**
@@ -116,7 +153,7 @@ The script always sets the canonical FCG image repository and tag:
 falcon-clusterguard:
   image:
     repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
-    tag: "8.14"
+    tag: "8.14.0-12345-1"
 ```
 
 `pullSecrets`, `registryConfigJSON`, `digest`, and `pullPolicy` are carried over from
@@ -211,7 +248,7 @@ falcon-image-analyzer:
 
 Run:
 ```bash
-python3 scripts/migrate-to-fcg.py --input my-values.yaml --dry-run
+python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --dry-run
 ```
 
 Output (key sections):
