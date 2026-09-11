@@ -8,6 +8,36 @@ container registry accessible to your Kubernetes deployment.
 ## Enabled Components
 
 {{- $anyEnabled := false }}
+
+{{- if (index .Values "falcon-clusterguard").enabled }}
+{{- $anyEnabled = true }}
+{{- $fcg := index .Values "falcon-clusterguard" }}
+
+✓ Falcon Cluster Guard
+  - Namespace: {{ $fcg.namespaceOverride | default .Release.Namespace }}
+  - Image: {{ $fcg.image.repository }}:{{ $fcg.image.tag | default "latest" }}
+
+  {{- if $fcg.node.enabled }}
+
+  ✓ Node Sensor (DaemonSet)
+    - Replaces: falcon-sensor node mode
+    - Cluster name: {{ $fcg.node.clusterName | default "(auto-discovered)" }}
+  {{- end }}
+
+  {{- if $fcg.cluster.enabled }}
+
+  ✓ Cluster Sensor (Deployment)
+    - Replaces: falcon-kac
+    - Cluster visibility: enabled
+    {{- if $fcg.cluster.admissionControl.enabled }}
+    - Admission control webhook: enabled (failurePolicy: {{ ($fcg.cluster.webhook).failurePolicy | default "Ignore" }})
+    {{- else }}
+    - Admission control webhook: disabled (set cluster.admissionControl.enabled=true to enable)
+    {{- end }}
+  {{- end }}
+
+{{- end }}
+
 {{- if (index .Values "falcon-sensor").enabled }}
 {{- $anyEnabled = true }}
 {{- $sensorType := "" }}
@@ -22,13 +52,13 @@ container registry accessible to your Kubernetes deployment.
 
 ✓ Falcon Sensor - Runtime {{ $sensorType }} Protection
   - Deployment: {{ $sensorDeploymentType }}
-  - Backend: {{ (index .Values "falcon-sensor").node.backend | default "bpf" }}
   - Namespace: {{ (index .Values "falcon-sensor").namespaceOverride }}
 
 {{- if (index .Values "falcon-sensor").node.enabled }}
 
-CrowdStrike Falcon sensors will deploy across all nodes in your Kubernetes cluster after
-installing this Helm chart. The default image name to deploy a kernel sensor to a node is `falcon-node-sensor`.
+    {{ "\033[33m" }}WARNING: falcon-sensor node mode is deprecated.
+    Node sensor is now part of falcon-clusterguard. Set falcon-sensor.node.enabled=false
+    and enable falcon-clusterguard to migrate.{{ "\033[0m" }}
   {{- if (index .Values "falcon-sensor").node.backend }}
 
     {{ "\033[33m" }}WARNING: falcon-sensor.node.backend is deprecated and will be ignored.
@@ -50,6 +80,8 @@ The default image name to deploy the pod sensor is `falcon-sensor`.
 ✓ Falcon Kubernetes Admission Controller - Policy Enforcement
   - Admission Control Webhook: {{ if (index .Values "falcon-kac").admissionControl.enabled }}enabled{{ else }}disabled{{ end }}
   - Namespace: {{ (index .Values "falcon-kac").namespaceOverride }}
+  {{ "\033[33m" }}WARNING: falcon-kac is deprecated and has been replaced by falcon-clusterguard.
+  Migrate using: python3 scripts/migrate-to-fcg.py{{ "\033[0m" }}
 {{- end }}
 
 {{- if (index .Values "falcon-image-analyzer").enabled }}
@@ -68,10 +100,26 @@ The default image name to deploy the pod sensor is `falcon-sensor`.
 ## Component Status
 
 Check deployment status with:
-  kubectl get pods -l app.kubernetes.io/instance=falcon-platform -A
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -A
 
 Monitor components:
-  kubectl logs -l app.kubernetes.io/instance=falcon-platform -n <component-namespace>
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }} -n <component-namespace>
+
+{{- if (index .Values "falcon-clusterguard").enabled }}
+{{- $fcg := index .Values "falcon-clusterguard" }}
+{{- $ns := $fcg.namespaceOverride | default .Release.Namespace }}
+
+## Falcon Cluster Guard Status
+
+  {{- if $fcg.node.enabled }}
+  Node sensor DaemonSet:
+    kubectl rollout status daemonset/falcon-sensor -n {{ $ns }}
+  {{- end }}
+  {{- if $fcg.cluster.enabled }}
+  Cluster sensor Deployment:
+    kubectl rollout status deployment/falcon-cluster-sensor -n {{ $ns }}
+  {{- end }}
+{{- end }}
 
 ## Troubleshooting
 

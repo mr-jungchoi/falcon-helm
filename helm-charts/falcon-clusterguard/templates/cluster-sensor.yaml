@@ -286,9 +286,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
-            {{- if .Values.falconSecret.enabled }}
+            {{- if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
             - secretRef:
-                name: {{ .Values.falconSecret.secretName }}
+                name: {{ include "falcon-clusterguard.falconSecretName" . }}
             {{- end }}
           ports:
             - containerPort: {{ .Values.cluster.webhookPort }}
@@ -360,9 +360,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
-            {{- if .Values.falconSecret.enabled }}
+            {{- if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
             - secretRef:
-                name: {{ .Values.falconSecret.secretName }}
+                name: {{ include "falcon-clusterguard.falconSecretName" . }}
             {{- end }}
           ports:
             - containerPort: {{ .Values.cluster.watcherPort }}
