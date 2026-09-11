@@ -13,6 +13,9 @@ Supports two input modes (mutually exclusive):
       --kac-values my-kac-values.yaml \\
       [--iar-values my-iar-values.yaml]
 
+  Interactive mode — guided prompts discover your release and values:
+    python3 scripts/migrate-to-fcg.py --interactive
+
 Common options:
     --fcg-image-repo  FCG image repository (default: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard)
     --fcg-image-tag   FCG image tag (default: 8.14.0-12345-1)
@@ -24,8 +27,11 @@ Requirements:
 """
 
 import argparse
+import json
 import os
+import subprocess
 import sys
+import tempfile
 from copy import deepcopy
 
 try:
@@ -255,10 +261,8 @@ def migrate(values: dict, warnings: list,
                     "The falcon-sensor value has been used. Review manually."
                 )
 
-        # falcon.* (CID, cloud, trace, etc.)
-        if "falcon" in kac:
-            if "falcon" not in fcg:
-                fcg["falcon"] = deepcopy(kac["falcon"])
+        # falcon.* (CID, cloud, trace, etc.) — set on fcg root, NOT cluster
+        # (handled below after the kac block to merge with sensor values)
 
     else:
         warnings.append(
@@ -271,10 +275,14 @@ def migrate(values: dict, warnings: list,
     if sensor_secret and "falconSecret" not in fcg:
         fcg["falconSecret"] = deepcopy(sensor_secret)
 
-    # falcon.* from falcon-sensor (if not already set)
-    sensor_falcon = sensor.get("falcon")
-    if sensor_falcon and "falcon" not in fcg:
-        fcg["falcon"] = deepcopy(sensor_falcon)
+    # falcon.* — merge sensor and kac values at fcg root (sensor takes precedence).
+    # Placed here (after both blocks) to ensure it lands at root level, not inside cluster.
+    sensor_falcon = sensor.get("falcon") or {}
+    kac_falcon    = (values.get("falcon-kac") or {}).get("falcon") or {}
+    merged_falcon = deepcopy(kac_falcon)
+    merged_falcon.update({k: v for k, v in sensor_falcon.items() if v is not None})
+    if merged_falcon:
+        fcg["falcon"] = merged_falcon
 
     # secretsStore — prefer sensor value; fall back to kac
     sensor_csi = sensor.get("secretsStore") or {}
@@ -360,6 +368,211 @@ def migrate(values: dict, warnings: list,
 
 
 # ---------------------------------------------------------------------------
+# Interactive wizard
+# ---------------------------------------------------------------------------
+
+def _prompt(question, default=None):
+    """Print a question and return stripped input. Returns default on empty input."""
+    suffix = f" [{default}]" if default else ""
+    answer = input(f"\n{question}{suffix}: ").strip()
+    return answer or default or ""
+
+
+def _choose(question, choices):
+    """Present a numbered menu and return the chosen item."""
+    print(f"\n{question}")
+    for i, (label, _desc) in enumerate(choices, 1):
+        print(f"  {i}) {label}")
+    while True:
+        raw = input("Enter number: ").strip()
+        if raw.isdigit() and 1 <= int(raw) <= len(choices):
+            return choices[int(raw) - 1]
+        print(f"  Please enter a number between 1 and {len(choices)}.")
+
+
+def run_wizard(yaml_instance):
+    """
+    Interactive wizard. Returns (values dict, primary_input_label, fcg_image_repo, fcg_image_tag).
+    Discovers the existing Helm release, asks for registry/version, and loads or extracts values.
+    """
+    print("=" * 60)
+    print("  Falcon Cluster Guard — Migration Wizard")
+    print("=" * 60)
+
+    # ------------------------------------------------------------------
+    # Step 1: Discover existing Helm release
+    # ------------------------------------------------------------------
+    print("\n── Step 1: Locate your existing falcon-platform release ──")
+
+    release_name = None
+    release_ns   = None
+
+    try:
+        result = subprocess.run(
+            ["helm", "list", "-A", "-o", "json"],
+            capture_output=True, text=True, check=True,
+        )
+        releases = json.loads(result.stdout or "[]")
+        candidates = [
+            r for r in releases
+            if any(name in r.get("chart", "") or name in r.get("name", "")
+                   for name in ("falcon-platform", "falcon-sensor", "falcon-kac"))
+        ]
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        candidates = []
+
+    if candidates:
+        print("\nFound Helm releases that may be your Falcon deployment:")
+        for i, r in enumerate(candidates, 1):
+            print(f"  {i}) {r['name']}  (chart: {r['chart']}, namespace: {r['namespace']})")
+        print(f"  {len(candidates)+1}) None of these — enter manually")
+
+        raw = input("\nSelect a release [1]: ").strip() or "1"
+        if raw.isdigit() and 1 <= int(raw) <= len(candidates):
+            chosen = candidates[int(raw) - 1]
+            release_name = chosen["name"]
+            release_ns   = chosen["namespace"]
+            print(f"  ✓ Using release '{release_name}' in namespace '{release_ns}'")
+        else:
+            print("  Entering manual mode.")
+
+    if not release_name:
+        release_name = _prompt("Release name", default="falcon-platform")
+        release_ns   = _prompt("Release namespace", default="falcon-platform")
+
+    # ------------------------------------------------------------------
+    # Step 2: Registry and FCG version
+    # ------------------------------------------------------------------
+    print("\n── Step 2: FCG image registry ──")
+
+    registry_choice, _ = _choose(
+        "Which registry would you like to use?",
+        [
+            ("CrowdStrike registry (default)", "crowdstrike"),
+            ("Mirror / private registry",       "mirror"),
+        ],
+    )
+
+    if "Mirror" in registry_choice:
+        fcg_image_repo = _prompt(
+            "Full FCG image repository path\n"
+            "  e.g. my-registry.company.com/falcon-clusterguard/release/falcon-clusterguard",
+            default=FCG_DEFAULT_IMAGE_REPO,
+        )
+    else:
+        fcg_image_repo = FCG_DEFAULT_IMAGE_REPO
+
+    fcg_image_tag = _prompt("FCG image tag", default=FCG_DEFAULT_IMAGE_TAG)
+    print(f"  ✓ Image: {fcg_image_repo}:{fcg_image_tag}")
+
+    # ------------------------------------------------------------------
+    # Step 3: Values file
+    # ------------------------------------------------------------------
+    print("\n── Step 3: Values file ──")
+    print(f"  Press Enter to extract values from the '{release_name}' release via helm.")
+
+    values_path = _prompt(
+        "Path to your existing values file (or Enter to extract from Helm release)",
+        default="",
+    )
+
+    primary_input_label = None
+    values = {}
+
+    if values_path:
+        if not os.path.isfile(values_path):
+            print(f"  ERROR: file not found: {values_path}", file=sys.stderr)
+            sys.exit(1)
+        with open(values_path, "r") as f:
+            values = yaml_instance.load(f) or {}
+        primary_input_label = values_path
+        print(f"  ✓ Loaded values from {values_path}")
+    else:
+        print(f"  Extracting values from release '{release_name}' (namespace: {release_ns})…")
+        try:
+            result = subprocess.run(
+                ["helm", "get", "values", release_name, "-n", release_ns, "-o", "yaml"],
+                capture_output=True, text=True, check=True,
+            )
+            if not result.stdout.strip() or result.stdout.strip() == "null":
+                print("  No user-supplied values found in this release — proceeding with empty values.")
+                values = {}
+            else:
+                import io
+                values = yaml_instance.load(io.StringIO(result.stdout)) or {}
+            primary_input_label = f"{release_name}-extracted"
+            print(f"  ✓ Extracted {len(values)} top-level keys from release.")
+        except subprocess.CalledProcessError as e:
+            print(f"  ERROR: helm get values failed: {e.stderr.strip()}", file=sys.stderr)
+            sys.exit(1)
+        except FileNotFoundError:
+            print("  ERROR: helm not found in PATH.", file=sys.stderr)
+            sys.exit(1)
+
+    print("\n" + "=" * 60)
+    return values, primary_input_label, fcg_image_repo, fcg_image_tag, release_name, release_ns
+
+
+def _detect_release(preferred_names=("falcon-platform",)):
+    """Try to auto-detect the Helm release name and namespace. Returns (name, ns) or defaults."""
+    try:
+        result = subprocess.run(
+            ["helm", "list", "-A", "-o", "json"],
+            capture_output=True, text=True, check=True,
+        )
+        releases = json.loads(result.stdout or "[]")
+        for r in releases:
+            if any(n in r.get("chart", "") or n in r.get("name", "") for n in preferred_names):
+                return r["name"], r["namespace"]
+    except Exception:
+        pass
+    return "falcon-platform", "falcon-platform"
+
+
+def print_next_steps(output_path, release_name, release_ns, migrated_values):
+    """Print helm upgrade command and verification steps after a successful migration."""
+    fcg = migrated_values.get("falcon-clusterguard") or {}
+    fcg_ns = fcg.get("namespaceOverride") or release_ns or "falcon-system"
+    node_enabled    = (fcg.get("node") or {}).get("enabled", True)
+    cluster_enabled = (fcg.get("cluster") or {}).get("enabled", True)
+
+    sep = "─" * 60
+    print(f"\n{sep}")
+    print("  Next steps")
+    print(sep)
+    print(f"""
+1) Review the migrated values file:
+
+   diff <original-values.yaml> {output_path}
+
+2) Run helm upgrade:
+
+   helm upgrade {release_name} crowdstrike/falcon-platform \\
+     -n {release_ns} \\
+     -f {output_path} \\
+     --reuse-values
+
+3) Verify the upgrade:
+""")
+    if node_enabled:
+        print(f"   # Node sensor DaemonSet")
+        print(f"   kubectl rollout status daemonset/falcon-sensor -n {fcg_ns}")
+        print()
+    if cluster_enabled:
+        print(f"   # Cluster sensor Deployment")
+        print(f"   kubectl rollout status deployment/falcon-cluster-sensor -n {fcg_ns}")
+        print()
+    print(f"   # All FCG pods")
+    print(f"   kubectl get pods -n {fcg_ns} -l app.kubernetes.io/instance={release_name}")
+    print(f"""
+4) Clean up deprecated namespaces once stable:
+
+   kubectl delete ns falcon-kac falcon-image-analyzer
+""")
+    print(sep)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -369,13 +582,19 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Input modes (mutually exclusive):\n"
-            "  --platform-values    Single falcon-platform umbrella values file\n"
+            "  --interactive         Guided wizard (also auto-activates when no values flags given)\n"
+            "  --platform-values     Single falcon-platform umbrella values file\n"
             "  --sensor-values / --kac-values / --iar-values\n"
-            "                       Individual chart values files\n"
+            "                        Individual chart values files\n"
         ),
     )
 
     input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Run the interactive migration wizard",
+    )
     input_group.add_argument(
         "--platform-values",
         metavar="FILE",
@@ -421,8 +640,8 @@ def main():
     )
     args = parser.parse_args()
 
-    # Validate individual charts are not mixed with the platform chart
-    if args.platform_values and (args.sensor_values or args.kac_values or args.iar_values):
+    # Validate: individual chart flags only with --sensor-values
+    if args.platform_values and (args.kac_values or args.iar_values):
         parser.error("--sensor-values, --kac-values, and --iar-values cannot be used with --platform-values")
 
     yaml = YAML()
@@ -435,12 +654,25 @@ def main():
         with open(path, "r") as f:
             return yaml.load(f) or {}
 
-    if args.platform_values:
-        # Umbrella mode — values already nested under subchart keys
+    # Determine mode
+    use_wizard = args.interactive or (
+        not args.platform_values and not args.sensor_values
+    )
+
+    if use_wizard:
+        values, primary_input, fcg_image_repo, fcg_image_tag, release_name, release_ns = run_wizard(yaml)
+        # CLI flags still override wizard choices when explicitly provided
+        if args.fcg_image_repo is not None:
+            fcg_image_repo = args.fcg_image_repo
+        if args.fcg_image_tag is not None:
+            fcg_image_tag = args.fcg_image_tag
+    elif args.platform_values:
         values = load(args.platform_values)
         primary_input = args.platform_values
+        fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
+        fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
+        release_name, release_ns = _detect_release()
     else:
-        # Individual charts mode — synthesize the same nested structure
         sensor_vals = load(args.sensor_values)
         kac_vals    = load(args.kac_values) if args.kac_values else {}
         iar_vals    = load(args.iar_values) if args.iar_values else {}
@@ -452,12 +684,15 @@ def main():
             values["falcon-kac"] = kac_vals
         if iar_vals:
             values["falcon-image-analyzer"] = iar_vals
-        primary_input = args.sensor_values
+        primary_input  = args.sensor_values
+        fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
+        fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
+        release_name, release_ns = _detect_release()
 
     warnings = []
     migrated = migrate(values, warnings,
-                       fcg_image_repo=args.fcg_image_repo,
-                       fcg_image_tag=args.fcg_image_tag)
+                       fcg_image_repo=fcg_image_repo,
+                       fcg_image_tag=fcg_image_tag)
 
     if warnings:
         print("\nMIGRATION WARNINGS — review these before applying:", file=sys.stderr)
@@ -475,8 +710,8 @@ def main():
             sys.exit(1)
         with open(output_path, "w") as f:
             yaml.dump(migrated, f)
-        print(f"Migrated values written to: {output_path}")
-        print("Review the output and warnings before running helm upgrade.")
+        print(f"\nMigrated values written to: {output_path}")
+        print_next_steps(output_path, release_name, release_ns, migrated)
 
 
 if __name__ == "__main__":
