@@ -47,17 +47,19 @@ invocation), not nested under subchart name prefixes.
 
 ### Options
 
-| Flag                | Description                                                                                                |
-|---------------------|------------------------------------------------------------------------------------------------------------|
-| `--interactive`     | Run the interactive migration wizard                                                                       |
-| `--platform-values` | Path to `falcon-platform` umbrella values file                                                             |
-| `--sensor-values`   | Path to standalone `falcon-sensor` values file                                                             |
-| `--kac-values`      | Path to standalone `falcon-kac` values file                                                                |
-| `--iar-values`      | Path to standalone `falcon-image-analyzer` values file                                                     |
-| `--fcg-image-repo`  | FCG image repository (default: `registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard`) |
-| `--fcg-image-tag`   | FCG image tag (default: `8.14.0-12345-1`)                                                                  |
-| `--output`          | Path for migrated output file. Defaults to `<input>.fcg-migrated.yaml`                                     |
-| `--dry-run`         | Print the migrated YAML to stdout without writing any file                                                 |
+| Flag                  | Description                                                                                                |
+|-----------------------|------------------------------------------------------------------------------------------------------------|
+| `--interactive`       | Run the interactive migration wizard                                                                       |
+| `--platform-values`   | Path to `falcon-platform` umbrella values file                                                             |
+| `--sensor-values`     | Path to standalone `falcon-sensor` values file                                                             |
+| `--kac-values`        | Path to standalone `falcon-kac` values file                                                                |
+| `--iar-values`        | Path to standalone `falcon-image-analyzer` values file                                                     |
+| `--fcg-image-repo`    | FCG image repository (default: `registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard`) |
+| `--fcg-image-tag`     | FCG image tag (default: `8.14.0-12345-1`)                                                                  |
+| `--admission-control` | Override `falcon-clusterguard.cluster.admissionControl.enabled` (`true`/`false`)                           |
+| `--image-analyzer`    | Override `falcon-image-analyzer.enabled` (`true`/`false`)                                                  |
+| `--output`            | Path for migrated output file. Defaults to `<input>.fcg-migrated.yaml`                                     |
+| `--dry-run`           | Print the migrated YAML to stdout without writing any file                                                 |
 
 ## Interactive wizard
 
@@ -97,12 +99,36 @@ helm get values <release> -n <namespace> -o yaml
 This returns only the values you explicitly set — chart defaults are excluded, keeping
 the migrated output clean.
 
-### Overriding wizard values with CLI flags
+### Step 4 — Admission control
 
-`--fcg-image-repo` and `--fcg-image-tag` override the wizard's choices when passed
-alongside `--interactive`:
+The wizard reads the current `admissionControl.enabled` value from the loaded values
+(falling back to the old `falcon-kac` default of `true` if not found) and uses it as
+the prompt default. Press Enter to keep the current behavior, or type `true`/`false` to
+change it.
+
+> **Note:** The FCG default for `admissionControl.enabled` is `false`, whereas the old
+> `falcon-kac` default was `true`. The script always writes this value explicitly so
+> your intent is preserved regardless of chart defaults.
+
+### Step 5 — Image Analyzer
+
+The wizard checks whether `falcon-image-analyzer` is present in your values and whether
+`falcon-image-analyzer.enabled` is set, then prompts accordingly. Note that
+`falcon-image-analyzer` will be integrated into FCG in a future release.
+
+### Overriding wizard prompts with CLI flags
+
+`--fcg-image-repo`, `--fcg-image-tag`, `--admission-control`, and `--image-analyzer`
+skip their corresponding wizard prompts when passed alongside `--interactive`. The flag
+value is used directly and the step simply confirms it:
 
 ```bash
+# Skip the admission control and image analyzer prompts entirely
+python3 scripts/migrate-to-fcg.py --interactive \
+  --admission-control true \
+  --image-analyzer false
+
+# Override just the image tag
 python3 scripts/migrate-to-fcg.py --interactive --fcg-image-tag "8.15.0-99999-1"
 ```
 
@@ -133,6 +159,16 @@ python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml
 python3 scripts/migrate-to-fcg.py \
   --sensor-values sensor-values.yaml \
   --kac-values kac-values.yaml
+```
+
+Use `--admission-control` and `--image-analyzer` to override those settings without
+editing the output file:
+
+```bash
+python3 scripts/migrate-to-fcg.py \
+  --platform-values my-values.yaml \
+  --admission-control true \
+  --image-analyzer false
 ```
 
 **3. Diff the original against the migrated file:**
