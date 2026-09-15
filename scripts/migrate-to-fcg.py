@@ -17,10 +17,12 @@ Supports two input modes (mutually exclusive):
     python3 scripts/migrate-to-fcg.py --interactive
 
 Common options:
-    --fcg-image-repo  FCG image repository (default: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard)
-    --fcg-image-tag   FCG image tag (default: 8.14.0-12345-1)
-    --output <file>   Write output to this path (default: <first-input>.fcg-migrated.yaml)
-    --dry-run         Print migrated YAML to stdout without writing any file
+    --fcg-image-repo        FCG image repository (default: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard)
+    --fcg-image-tag         FCG image tag (default: 8.14.0-12345-1)
+    --admission-control     Override admission control enabled: true or false
+    --image-analyzer        Override image analyzer enabled: true or false
+    --output <file>         Write output to this path (default: <first-input>.fcg-migrated.yaml)
+    --dry-run               Print migrated YAML to stdout without writing any file
 
 Requirements:
     pip3 install ruamel.yaml
@@ -97,6 +99,34 @@ def annotate_deprecated(cm, key, comment):
     """Add a DEPRECATED comment before a key in a CommentedMap, if the key exists."""
     if key in cm:
         cm.yaml_set_comment_before_after_key(key, before=comment)
+
+
+def _parse_bool(value: str) -> bool:
+    """Parse 'true'/'false' string from CLI into bool. Raises ValueError on bad input."""
+    if value.lower() in ("true", "1", "yes"):
+        return True
+    if value.lower() in ("false", "0", "no"):
+        return False
+    raise ValueError(f"Expected true/false, got: {value!r}")
+
+
+def apply_overrides(migrated: dict, admission_control_override, image_analyzer_override):
+    """Apply --admission-control and --image-analyzer CLI overrides to the migrated values."""
+    if admission_control_override is not None:
+        fcg = migrated.get("falcon-clusterguard")
+        if fcg is not None:
+            if "cluster" not in fcg or not isinstance(fcg.get("cluster"), dict):
+                fcg["cluster"] = CommentedMap()
+            if "admissionControl" not in fcg["cluster"] or not isinstance(fcg["cluster"].get("admissionControl"), dict):
+                fcg["cluster"]["admissionControl"] = CommentedMap()
+            fcg["cluster"]["admissionControl"]["enabled"] = admission_control_override
+
+    if image_analyzer_override is not None:
+        iar = migrated.get("falcon-image-analyzer")
+        if iar is None:
+            migrated["falcon-image-analyzer"] = CommentedMap()
+            iar = migrated["falcon-image-analyzer"]
+        iar["enabled"] = image_analyzer_override
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +420,7 @@ def _choose(question, choices):
         print(f"  Please enter a number between 1 and {len(choices)}.")
 
 
-def run_wizard(yaml_instance):
+def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=None):
     """
     Interactive wizard. Returns (values dict, primary_input_label, fcg_image_repo, fcg_image_tag).
     Discovers the existing Helm release, asks for registry/version, and loads or extracts values.
@@ -510,8 +540,63 @@ def run_wizard(yaml_instance):
             sys.exit(1)
 
     print("\n" + "=" * 60)
-    return values, primary_input_label, fcg_image_repo, fcg_image_tag, release_name, release_ns
 
+    # ------------------------------------------------------------------
+    # Step 4: Admission control
+    # ------------------------------------------------------------------
+    print("\n── Step 4: Admission control ──")
+
+    if cli_admission_control is not None:
+        admission_control_override = cli_admission_control
+        print(f"  ✓ admissionControl.enabled = {str(admission_control_override).lower()} (from --admission-control flag)")
+    else:
+        # Derive current state from loaded values so the default is meaningful
+        current_ac = (
+            get_nested(values, "falcon-clusterguard", "cluster", "admissionControl", "enabled")
+            or get_nested(values, "falcon-kac", "admissionControl", "enabled")
+        )
+        # Old kac default was true; if not found, assume it was enabled
+        if current_ac is None:
+            current_ac = True
+        ac_default = "true" if current_ac else "false"
+
+        print(f"  Current: admissionControl.enabled = {ac_default}")
+        print("  Enable or disable the ValidatingWebhookConfiguration for admission control.")
+        ac_raw = _prompt("Enable admission control? (true/false)", default=ac_default)
+        try:
+            admission_control_override = _parse_bool(ac_raw)
+        except ValueError:
+            print(f"  Invalid value '{ac_raw}' — keeping current ({ac_default})", file=sys.stderr)
+            admission_control_override = _parse_bool(ac_default)
+        print(f"  ✓ admissionControl.enabled = {str(admission_control_override).lower()}")
+
+    # ------------------------------------------------------------------
+    # Step 5: Image analyzer
+    # ------------------------------------------------------------------
+    print("\n── Step 5: Image Analyzer ──")
+
+    if cli_image_analyzer is not None:
+        image_analyzer_override = cli_image_analyzer
+        print(f"  ✓ falcon-image-analyzer.enabled = {str(image_analyzer_override).lower()} (from --image-analyzer flag)")
+    else:
+        current_iar = get_nested(values, "falcon-image-analyzer", "enabled")
+        if current_iar is None:
+            # Default to enabled only if the block exists in values
+            current_iar = "falcon-image-analyzer" in values
+        iar_default = "true" if current_iar else "false"
+
+        print(f"  Current: falcon-image-analyzer.enabled = {iar_default}")
+        print("  NOTE: falcon-image-analyzer will be integrated into FCG in a future release.")
+        iar_raw = _prompt("Keep Image Analyzer enabled? (true/false)", default=iar_default)
+        try:
+            image_analyzer_override = _parse_bool(iar_raw)
+        except ValueError:
+            print(f"  Invalid value '{iar_raw}' — keeping current ({iar_default})", file=sys.stderr)
+            image_analyzer_override = _parse_bool(iar_default)
+        print(f"  ✓ falcon-image-analyzer.enabled = {str(image_analyzer_override).lower()}")
+
+    print("\n" + "=" * 60)
+    return values, primary_input_label, fcg_image_repo, fcg_image_tag, release_name, release_ns, admission_control_override, image_analyzer_override
 
 def _detect_release(preferred_names=("falcon-platform",)):
     """Try to auto-detect the Helm release name and namespace. Returns (name, ns) or defaults."""
@@ -619,14 +704,26 @@ def main():
     parser.add_argument(
         "--fcg-image-repo",
         metavar="REPO",
-        default=FCG_DEFAULT_IMAGE_REPO,
+        default=None,
         help=f"FCG image repository (default: {FCG_DEFAULT_IMAGE_REPO})",
     )
     parser.add_argument(
         "--fcg-image-tag",
         metavar="TAG",
-        default=FCG_DEFAULT_IMAGE_TAG,
+        default=None,
         help=f"FCG image tag (default: {FCG_DEFAULT_IMAGE_TAG})",
+    )
+    parser.add_argument(
+        "--admission-control",
+        metavar="BOOL",
+        default=None,
+        help="Override falcon-clusterguard.cluster.admissionControl.enabled (true/false)",
+    )
+    parser.add_argument(
+        "--image-analyzer",
+        metavar="BOOL",
+        default=None,
+        help="Override falcon-image-analyzer.enabled (true/false)",
     )
     parser.add_argument(
         "--output",
@@ -639,6 +736,20 @@ def main():
         help="Print migrated YAML to stdout instead of writing a file",
     )
     args = parser.parse_args()
+
+    # Parse bool flags early so errors surface before any work begins
+    admission_control_override = None
+    image_analyzer_override = None
+    if args.admission_control is not None:
+        try:
+            admission_control_override = _parse_bool(args.admission_control)
+        except ValueError as e:
+            parser.error(f"--admission-control: {e}")
+    if args.image_analyzer is not None:
+        try:
+            image_analyzer_override = _parse_bool(args.image_analyzer)
+        except ValueError as e:
+            parser.error(f"--image-analyzer: {e}")
 
     # Validate: individual chart flags only with --sensor-values
     if args.platform_values and (args.kac_values or args.iar_values):
@@ -660,8 +771,11 @@ def main():
     )
 
     if use_wizard:
-        values, primary_input, fcg_image_repo, fcg_image_tag, release_name, release_ns = run_wizard(yaml)
-        # CLI flags still override wizard choices when explicitly provided
+        values, primary_input, fcg_image_repo, fcg_image_tag, release_name, release_ns, \
+            admission_control_override, image_analyzer_override = run_wizard(
+                yaml, cli_admission_control=admission_control_override,
+                cli_image_analyzer=image_analyzer_override,
+            )
         if args.fcg_image_repo is not None:
             fcg_image_repo = args.fcg_image_repo
         if args.fcg_image_tag is not None:
@@ -693,6 +807,7 @@ def main():
     migrated = migrate(values, warnings,
                        fcg_image_repo=fcg_image_repo,
                        fcg_image_tag=fcg_image_tag)
+    apply_overrides(migrated, admission_control_override, image_analyzer_override)
 
     if warnings:
         print("\nMIGRATION WARNINGS — review these before applying:", file=sys.stderr)
