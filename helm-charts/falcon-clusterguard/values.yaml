@@ -25,7 +25,7 @@ image:
   # Overrides the image tag. In general, tags should not be used (including semver tags or `latest`).
   # This variable is provided for those who have yet to move off of using tags. The sha256 digest
   # should be used in place of tags for increased security and image immutability.
-  tag: "latest"
+  tag: "8.14.0-XXXXX-1"
   # Setting a digest will override any tag and should be used instead of tags.
   #
   # Example digest variable configuration:
@@ -70,13 +70,6 @@ secretsStore:
     vaultName: ""
     tenantID: ""
     clientID: ""
-  vault:
-    address: ""
-    roleName: ""
-    secretPath: ""
-    cidSecretKey: "cid"
-    provisioningTokenSecretKey: "provisioning_token"
-    additionalParameters: {}
 
 # =============================================================================
 # Node sensor DaemonSet configuration
