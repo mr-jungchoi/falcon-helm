@@ -187,14 +187,12 @@ spec:
             mountPath: /opt/CrowdStrike/config
           - name: falconstore
             mountPath: /opt/CrowdStrike/falconstore
-          {{- if .Values.cluster.enabled }}
           - name: falcon-node-sensor-tls-certs
             mountPath: /run/secrets/tls
             readOnly: true
           - name: falcon-api-ca
             mountPath: /run/secrets/ca
             readOnly: true
-          {{- end }}
       volumes:
         - name: cs-config
           hostPath:
@@ -202,12 +200,10 @@ spec:
         - name: falconstore
           hostPath:
             path: /opt/CrowdStrike/falconstore
-        {{- if .Values.cluster.enabled }}
         - name: falcon-node-sensor-tls-certs
           secret:
             secretName: "falcon-node-sensor-tls"
         - name: falcon-api-ca
           secret:
             secretName: "falcon-api-ca"
-        {{- end }}
 {{- end }}

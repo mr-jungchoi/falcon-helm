@@ -1,4 +1,3 @@
-{{- if .Values.cluster.enabled }}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -16,4 +15,3 @@ spec:
         scopeName: PriorityClass
         values:
           - system-cluster-critical
-{{- end }}

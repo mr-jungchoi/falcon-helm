@@ -282,20 +282,11 @@ __CS_WATCH_EVENTS_ENABLED: {{ $watcherEnabled | toString | quote }}
 __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{- end -}}
 
-
-{{- define "falcon-clusterguard.clusterSensorEnabled" -}}
-{{- if .Values.cluster.enabled -}}
-true
-{{- else -}}
-false
-{{- end -}}
-{{- end -}}
-
 {{/*
-Admission control enabled? True if both cluster AND admissionControl are enabled.
+Admission control enabled? True if admissionControl is enabled.
 */}}
 {{- define "falcon-clusterguard.admissionControlEnabled" -}}
-{{- if and .Values.cluster.enabled .Values.cluster.admissionControl.enabled -}}
+{{- if .Values.cluster.admissionControl.enabled -}}
 true
 {{- else -}}
 false
@@ -314,11 +305,11 @@ false
 {{- end -}}
 
 {{/*
-At least one of admission control or visibility must be enabled.
+At least one component must be enabled.
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.clusterSensorEnabled" .) "false") (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") (not .Values.node.enabled) -}}
-{{- fail "Error: at least one of node.enabled, cluster.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
+{{- if and (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") (not .Values.node.enabled) -}}
+{{- fail "Error: at least one of node.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
 {{- end -}}
 {{- end -}}
 
