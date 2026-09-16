@@ -1,4 +1,5 @@
-{{- $name := "falcon-cluster-sensor" -}}
+{{- $deploymentName := "falcon-cluster-sensor" -}}
+{{- $validatingWebhookName := printf "validating.%s" (include "falcon-clusterguard.webhookName" .) -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 {{- $certValid := (.Values.cluster.certExpiration | int) -}}
 
@@ -20,7 +21,7 @@
 {{- if kindIs "map" $tlscrt -}}
 {{- $webhookCert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) -}}
 {{- end -}}
-{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $name).webhooks -}}
+{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $validatingWebhookName).webhooks -}}
 {{- if kindIs "slice" $tlsca -}}
 {{- range $i, $wh := $tlsca -}}
 {{- if eq $i 0 }}{{- /* take only the first webhook's bundle */ -}}
@@ -120,7 +121,7 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $name }}
+  name: {{ $deploymentName }}
   namespace: {{ $ns }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
@@ -177,7 +178,7 @@ spec:
         - name: {{ $imagePullSecret }}
         {{- end }}
         {{- if $registryConfigJson }}
-        - name: {{ $name }}-pull-secret
+        - name: {{ $deploymentName }}-pull-secret
         {{- end }}
       {{- end }}
       nodeSelector:
@@ -438,11 +439,11 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: validating.falcon-kac.crowdstrike.com
+  name: {{ $validatingWebhookName }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
 webhooks:
-- name: validating.{{ include "falcon-clusterguard.webhookName" . }}
+- name: {{ $validatingWebhookName }}
   admissionReviewVersions:
     - v1
   matchPolicy: Equivalent
@@ -491,7 +492,7 @@ webhooks:
     scope: '*'
   sideEffects: None
   timeoutSeconds: 10
-- name: workload.validating.falcon-kac.crowdstrike.com
+- name: workload.{{ $validatingWebhookName }}
   admissionReviewVersions:
   - v1
   clientConfig:
