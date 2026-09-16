@@ -43,10 +43,10 @@ falcon:
   apd:
   aph:
   app:
-  trace: none
-  feature:
+  trace: none         # needs to be configurable for each subcomponent
+  feature:            # needs to be configurable for each subcomponent
   billing:
-  tags:
+  tags:               # needs to be configurable for each subcomponent
   provisioning_token:
 
 # If falcon.cid is not defined, falconSecret.enabled must be true, and FALCONCTL_OPT_CID
