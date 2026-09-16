@@ -318,7 +318,7 @@ def migrate(values: dict, warnings: list,
     sensor_csi = sensor.get("secretsStore") or {}
     kac_csi = (values.get("falcon-kac") or {}).get("secretsStore") or {}
     merged_csi = deepcopy(kac_csi)
-    merged_csi.update({k: v for k, v in sensor_csi.items() if v})
+    merged_csi.update({k: v for k, v in sensor_csi.items() if v is not None})
     if any(v for v in merged_csi.values() if v):
         fcg["secretsStore"] = merged_csi
 

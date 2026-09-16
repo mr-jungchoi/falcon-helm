@@ -17,7 +17,7 @@ WORKLOADS
 {{- if .Values.cluster.enabled }}
 
   Cluster Sensor Deployment:
-    kubectl rollout status deployment/{{ include "falcon-clusterguard.name" . }} \
+    kubectl rollout status deployment/falcon-cluster-sensor \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
 

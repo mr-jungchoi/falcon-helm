@@ -23,7 +23,7 @@ spec:
 
           echo "--- Waiting for DaemonSet rollout ---"
           kubectl rollout status daemonset \
-            "{{ include "falcon-clusterguard.fullname" . }}" \
+            "falcon-sensor" \
             -n "{{ include "falcon-clusterguard.namespace" . }}" \
             --timeout=300s
 
@@ -55,7 +55,7 @@ spec:
           fi
 
           echo "--- Checking DaemonSet exists ---"
-          DS_NAME="{{ include "falcon-clusterguard.fullname" . }}"
+          DS_NAME="falcon-sensor"
           if ! kubectl get daemonset "${DS_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: DaemonSet '${DS_NAME}' not found"
             FAILED=1
