@@ -15,7 +15,6 @@ subjects:
   name: {{ include "falcon-clusterguard.nodeServiceAccountName" . }}
   namespace: {{ include "falcon-clusterguard.namespace" . }}
 ---
-{{- if .Values.cluster.enabled }}
 # Binds the resource-reader role to the admission controller ServiceAccount.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -32,4 +31,3 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "falcon-clusterguard.clusterServiceAccountName" . }}
   namespace: {{ include "falcon-clusterguard.namespace" . }}
-{{- end }}

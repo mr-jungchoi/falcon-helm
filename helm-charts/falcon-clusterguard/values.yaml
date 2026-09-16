@@ -164,10 +164,6 @@ node:
 # Cluster sensor configuration
 # =============================================================================
 cluster:
-  # Toggle cluster sensor on/off. When false, no Deployment/gRPC Service/TLS Secrets/
-  # ResourceQuota resources are rendered.
-  enabled: true
-
   # Toggle admission control (ValidatingWebhookConfiguration + webhook Service) on/off.
   # When false, the cluster sensor Deployment still runs for K8s metadata visibility,
   # but does not act as a validating webhook.
