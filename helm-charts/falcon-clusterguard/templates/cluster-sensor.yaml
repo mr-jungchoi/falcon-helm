@@ -1,4 +1,3 @@
-{{- if .Values.cluster.enabled }}
 {{- $name := "falcon-cluster-sensor" -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 {{- $certValid := (.Values.cluster.certExpiration | int) -}}
@@ -565,5 +564,4 @@ webhooks:
     scope: '*'
   sideEffects: None
   timeoutSeconds: 10
-{{- end }}
 {{- end }}
