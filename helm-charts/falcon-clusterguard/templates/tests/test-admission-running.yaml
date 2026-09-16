@@ -23,7 +23,7 @@ spec:
 
           echo "--- Waiting for admission Deployment to be available ---"
           kubectl wait deployment \
-            "{{ include "falcon-clusterguard.name" . }}" \
+            "falcon-cluster-sensor" \
             -n "{{ include "falcon-clusterguard.namespace" . }}" \
             --for=condition=Available \
             --timeout=300s
@@ -126,7 +126,7 @@ spec:
               fi
 
               {{- if .Values.cluster.hostNetwork }}
-              HOST_NETWORK=$(kubectl get deployment "{{ include "falcon-clusterguard.name" . }}" \
+              HOST_NETWORK=$(kubectl get deployment "falcon-cluster-sensor" \
                 -n "{{ include "falcon-clusterguard.namespace" . }}" \
                 -o jsonpath="{.spec.template.spec.hostNetwork}")
               if [ "${HOST_NETWORK}" != "true" ]; then
