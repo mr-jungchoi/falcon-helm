@@ -38,7 +38,7 @@ from copy import deepcopy
 
 try:
     from ruamel.yaml import YAML
-    from ruamel.yaml.comments import CommentedMap
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
 except ImportError:
     print("ERROR: ruamel.yaml is required. Install it with: pip3 install ruamel.yaml", file=sys.stderr)
     sys.exit(1)
@@ -99,6 +99,26 @@ def annotate_deprecated(cm, key, comment):
     """Add a DEPRECATED comment before a key in a CommentedMap, if the key exists."""
     if key in cm:
         cm.yaml_set_comment_before_after_key(key, before=comment)
+
+
+def strip_comments(obj):
+    """Recursively clear ruamel comment metadata from a deepcopy'd value.
+
+    ruamel preserves comment/whitespace metadata from parse time. When we
+    deepcopy a value from the source file and place it in a new map, that
+    metadata can cause spurious blank lines to appear between keys. Stripping
+    it ensures the output structure is determined solely by our writer settings.
+    """
+    if isinstance(obj, CommentedMap):
+        if hasattr(obj, "ca"):
+            obj.ca.items.clear()
+        for v in obj.values():
+            strip_comments(v)
+    elif isinstance(obj, CommentedSeq):
+        if hasattr(obj, "ca"):
+            obj.ca.items.clear()
+        for item in obj:
+            strip_comments(item)
 
 
 def _parse_bool(value: str) -> bool:
@@ -213,12 +233,7 @@ def migrate(values: dict, warnings: list,
             if k in kac:
                 cluster[k] = deepcopy(kac[k])
 
-        # falcon-kac.enabled → cluster.enabled (controls the cluster sensor Deployment)
-        # Always written explicitly — default changed from true (kac) to true (FCG).
-        if kac.get("enabled") is not None:
-            cluster["enabled"] = kac["enabled"]
-        else:
-            cluster["enabled"] = True
+        # falcon-kac.enabled is no longer mapped — cluster sensor is always enabled in FCG.
 
         # falcon-kac.admissionControl.enabled → cluster.admissionControl.enabled
         # Controls the ValidatingWebhookConfiguration + webhook Service.
@@ -232,7 +247,9 @@ def migrate(values: dict, warnings: list,
         # webhook block
         kac_webhook = kac.get("webhook", {}) or {}
         if kac_webhook:
-            cluster["webhook"] = deepcopy(kac_webhook)
+            wh = deepcopy(kac_webhook)
+            strip_comments(wh)
+            cluster["webhook"] = wh
 
         # resourceQuota
         if "resourceQuota" in kac:
@@ -246,7 +263,9 @@ def migrate(values: dict, warnings: list,
         resources = CommentedMap()
         for old_key, (new_key, eol_comment) in RESOURCE_RENAMES.items():
             if old_key in kac:
-                resources[new_key] = deepcopy(kac[old_key])
+                val = deepcopy(kac[old_key])
+                strip_comments(val)
+                resources[new_key] = val
                 resources.yaml_add_eol_comment(eol_comment, key=new_key)
         if resources:
             cluster["resources"] = resources
@@ -259,6 +278,7 @@ def migrate(values: dict, warnings: list,
         cluster["serviceAccount"] = kac_sa
 
         fcg["cluster"] = cluster
+        fcg.yaml_set_comment_before_after_key("cluster", before="\n")
 
         # clusterName at kac top level → node.clusterName
         if "clusterName" in kac and kac["clusterName"]:
@@ -306,13 +326,18 @@ def migrate(values: dict, warnings: list,
         fcg["falconSecret"] = deepcopy(sensor_secret)
 
     # falcon.* — merge sensor and kac values at fcg root (sensor takes precedence).
-    # Placed here (after both blocks) to ensure it lands at root level, not inside cluster.
+    # Inserted right after `image` to mirror where falcon.* appeared in the source
+    # (falcon-sensor comes before falcon-kac in the platform values file, and
+    # falcon.* appears near the top of each chart's values block).
+    # CommentedMap.insert() lets us control position rather than always appending.
     sensor_falcon = sensor.get("falcon") or {}
     kac_falcon    = (values.get("falcon-kac") or {}).get("falcon") or {}
     merged_falcon = deepcopy(kac_falcon)
     merged_falcon.update({k: v for k, v in sensor_falcon.items() if v is not None})
     if merged_falcon:
-        fcg["falcon"] = merged_falcon
+        # Insert after "image" (index 2: enabled=0, namespaceOverride=1, image=2)
+        image_idx = list(fcg.keys()).index("image") if "image" in fcg else len(fcg) - 1
+        fcg.insert(image_idx + 1, "falcon", merged_falcon)
 
     # secretsStore — prefer sensor value; fall back to kac
     sensor_csi = sensor.get("secretsStore") or {}
@@ -544,7 +569,7 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
     # ------------------------------------------------------------------
     # Step 4: Admission control
     # ------------------------------------------------------------------
-    print("\n── Step 4: Admission control ──")
+    print("\n── Step 4: Admission Controller ──")
 
     if cli_admission_control is not None:
         admission_control_override = cli_admission_control
@@ -561,8 +586,8 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         ac_default = "true" if current_ac else "false"
 
         print(f"  Current: admissionControl.enabled = {ac_default}")
-        print("  Enable or disable the ValidatingWebhookConfiguration for admission control.")
-        ac_raw = _prompt("Enable admission control? (true/false)", default=ac_default)
+        print("  Enable or disable the ValidatingWebhookConfiguration for admission controller.")
+        ac_raw = _prompt("Enable admission controller? (true/false)", default=ac_default)
         try:
             admission_control_override = _parse_bool(ac_raw)
         except ValueError:
@@ -614,7 +639,7 @@ def _detect_release(preferred_names=("falcon-platform",)):
     return "falcon-platform", "falcon-platform"
 
 
-def print_next_steps(output_path, release_name, release_ns, migrated_values):
+def print_next_steps(output_path, primary_input, release_name, release_ns, migrated_values):
     """Print helm upgrade command and verification steps after a successful migration."""
     fcg = migrated_values.get("falcon-clusterguard") or {}
     fcg_ns = fcg.get("namespaceOverride") or release_ns or "falcon-system"
@@ -628,14 +653,13 @@ def print_next_steps(output_path, release_name, release_ns, migrated_values):
     print(f"""
 1) Review the migrated values file:
 
-   diff <original-values.yaml> {output_path}
+   diff {primary_input} {output_path}
 
 2) Run helm upgrade:
 
    helm upgrade {release_name} crowdstrike/falcon-platform \\
      -n {release_ns} \\
-     -f {output_path} \\
-     --reuse-values
+     -f {output_path}
 
 3) Verify the upgrade:
 """)
@@ -758,7 +782,7 @@ def main():
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.width = 120
-    yaml.best_sequence_indent = 2
+    yaml.indent(mapping=2, sequence=4, offset=2)
     yaml.best_map_flow_style = False
 
     def load(path):
@@ -826,7 +850,7 @@ def main():
         with open(output_path, "w") as f:
             yaml.dump(migrated, f)
         print(f"\nMigrated values written to: {output_path}")
-        print_next_steps(output_path, release_name, release_ns, migrated)
+        print_next_steps(output_path, primary_input, release_name, release_ns, migrated)
 
 
 if __name__ == "__main__":

@@ -27,10 +27,10 @@ container registry accessible to your Kubernetes deployment.
   Cluster Sensor (Deployment)
     - Replaces: falcon-kac
     - Cluster visibility: enabled
-    {{- if $fcg.admissionControl.enabled }}
-    - Admission control webhook: enabled (failurePolicy: {{ ($fcg.webhook).failurePolicy | default "Ignore" }})
+    {{- if $fcg.cluster.admissionControl.enabled }}
+    - Admission control webhook: enabled (failurePolicy: {{ ($fcg.cluster.webhook).failurePolicy | default "Ignore" }})
     {{- else }}
-    - Admission control webhook: disabled (set admissionControl.enabled=true to enable)
+    - Admission control webhook: disabled (set cluster.admissionControl.enabled=true to enable)
     {{- end }}
 
 {{- end }}
