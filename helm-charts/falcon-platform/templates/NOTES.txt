@@ -24,7 +24,9 @@ container registry accessible to your Kubernetes deployment.
     - Cluster name: {{ $fcg.node.clusterName | default "(auto-discovered)" }}
   {{- end }}
 
-  Cluster Sensor (Deployment)
+  {{- if $fcg.cluster.enabled }}
+
+  ✓ Cluster Sensor (Deployment)
     - Replaces: falcon-kac
     - Cluster visibility: enabled
     {{- if $fcg.cluster.admissionControl.enabled }}
@@ -32,6 +34,7 @@ container registry accessible to your Kubernetes deployment.
     {{- else }}
     - Admission control webhook: disabled (set cluster.admissionControl.enabled=true to enable)
     {{- end }}
+  {{- end }}
 
 {{- end }}
 
@@ -71,13 +74,12 @@ The default image name to deploy the pod sensor is `falcon-sensor`.
 {{- end }}
 {{- end }}
 
-{{- $kac := index .Values "falcon-kac" }}
-{{- if and $kac (index $kac "enabled") }}
+{{- if (index .Values "falcon-kac").enabled }}
 {{- $anyEnabled = true }}
 
 ✓ Falcon Kubernetes Admission Controller - Policy Enforcement
-  - Admission Control Webhook: {{ if (index $kac "admissionControl").enabled }}enabled{{ else }}disabled{{ end }}
-  - Namespace: {{ (index $kac "namespaceOverride") }}
+  - Admission Control Webhook: {{ if (index .Values "falcon-kac").admissionControl.enabled }}enabled{{ else }}disabled{{ end }}
+  - Namespace: {{ (index .Values "falcon-kac").namespaceOverride }}
   {{ "\033[33m" }}WARNING: falcon-kac is deprecated and has been replaced by falcon-clusterguard.
   Migrate using: python3 scripts/migrate-to-fcg.py{{ "\033[0m" }}
 {{- end }}
@@ -113,8 +115,10 @@ Monitor components:
   Node sensor DaemonSet:
     kubectl rollout status daemonset/falcon-sensor -n {{ $ns }}
   {{- end }}
+  {{- if $fcg.cluster.enabled }}
   Cluster sensor Deployment:
     kubectl rollout status deployment/falcon-cluster-sensor -n {{ $ns }}
+  {{- end }}
 {{- end }}
 
 ## Troubleshooting

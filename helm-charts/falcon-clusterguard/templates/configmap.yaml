@@ -28,6 +28,7 @@ data:
   {{- if .Values.node.clusterName }}
   FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
   {{- end }}
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -59,3 +60,4 @@ data:
   {{- if .Values.node.clusterName }}
   FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
   {{- end }}
+{{- end }}
