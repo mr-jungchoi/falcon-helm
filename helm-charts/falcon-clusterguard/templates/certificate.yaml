@@ -1,4 +1,4 @@
-{{- if .Values.cluster.certManager.enabled }}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.certManager.enabled }}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 
 # Self-signed CA certificate for gRPC mTLS.

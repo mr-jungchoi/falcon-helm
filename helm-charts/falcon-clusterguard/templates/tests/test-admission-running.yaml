@@ -1,4 +1,4 @@
-{{- if .Values.testing.enabled -}}
+{{- if and .Values.testing.enabled (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") -}}
 apiVersion: v1
 kind: Pod
 metadata:

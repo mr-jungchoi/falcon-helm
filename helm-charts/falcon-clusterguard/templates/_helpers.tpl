@@ -283,10 +283,21 @@ __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{- end -}}
 
 {{/*
-Admission control enabled? True if admissionControl is enabled.
+Disable cluster guard, which disables K8s metadata and degrades node sensor visibility
+*/}}
+{{- define "falcon-clusterguard.clusterGuardDisabled" -}}
+{{- if eq .Values.cluster.disableClusterGuard "I understand this disables K8s metadata and degrades node sensor visibility" -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{/*
+Admission control enabled? True if both cluster AND admissionControl are enabled.
 */}}
 {{- define "falcon-clusterguard.admissionControlEnabled" -}}
-{{- if .Values.cluster.admissionControl.enabled -}}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.admissionControl.enabled -}}
 true
 {{- else -}}
 false
@@ -305,11 +316,14 @@ false
 {{- end -}}
 
 {{/*
-At least one component must be enabled.
+Validate high level FCG components are configured properly
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.visibilityEnabled" .) "false") (not .Values.node.enabled) -}}
-{{- fail "Error: at least one of node.enabled, clusterVisibility.resourceSnapshots.enabled, or clusterVisibility.resourceWatcher.enabled must be true." -}}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") (not .Values.node.enabled) -}}
+{{- fail "Error: at least one of Node Sensor or Cluster Guard must be enabled." -}}
+{{- end -}}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.cluster.admissionControl.enabled -}}
+{{- fail "Error: cluster.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." -}}
 {{- end -}}
 {{- end -}}
 
