@@ -1,3 +1,4 @@
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,3 +16,4 @@ spec:
       name: grpc-api
   selector:
     {{- include "falcon-clusterguard.clusterSensorSelectorLabels" . | nindent 4 }}
+{{- end }}

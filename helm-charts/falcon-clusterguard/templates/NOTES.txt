@@ -14,12 +14,18 @@ WORKLOADS
 {{- else }}
   Node Sensor: disabled (node.enabled=false)
 {{- end }}
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 
   Cluster Sensor Deployment:
     kubectl rollout status deployment/falcon-cluster-sensor \
       -n {{ include "falcon-clusterguard.namespace" . }}
+{{- else }}
+
+  Cluster sensor: disabled (cluster.enabled=false)
+{{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 
 FALCON CLUSTER SENSOR CONFIGURATION
   ValidatingWebhookConfiguration: validating.{{ .Chart.Name }}.crowdstrike.com
@@ -34,6 +40,7 @@ FALCON CLUSTER SENSOR CONFIGURATION
   {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
 {{- if .Values.testing.enabled }}
 
 HELM TESTS
