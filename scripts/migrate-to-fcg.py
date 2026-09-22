@@ -521,28 +521,24 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
     print(f"  ✓ Image: {fcg_image_repo}:{fcg_image_tag}")
 
     # ------------------------------------------------------------------
-    # Step 3: Values file
+    # Step 3: Values source
     # ------------------------------------------------------------------
-    print("\n── Step 3: Values file ──")
-    print(f"  Press Enter to extract values from the '{release_name}' release via helm.")
+    print("\n── Step 3: Values source ──")
 
-    values_path = _prompt(
-        "Path to your existing values file (or Enter to extract from Helm release)",
-        default="",
+    input_mode, _ = _choose(
+        "How are your Falcon values organized?",
+        [
+            ("Extract from running Helm release", "helm"),
+            ("Single falcon-platform umbrella values file", "umbrella"),
+            ("Separate values files per chart", "individual"),
+        ],
     )
 
     primary_input_label = None
     values = {}
+    kac_provided = False  # tracks whether falcon-kac values were available
 
-    if values_path:
-        if not os.path.isfile(values_path):
-            print(f"  ERROR: file not found: {values_path}", file=sys.stderr)
-            sys.exit(1)
-        with open(values_path, "r") as f:
-            values = yaml_instance.load(f) or {}
-        primary_input_label = values_path
-        print(f"  ✓ Loaded values from {values_path}")
-    else:
+    if input_mode.startswith("Extract"):
         print(f"  Extracting values from release '{release_name}' (namespace: {release_ns})…")
         try:
             result = subprocess.run(
@@ -556,6 +552,7 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
                 import io
                 values = yaml_instance.load(io.StringIO(result.stdout)) or {}
             primary_input_label = f"{release_name}-extracted"
+            kac_provided = "falcon-kac" in values
             print(f"  ✓ Extracted {len(values)} top-level keys from release.")
         except subprocess.CalledProcessError as e:
             print(f"  ERROR: helm get values failed: {e.stderr.strip()}", file=sys.stderr)
@@ -563,6 +560,48 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         except FileNotFoundError:
             print("  ERROR: helm not found in PATH.", file=sys.stderr)
             sys.exit(1)
+
+    elif input_mode.startswith("Single"):
+        values_path = _prompt("Path to your falcon-platform values file")
+        if not values_path or not os.path.isfile(values_path):
+            print(f"  ERROR: file not found: {values_path!r}", file=sys.stderr)
+            sys.exit(1)
+        with open(values_path, "r") as f:
+            values = yaml_instance.load(f) or {}
+        primary_input_label = values_path
+        kac_provided = "falcon-kac" in values
+        print(f"  ✓ Loaded values from {values_path}")
+
+    else:  # individual charts
+        sensor_path = _prompt("Path to falcon-sensor values file (or Enter to skip)")
+        kac_path    = _prompt("Path to falcon-kac values file (or Enter to skip)")
+        iar_path    = _prompt("Path to falcon-image-analyzer values file (or Enter to skip)")
+
+        def _load_if(path):
+            if not path:
+                return {}
+            if not os.path.isfile(path):
+                print(f"  ERROR: file not found: {path!r}", file=sys.stderr)
+                sys.exit(1)
+            with open(path, "r") as f:
+                return yaml_instance.load(f) or {}
+
+        sensor_vals = _load_if(sensor_path)
+        kac_vals    = _load_if(kac_path)
+        iar_vals    = _load_if(iar_path)
+
+        values = CommentedMap()
+        if sensor_vals:
+            values["falcon-sensor"] = sensor_vals
+        if kac_vals:
+            values["falcon-kac"] = kac_vals
+        if iar_vals:
+            values["falcon-image-analyzer"] = iar_vals
+
+        kac_provided = bool(kac_vals)
+        primary_input_label = sensor_path or kac_path or iar_path or "individual-charts"
+        loaded = [p for p in (sensor_path, kac_path, iar_path) if p]
+        print(f"  ✓ Loaded {len(loaded)} values file(s): {', '.join(loaded)}")
 
     print("\n" + "=" * 60)
 
@@ -575,19 +614,23 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         admission_control_override = cli_admission_control
         print(f"  ✓ admissionControl.enabled = {str(admission_control_override).lower()} (from --admission-control flag)")
     else:
-        # Derive current state from loaded values so the default is meaningful
+        # Derive current state from loaded values so the default is meaningful.
+        # If kac values were not provided we cannot infer intent — default to false
+        # to avoid accidentally enabling the webhook without a configured policy.
         current_ac = (
             get_nested(values, "falcon-clusterguard", "cluster", "admissionControl", "enabled")
             or get_nested(values, "falcon-kac", "admissionControl", "enabled")
         )
-        # Old kac default was true; if not found, assume it was enabled
         if current_ac is None:
-            current_ac = True
+            current_ac = True if kac_provided else False
         ac_default = "true" if current_ac else "false"
 
-        print(f"  Current: admissionControl.enabled = {ac_default}")
+        if not kac_provided:
+            print("  NOTE: No falcon-kac values were found — defaulting admissionControl.enabled to false.")
+        else:
+            print(f"  Current: admissionControl.enabled = {ac_default}")
         print("  Enable or disable the ValidatingWebhookConfiguration for admission controller.")
-        ac_raw = _prompt("Enable admission controller? (true/false)", default=ac_default)
+        ac_raw = _prompt("Enable Admission Controller? (true/false)", default=ac_default)
         try:
             admission_control_override = _parse_bool(ac_raw)
         except ValueError:
@@ -606,13 +649,15 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
     else:
         current_iar = get_nested(values, "falcon-image-analyzer", "enabled")
         if current_iar is None:
-            # Default to enabled only if the block exists in values
             current_iar = "falcon-image-analyzer" in values
         iar_default = "true" if current_iar else "false"
 
-        print(f"  Current: falcon-image-analyzer.enabled = {iar_default}")
+        if not current_iar and "falcon-image-analyzer" not in values:
+            print("  NOTE: No falcon-image-analyzer values were found — defaulting to false.")
+        else:
+            print(f"  Current: falcon-image-analyzer.enabled = {iar_default}")
         print("  NOTE: falcon-image-analyzer will be integrated into FCG in a future release.")
-        iar_raw = _prompt("Keep Image Analyzer enabled? (true/false)", default=iar_default)
+        iar_raw = _prompt("Enable Image Analyzer? (true/false)", default=iar_default)
         try:
             image_analyzer_override = _parse_bool(iar_raw)
         except ValueError:
@@ -664,11 +709,11 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
 3) Verify the upgrade:
 """)
     if node_enabled:
-        print(f"   # Node sensor DaemonSet")
+        print(f"   # Node Sensor DaemonSet")
         print(f"   kubectl rollout status daemonset/falcon-sensor -n {fcg_ns}")
         print()
     if cluster_enabled:
-        print(f"   # Cluster sensor Deployment")
+        print(f"   # Cluster Guard Deployment")
         print(f"   kubectl rollout status deployment/falcon-cluster-sensor -n {fcg_ns}")
         print()
     print(f"   # All FCG pods")
@@ -810,6 +855,10 @@ def main():
         fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
         fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
         release_name, release_ns = _detect_release()
+        if admission_control_override is None and "falcon-kac" not in values:
+            admission_control_override = False
+        if image_analyzer_override is None and "falcon-image-analyzer" not in values:
+            image_analyzer_override = False
     else:
         sensor_vals = load(args.sensor_values)
         kac_vals    = load(args.kac_values) if args.kac_values else {}
@@ -826,6 +875,10 @@ def main():
         fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
         fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
         release_name, release_ns = _detect_release()
+        if admission_control_override is None and not kac_vals:
+            admission_control_override = False
+        if image_analyzer_override is None and not iar_vals:
+            image_analyzer_override = False
 
     warnings = []
     migrated = migrate(values, warnings,
