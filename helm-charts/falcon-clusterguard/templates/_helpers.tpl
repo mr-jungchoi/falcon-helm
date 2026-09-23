@@ -70,14 +70,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Admission-specific selector labels (used by the admission Deployment/Service/Webhook)
 */}}
 {{- define "falcon-clusterguard.clusterSensorSelectorLabels" -}}
-app: cluster-sensor
+app: falcon-kac
 {{- end }}
 
 {{/*
 Node-sensor-specific selector labels (used by the node DaemonSet sensor)
 */}}
 {{- define "falcon-clusterguard.nodeSensorSelectorLabels" -}}
-app: node-sensor
+app: falcon-sensor
 {{- end }}
 
 {{/*
