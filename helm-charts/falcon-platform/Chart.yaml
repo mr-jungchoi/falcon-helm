@@ -35,7 +35,7 @@ kubeVersion: ">1.22.0-0"
 
 dependencies:
   - name: falcon-sensor
-    version: 1.37.0
+    version: 1.38.0-test.1
     repository: file://../falcon-sensor
     condition: falcon-sensor.enabled
   - name: falcon-kac
