@@ -23,7 +23,7 @@ spec:
 
           echo "--- Waiting for admission Deployment to be available ---"
           kubectl wait deployment \
-            "falcon-cluster-sensor" \
+            "falcon-clusterguard-controller" \
             -n "{{ include "falcon-clusterguard.namespace" . }}" \
             --for=condition=Available \
             --timeout=300s
@@ -89,7 +89,7 @@ spec:
           fi
 
           echo "--- Checking TLS Secret ---"
-          TLS_SECRET="falcon-cluster-sensor-tls"
+          TLS_SECRET="falcon-cg-controller-tls"
           if ! kubectl get secret "${TLS_SECRET}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: TLS Secret '${TLS_SECRET}' not found"
             FAILED=1
@@ -126,7 +126,7 @@ spec:
               fi
 
               {{- if .Values.cluster.hostNetwork }}
-              HOST_NETWORK=$(kubectl get deployment "falcon-cluster-sensor" \
+              HOST_NETWORK=$(kubectl get deployment "falcon-clusterguard-controller" \
                 -n "{{ include "falcon-clusterguard.namespace" . }}" \
                 -o jsonpath="{.spec.template.spec.hostNetwork}")
               if [ "${HOST_NETWORK}" != "true" ]; then
