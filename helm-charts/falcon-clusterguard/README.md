@@ -26,8 +26,8 @@ built around a single container image.
   - [Pod Security Standards](#pod-security-standards)
   - [Node Configuration](#node-configuration)
   - [GKE Autopilot Configuration](#gke-autopilot-configuration)
-- [Cluster Sensor Configuration](#cluster-sensor-configuration)
-  - [Cluster Sensor and Admission Control](#cluster-sensor-and-admission-control)
+- [Cluster Guard Controller Configuration](#cluster-guard-controller-configuration)
+  - [Cluster Guard Controller and Admission Control](#cluster-guard-controller-and-admission-control)
   - [Cluster Visibility](#cluster-visibility)
   - [Webhook Configuration](#webhook-configuration)
   - [Certificate Management](#certificate-management)
@@ -42,7 +42,7 @@ FCG replaces the separate `falcon-sensor` (node-only) and `falcon-kac` charts wi
 unified installer built around a single container image. FCG provides:
 
 - **Node-level protection**: eBPF/kernel-based sensor deployed as a DaemonSet on every cluster node
-- **Cluster sensor**: central gRPC metadata service that supplies Kubernetes context to node sensors, eliminating the scalability bottleneck of each sensor querying the API server directly
+- **Cluster Guard controller**: central gRPC metadata service that supplies Kubernetes context to node sensors, eliminating the scalability bottleneck of each sensor querying the API server directly
 - **Admission control**: optional ValidatingWebhookConfiguration that inspects Kubernetes API requests
 - **Resource visibility**: periodic snapshots + live event watchers for cluster-wide resource discovery
 
@@ -105,9 +105,9 @@ FCG has been tested on the following Kubernetes distributions:
 
 ### Helm Chart Support for FCG Versions
 
-| Helm Chart Version | FCG Sensor Version | Notes                                                    |
-|:-------------------|:-------------------|:---------------------------------------------------------|
-| `1.0.0`            | `>= 8.14`          | Initial release — unified node sensor and cluster sensor |
+| Helm Chart Version | FCG Sensor Version | Notes                                    |
+|:-------------------|:-------------------|:-----------------------------------------|
+| `1.0.0`            | `>= 8.14`          | Initial release for Falcon Cluster Guard |
 
 ## Installation
 
@@ -118,7 +118,7 @@ helm repo add crowdstrike https://crowdstrike.github.io/falcon-helm
 helm repo update
 ```
 
-### Minimal install (node sensor + cluster sensor)
+### Minimal install (node sensor + clusterguard controller)
 
 ```bash
 helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
@@ -127,7 +127,7 @@ helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
   --set image.registryConfigJSON="<YOUR_BASE64_ENCODED_DOCKER_CONFIG_JSON>"
 ```
 
-### Full install (node sensor + cluster sensor + admission control)
+### Full install (node sensor + clusterguard controller + admission control)
 
 ```yaml
 # falcon-clusterguard-values.yaml
@@ -191,8 +191,8 @@ sensor Deployment.
 ## Falcon Configuration Options
 
 The following table lists the Falcon sensor options shared by both the node sensor and
-the cluster sensor. These are passed to `falconctl` as `FALCONCTL_OPT_*` environment
-variables in both the node and cluster sensor ConfigMaps.
+the clusterguard controller. These are passed to `falconctl` as `FALCONCTL_OPT_*` environment
+variables in both the node and clusterguard controller ConfigMaps.
 
 > [!NOTE]
 > `falcon.cid` and `falcon.provisioning_token` are handled separately via the
@@ -457,39 +457,39 @@ skopeo copy \
 When using `falconSecret` with GKE Autopilot, `falconSecret.secretName` must be
 `"falcon-node-sensor-secret"`. Any other secret name is disallowed by GKE Autopilot.
 
-## Cluster Sensor Configuration
+## Cluster Guard Controller Configuration
 
-### Cluster Sensor and Admission Control
+### Cluster Guard Controller and Admission Control
 
-FCG has two independent feature gates for the cluster sensor:
+FCG has two independent feature gates for the clusterguard controller:
 
-- **`cluster.admissionControl.enabled`**: controls only the ValidatingWebhookConfiguration and webhook Service. The cluster sensor runs in visibility-only mode by default.
+- **`cluster.admissionControl.enabled`**: controls only the ValidatingWebhookConfiguration and webhook Service. The clusterguard controller runs in visibility-only mode by default.
 - **`cluster.imageAnalyzer.enabled`**: controls only Image Assessment with Image Analyzer. This is disabled by default.
 
 > **Important:** The FCG default for `cluster.admissionControl.enabled` is `false`, whereas
 > the old `falcon-kac` default was `true`. If you are migrating from `falcon-kac`, you must
 > explicitly set `cluster.admissionControl.enabled=true` to preserve admission control behavior.
 
-| Parameter                            | Description                                                                                                                             | Default                       |
-|:-------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------|:------------------------------|
-| `cluster.admissionControl.enabled`   | Enable the ValidatingWebhookConfiguration and webhook Service.                                                                          | `false`                       |
-| `cluster.serviceAccount.name`        | Name of the Kubernetes ServiceAccount used by the cluster sensor Deployment                                                             | `falcon-cluster-sensor-sa`    |
-| `cluster.serviceAccount.annotations` | Annotations applied to the cluster sensor ServiceAccount (e.g., for IRSA or Workload Identity)                                          | `{}`                          |
-| `cluster.replicas`                   | Number of cluster sensor replicas. The metadata service is single-instance; keep at `1` unless you understand the implications.         | `1`                           |
-| `cluster.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the cluster sensor namespace                                                        | `2`                           |
-| `cluster.hostNetwork`                | Run cluster sensor in host network mode. Required when a custom CNI prevents control plane nodes from communicating directly with pods. | `false`                       |
-| `cluster.webhookPort`                | HTTPS port on which the validating webhook backend listens                                                                              | `4443`                        |
-| `cluster.watcherPort`                | HTTP port on which the resource watcher listens (internal)                                                                              | `4080`                        |
-| `cluster.dnsPolicy`                  | Pod DNS policy. Defaults to `ClusterFirstWithHostNet` when `hostNetwork=true`; otherwise follows cluster default.                       | None                          |
-| `cluster.domainName`                 | Custom DNS domain suffix for in-cluster service resolution (e.g., `testing.io` if `svc.testing.io` is required).                        | None                          |
-| `cluster.tlsVersionMinimum`          | Minimum TLS version accepted by the webhook (`TLS1.2` or `TLS1.3`)                                                                      | None                          |
-| `cluster.autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`                                                                               | `true`                        |
-| `cluster.annotations`                | Annotations applied to the cluster sensor Deployment resource                                                                           | `{}`                          |
-| `cluster.labels`                     | Additional labels applied to the cluster sensor Deployment resource                                                                     | `{}`                          |
-| `cluster.podAnnotations`             | Annotations applied to cluster sensor pods                                                                                              | `{}`                          |
-| `cluster.podLabels`                  | Additional labels applied to cluster sensor pods                                                                                        | `{}`                          |
-| `cluster.tolerations`                | Pod tolerations for node scheduling                                                                                                     | `[]`                          |
-| `cluster.affinity`                   | Pod affinity/anti-affinity rules. Defaults to require `amd64` or `arm64` node architecture.                                             | `nodeAffinity` (amd64, arm64) |
+| Parameter                            | Description                                                                                                                                      | Default                       |
+|:-------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------------|
+| `cluster.admissionControl.enabled`   | Enable the ValidatingWebhookConfiguration and webhook Service.                                                                                   | `false`                       |
+| `cluster.serviceAccount.name`        | Name of the Kubernetes ServiceAccount used by the clusterguard controller Deployment                                                             | `falcon-cg-controller-sa`     |
+| `cluster.serviceAccount.annotations` | Annotations applied to the clusterguard controller ServiceAccount (e.g., for IRSA or Workload Identity)                                          | `{}`                          |
+| `cluster.replicas`                   | Number of clusterguard controller replicas. The metadata service is single-instance; keep at `1` unless you understand the implications.         | `1`                           |
+| `cluster.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the clusterguard controller namespace                                                        | `2`                           |
+| `cluster.hostNetwork`                | Run clusterguard controller in host network mode. Required when a custom CNI prevents control plane nodes from communicating directly with pods. | `false`                       |
+| `cluster.webhookPort`                | HTTPS port on which the validating webhook backend listens                                                                                       | `4443`                        |
+| `cluster.watcherPort`                | HTTP port on which the resource watcher listens (internal)                                                                                       | `4080`                        |
+| `cluster.dnsPolicy`                  | Pod DNS policy. Defaults to `ClusterFirstWithHostNet` when `hostNetwork=true`; otherwise follows cluster default.                                | None                          |
+| `cluster.domainName`                 | Custom DNS domain suffix for in-cluster service resolution (e.g., `testing.io` if `svc.testing.io` is required).                                 | None                          |
+| `cluster.tlsVersionMinimum`          | Minimum TLS version accepted by the webhook (`TLS1.2` or `TLS1.3`)                                                                               | None                          |
+| `cluster.autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`                                                                                        | `true`                        |
+| `cluster.annotations`                | Annotations applied to the clusterguard controller Deployment resource                                                                           | `{}`                          |
+| `cluster.labels`                     | Additional labels applied to the clusterguard controller Deployment resource                                                                     | `{}`                          |
+| `cluster.podAnnotations`             | Annotations applied to clusterguard controller pods                                                                                              | `{}`                          |
+| `cluster.podLabels`                  | Additional labels applied to clusterguard controller pods                                                                                        | `{}`                          |
+| `cluster.tolerations`                | Pod tolerations for node scheduling                                                                                                              | `[]`                          |
+| `cluster.affinity`                   | Pod affinity/anti-affinity rules. Defaults to require `amd64` or `arm64` node architecture.                                                      | `nodeAffinity` (amd64, arm64) |
 
 ### Cluster Visibility
 
@@ -512,7 +512,7 @@ Controls how FCG monitors and reports Kubernetes cluster state to CrowdStrike cl
 
 ### Certificate Management
 
-FCG uses mTLS between the node sensor and the cluster sensor gRPC API, and a separate TLS
+FCG uses mTLS between the node sensor and the clusterguard controller gRPC API, and a separate TLS
 certificate for the admission webhook. Certificates can be managed by Helm (default) or
 by cert-manager.
 
@@ -536,7 +536,7 @@ cluster:
 
 ### Resource Limits
 
-CPU and memory resource requests and limits for each cluster sensor container.
+CPU and memory resource requests and limits for each clusterguard controller container.
 
 | Parameter                                               | Description                                                           | Default |
 |:--------------------------------------------------------|:----------------------------------------------------------------------|:--------|
@@ -568,7 +568,7 @@ two separate SCCs:
 
 - **Node sensor SCC**: grants privileged host access (`hostPID`, `hostIPC`, `hostNetwork`,
   and a privileged container) required by the node DaemonSet
-- **Admission SCC**: grants host network access required by the cluster sensor when
+- **Admission SCC**: grants host network access required by the clusterguard controller when
   `cluster.hostNetwork=true`
 
 When `openshift.enabled=true` and `openshift.createSCC=true`, the chart creates both SCCs
@@ -593,12 +593,12 @@ kubectl label namespace falcon-system \
 
 ### OpenShift Values
 
-| Parameter                    | Description                                                                                                                  | Default               |
-|:-----------------------------|:-----------------------------------------------------------------------------------------------------------------------------|:----------------------|
-| `openshift.enabled`          | Enable OpenShift compatibility mode                                                                                          | `false`               |
-| `openshift.createSCC`        | Create SCCs for the node sensor and cluster sensor (when `cluster.hostNetwork=true`) and bind them to their service accounts | `true`                |
-| `openshift.nodeSCCName`      | Name of the node sensor SCC. Defaults to `<release-fullname>-node-sensor`                                                    | `""` (auto-generated) |
-| `openshift.admissionSCCName` | Name of the cluster sensor SCC. Defaults to `<release-fullname>-admission`                                                   | `""` (auto-generated) |
+| Parameter                    | Description                                                                                                                      | Default               |
+|:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------|:----------------------|
+| `openshift.enabled`          | Enable OpenShift compatibility mode                                                                                              | `false`               |
+| `openshift.createSCC`        | Create SCCs for the node sensor and clusterguard controller (when `cluster.hostNetwork=true`) and binds them to service accounts | `true`                |
+| `openshift.nodeSCCName`      | Name of the node sensor SCC. Defaults to `<release-fullname>-node-sensor`                                                        | `""` (auto-generated) |
+| `openshift.admissionSCCName` | Name of the clusterguard controller SCC. Defaults to `<release-fullname>-admission`                                              | `""` (auto-generated) |
 
 ### Installing on OpenShift
 
@@ -657,7 +657,7 @@ helm uninstall falcon-clusterguard -n falcon-system
 
 ### Admission Webhook Not Receiving Requests
 
-Ensure `cluster.admissionControl.enabled=true`. The cluster sensor Deployment can run
+Ensure `cluster.admissionControl.enabled=true`. The clusterguard controller Deployment can run
 without a webhook (visibility-only mode) — the webhook is disabled by default.
 
 Check that the ValidatingWebhookConfiguration exists:

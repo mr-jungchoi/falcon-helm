@@ -91,7 +91,7 @@ ServiceAccount name for the node sensor DaemonSet (privileged; bound to node SCC
 ServiceAccount name for the admission controller Deployment (restricted; no host access)
 */}}
 {{- define "falcon-clusterguard.clusterServiceAccountName" -}}
-{{- default (printf "%s-cluster-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.cluster.serviceAccount.name }}
+{{- default (printf "%s-clusterguard-controller-sa" (include "falcon-clusterguard.fullname" .)) .Values.cluster.serviceAccount.name }}
 {{- end }}
 
 {{/*
@@ -464,7 +464,7 @@ OpenShift node createSCC — false if either chart-level or global disables it.
 {{- end -}}
 
 {{/*
-OpenShift cluster sensor createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
+OpenShift clusterguard controller createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
 */}}
 {{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
 {{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}

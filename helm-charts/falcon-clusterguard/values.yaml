@@ -4,10 +4,10 @@
 #
 # Falcon Cluster Guard (FCG) is a unified Kubernetes security service that combines:
 #   - Falcon node-sensor DaemonSet (kernel/eBPF endpoint protection)
-#   - Falcon cluster-sensor (validating webhook for K8s workloads + metadata service for visibility)
+#   - Falcon clusterguard-controller (validating webhook for K8s workloads + metadata service for visibility)
 #
 # The `image` block below is unified across both workloads - a single FCG container
-# image is used by both the node DaemonSet and the cluster sensor Deployment.
+# image is used by both the node DaemonSet and the clusterguard controller Deployment.
 
 image:
   # Unified FCG container image (runs both node sensor and admission control modes)
@@ -161,29 +161,29 @@ node:
   cleanupOnly: false
 
 # =============================================================================
-# Cluster sensor configuration
+# Cluster Guard controller configuration
 # =============================================================================
 cluster:
   # Toggle admission control (ValidatingWebhookConfiguration + webhook Service) on/off.
-  # When false, the cluster sensor Deployment still runs for K8s metadata visibility,
+  # When false, the clusterguard controller Deployment still runs for K8s metadata visibility,
   # but does not act as a validating webhook.
   admissionControl:
     enabled: false
 
-  # ServiceAccount for the cluster-sensor Deployment.
+  # ServiceAccount for the clusterguard-controller Deployment.
   serviceAccount:
-    name: falcon-cluster-sensor-sa
+    name: falcon-cg-controller-sa
     annotations: {}
 
-  # Number of cluster-sensor replicas. Currently, the metadata service is single-instance
+  # Number of clusterguard-controller replicas. Currently, the metadata service is single-instance
   # (architectural constraint), so keep this at 1 unless you understand the implications.
   replicas: 1
 
-  # ResourceQuota for cluster-sensor pods (scoped to system-cluster-critical PriorityClass)
+  # ResourceQuota for clusterguard-controller pods (scoped to system-cluster-critical PriorityClass)
   resourceQuota:
     pods: 2
 
-  # Specifies if the cluster sensor pod should use hostNetwork mode. This is required
+  # Specifies if the clusterguard controller pod should use hostNetwork mode. This is required
   # in some scenarios such as when a custom CNI is in use where control plane nodes cannot
   # establish network communication with pods.
   hostNetwork: false
@@ -194,7 +194,7 @@ cluster:
   # Configure the watcher Port (HTTP, internal)
   watcherPort: 4080
 
-  # Define cluster sensor pod DNS Policy. Follows cluster default when unset;
+  # Define clusterguard controller pod DNS Policy. Follows cluster default when unset;
   # set to "ClusterFirstWithHostNet" automatically when hostNetwork = true unless overridden.
   dnsPolicy:
 
@@ -230,9 +230,9 @@ cluster:
     # Comma separated list of namespaces in which to disable validation e.g. "test1,test2"
     disableNamespaces:
 
-  # Resource limits for cluster sensor containers
+  # Resource limits for clusterguard controller containers
   resources:
-    # falcon-client (webhook receiver) - when cluster sensor is enabled
+    # falcon-client (webhook receiver) - when clusterguard controller is enabled
     client:
       limits:
         memory: 384Mi
@@ -256,7 +256,7 @@ cluster:
         cpu: 250m
         memory: 512Mi
 
-    # falcon-ac (cluster sensor decision engine)
+    # falcon-ac (clusterguard controller decision engine)
     admissionController:
       limits:
         memory: 256Mi
@@ -264,7 +264,7 @@ cluster:
         cpu: 100m
         memory: 256Mi
 
-  # Scheduling controls for the cluster-sensor Deployment
+  # Scheduling controls for the clusterguard-controller Deployment
   tolerations: []
 
   affinity:
@@ -281,16 +281,16 @@ cluster:
   # Update Webhook and roll out new Deployment on helm upgrade (adds annotation to force restart)
   autoDeploymentUpdate: true
 
-  # Annotations for the cluster-sensor deployment
+  # Annotations for the clusterguard-controller deployment
   annotations: {}
 
-  # Additional labels for the cluster-sensor deployment
+  # Additional labels for the clusterguard-controller deployment
   labels: {}
 
-  # Pod-level annotations for cluster-sensor pods
+  # Pod-level annotations for clusterguard-controller pods
   podAnnotations: {}
 
-  # Pod-level labels for cluster-sensor pods
+  # Pod-level labels for clusterguard-controller pods
   podLabels: {}
 
 # =============================================================================
@@ -342,9 +342,9 @@ openshift:
   # Set to true to enable OpenShift compatibility mode.
   enabled: false
   # Set to true to create a privileged SCC for the node sensor DaemonSet,
-  # and a hostNetwork SCC for the cluster sensor Deployment.
+  # and a hostNetwork SCC for the clusterguard controller Deployment.
   # Required for the node sensor to run as root with host access (hostPID, hostNetwork, hostIPC).
-  # Only needed for cluster sensor when cluster.hostNetwork=true.
+  # Only needed for clusterguard controller when cluster.hostNetwork=true.
   createSCC: true
 
   # Name of the node sensor SCC. Defaults to "<release-fullname>-node-sensor".

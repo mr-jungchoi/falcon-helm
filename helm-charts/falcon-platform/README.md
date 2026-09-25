@@ -811,7 +811,7 @@ remove any that are flagged, particularly:
 |----------------|--------|
 | `falcon-sensor.node.backend` | Removed automatically — FCG auto-selects eBPF/kernel |
 | `falcon-kac.tlsVersionMinimum` | Remove — not supported in FCG |
-| `falcon-kac.podLabels` | Remove — not supported in FCG cluster sensor |
+| `falcon-kac.podLabels` | Remove — not supported in FCG clusterguard controller |
 
 ### Step 3 — Confirm namespace references
 
@@ -951,7 +951,7 @@ falcon-sensor:
       repository: registry.crowdstrike.com/falcon-container/release/falcon-container
       tag: "<falcon-container-tag>"
 
-# Node sensor + cluster sensor — new FCG chart
+# Node sensor + clusterguard controller — new FCG chart
 falcon-clusterguard:
   enabled: true
   image:
