@@ -16,18 +16,18 @@ WORKLOADS
 {{- end }}
 {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 
-  Cluster Sensor Deployment:
-    kubectl rollout status deployment/falcon-cluster-sensor \
+  Cluster Guard Controller Deployment:
+    kubectl rollout status deployment/falcon-clusterguard-controller \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
 
-  Cluster sensor: disabled (cluster.enabled=false)
+  Cluster Guard Controller: disabled (cluster.enabled=false)
 {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 
-FALCON CLUSTER SENSOR CONFIGURATION
+FALCON CLUSTER GUARD CONTROLLER CONFIGURATION
   ValidatingWebhookConfiguration: validating.{{ .Chart.Name }}.crowdstrike.com
   Webhook Service:  webhook.{{ include "falcon-clusterguard.namespace" . }}.svc:443
   Metadata Service: api.{{ include "falcon-clusterguard.namespace" . }}.svc:443
