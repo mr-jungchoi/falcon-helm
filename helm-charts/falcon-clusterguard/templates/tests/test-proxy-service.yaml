@@ -1,0 +1,79 @@
+{{- if and .Values.testing.enabled .Values.node.enabled .Values.node.guardian.proxy.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-proxy-service"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          FAILED=0
+
+          echo "--- Checking falcon-proxy Service exists ---"
+          if ! kubectl get service falcon-proxy \
+              -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
+            echo "[FAIL]: Service 'falcon-proxy' not found"
+            FAILED=1
+          else
+            echo "[OK]: Service 'falcon-proxy' exists"
+          fi
+
+          echo "--- Checking internalTrafficPolicy is Local ---"
+          POLICY=$(kubectl get service falcon-proxy \
+            -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -o jsonpath="{.spec.internalTrafficPolicy}" 2>&1)
+          if [ "${POLICY}" != "Local" ]; then
+            echo "[FAIL]: internalTrafficPolicy is '${POLICY}', expected 'Local'"
+            FAILED=1
+          else
+            echo "[OK]: internalTrafficPolicy=Local"
+          fi
+
+          echo "--- Checking proxy port on DaemonSet pods ---"
+          PODS=$(kubectl get pods \
+            -n "{{ include "falcon-clusterguard.namespace" . }}" \
+            -l "app={{ include "falcon-clusterguard.name" . }}-node" \
+            -o jsonpath="{.items[*].metadata.name}" 2>&1)
+          if [ -z "${PODS}" ]; then
+            echo "[FAIL]: No node sensor pods found to check proxy port"
+            FAILED=1
+          else
+            for POD in ${PODS}; do
+              PORT=$(kubectl get pod "${POD}" \
+                -n "{{ include "falcon-clusterguard.namespace" . }}" \
+                -o jsonpath="{.spec.containers[?(@.name==\"falcon-sensor\")].ports[?(@.name==\"proxy\")].containerPort}" 2>&1)
+              if [ "${PORT}" != "{{ .Values.node.guardian.proxy.port }}" ]; then
+                echo "[FAIL]: Pod '${POD}' proxy port is '${PORT}', expected '{{ .Values.node.guardian.proxy.port }}'"
+                FAILED=1
+              else
+                echo "[OK]: Pod '${POD}' proxy port={{ .Values.node.guardian.proxy.port }}"
+              fi
+            done
+          fi
+
+          if [ "${FAILED}" -eq 1 ]; then exit 1; fi
+          exit 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

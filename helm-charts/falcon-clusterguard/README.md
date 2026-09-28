@@ -25,6 +25,9 @@ built around a single container image.
   - [Sensor Uninstall and Maintenance Protection](#sensor-uninstall-and-maintenance-protection)
   - [Pod Security Standards](#pod-security-standards)
   - [Node Configuration](#node-configuration)
+  - [Guardian Local Proxy](#guardian-local-proxy)
+    - [Verifying upstream endpoints (TLS)](#verifying-upstream-endpoints-tls)
+    - [Custom DNS for the node sensor](#custom-dns-for-the-node-sensor)
   - [GKE Autopilot Configuration](#gke-autopilot-configuration)
 - [Cluster Guard Controller Configuration](#cluster-guard-controller-configuration)
   - [Cluster Guard Controller and Admission Control](#cluster-guard-controller-and-admission-control)
@@ -377,6 +380,76 @@ The following table lists the configurable parameters for the FCG node sensor Da
 | `node.terminationGracePeriod`        | Seconds to wait for node sensor pods to stop gracefully                                                                      | `60`                                             |
 | `node.hooks.postDelete.enabled`      | Run a cleanup DaemonSet during `helm uninstall` to remove `/opt/CrowdStrike` from all nodes                                  | `true`                                           |
 | `node.cleanupOnly`                   | Run the cleanup DaemonSet only (skip the main sensor DaemonSet). Requires `node.hooks.postDelete.enabled: true`.             | `false`                                          |
+
+
+### Guardian Local Proxy
+
+| Parameter                           | Description                                                                      | Default            |
+|:------------------------------------|:---------------------------------------------------------------------------------|:-------------------|
+| `node.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                        | `false`            |
+| `node.guardian.proxy.port`          | Container port and Service targetPort for the proxy                              | `48080`            |
+| `node.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification. | `falcon-proxy-tls` |
+| `node.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                          | `{}`               |
+
+When `node.guardian.proxy.enabled: true`, FCG:
+
+1. Exposes a named `proxy` port (default `48080`) on the sensor container.
+2. Creates a `falcon-proxy` Service with `internalTrafficPolicy: Local` so traffic is
+   always routed to the proxy pod on the **same node** — no cross-node hops.
+
+```yaml
+node:
+  guardian:
+    proxy:
+      enabled: true
+      port: 48080
+```
+
+```bash
+helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
+  -n falcon-system \
+  --set node.guardian.proxy.enabled=true
+```
+
+#### Verifying upstream endpoints (TLS)
+
+If the proxy needs to verify TLS certificates for upstream endpoints, create a Secret
+containing the CA bundle and reference it via `node.guardian.proxy.tlsSecretName`:
+
+```bash
+kubectl create secret generic falcon-proxy-tls \
+  -n falcon-system \
+  --from-file=ca.crt=/path/to/ca.crt
+```
+
+```yaml
+node:
+  guardian:
+    proxy:
+      enabled: true
+      tlsSecretName: falcon-proxy-tls
+```
+
+The Secret is declared `optional: true`, so the pod will start even if the Secret does not
+exist — the proxy simply runs without a custom CA bundle.
+
+#### Custom DNS for the node sensor
+
+The node sensor pod runs with `hostNetwork: true`, which forces `dnsPolicy:
+ClusterFirstWithHostNet`. This is not configurable. If you need additional DNS search
+domains or custom nameservers for the sensor pod, use `node.dnsConfig`:
+
+```yaml
+node:
+  dnsConfig:
+    nameservers:
+      - "10.0.0.53"
+    searches:
+      - "corp.internal"
+    options:
+      - name: ndots
+        value: "2"
+```
 
 ### GKE Autopilot Configuration
 
