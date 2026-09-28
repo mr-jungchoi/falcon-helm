@@ -293,9 +293,9 @@ def migrate(values: dict, warnings: list,
                     "The falcon-sensor value has been kept. Review manually."
                 )
 
-        # clusterVisibility — identical structure, lives at fcg root
+        # clusterVisibility — now lives under cluster.visibility.*
         if "clusterVisibility" in kac:
-            fcg["clusterVisibility"] = deepcopy(kac["clusterVisibility"])
+            cluster["visibility"] = deepcopy(kac["clusterVisibility"])
 
         # falconImageAnalyzerNamespace — lives at fcg root
         if "falconImageAnalyzerNamespace" in kac and kac["falconImageAnalyzerNamespace"]:
