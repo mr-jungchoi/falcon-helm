@@ -81,6 +81,15 @@ rules:
   - get
   - list
   - watch
+  - create
+- apiGroups:
+  - "admissionregistration.k8s.io"
+  resources:
+  - validatingwebhookconfigurations
+  resourceNames:
+  - "install-guard.falcon-clusterguard.crowdstrike.com"
+  verbs:
+  - delete
 - apiGroups:
   - "rbac.authorization.k8s.io"
   resources:
