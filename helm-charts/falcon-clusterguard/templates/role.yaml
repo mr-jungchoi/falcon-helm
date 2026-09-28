@@ -37,12 +37,13 @@ rules:
   - list
   - watch
   - update
-{{- if (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
 - apiGroups:
   - ""
   resources:
   - secrets
   verbs:
+  - create
   - get
-{{- end }}
+  - update
+  - delete
 {{- end }}
