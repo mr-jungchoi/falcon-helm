@@ -81,6 +81,15 @@ rules:
   - get
   - list
   - watch
+  - create
+- apiGroups:
+  - "admissionregistration.k8s.io"
+  resources:
+  - validatingwebhookconfigurations
+  resourceNames:
+  - {{ printf "install-guard.%s.crowdstrike.com" (include "falcon-clusterguard.name" .) }}
+  verbs:
+  - delete
 - apiGroups:
   - "rbac.authorization.k8s.io"
   resources:
