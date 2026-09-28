@@ -199,7 +199,7 @@ cluster:
   dnsPolicy:
 
   # Auto update the TLS certificates every time there is a helm upgrade.
-  # Set to false to preserve existing certs across upgrades.
+  # Set to `false` to preserve existing certs across upgrades.
   autoCertificateUpdate: true
 
   # Certificate validity duration in number of days
@@ -297,28 +297,28 @@ cluster:
 # Cluster visibility settings (K8s metadata service)
 # =============================================================================
 # These variables control how FCG provides visibility into resources on your Kubernetes cluster.
-clusterVisibility:
-  # FCG snapshots Kubernetes resources on a periodic basis and sends them to CrowdStrike cloud.
-  # This enables long-living resources to be maintained in CrowdStrike cloud databases.
-  resourceSnapshots:
-    # If set to false, snapshots are not taken, and you may not see long-lived Kubernetes
-    # resources in Falcon UI after about 7 days.
-    enabled: true
-    # The time interval between periodic snapshots. Default 22h is also the maximum.
-    # Minimum is 30 minutes. Format is HHhMMm. Examples: 12h, 45m, 1h30m.
-    interval: 22h
+  visibility:
+    # FCG snapshots Kubernetes resources on a periodic basis and sends them to CrowdStrike cloud.
+    # This enables long-living resources to be maintained in CrowdStrike cloud databases.
+    resourceSnapshots:
+      # If set to false, snapshots are not taken, and you may not see long-lived Kubernetes
+      # resources in Falcon UI after about 7 days.
+      enabled: true
+      # The time interval between periodic snapshots. Default 22h is also the maximum.
+      # Minimum is 30 minutes. Format is HHhMMm. Examples: 12h, 45m, 1h30m.
+      interval: 22h
 
-  # FCG watches the Kubernetes cluster continuously for any action - creation, updates and
-  # deletion - on resources and sends events to the CrowdStrike cloud.
-  resourceWatcher:
-    # If set to false, FCG does not watch the Kubernetes cluster. The latest state of resources
-    # will not be reflected in the Falcon UI until a resource snapshot is taken.
-    enabled: true
+    # FCG watches the Kubernetes cluster continuously for any action - creation, updates and
+    # deletion - on resources and sends events to the CrowdStrike cloud.
+    resourceWatcher:
+      # If set to false, FCG does not watch the Kubernetes cluster. The latest state of resources
+      # will not be reflected in the Falcon UI until a resource snapshot is taken.
+      enabled: true
 
-  # FCG watches ConfigMaps by default. Redacts known sensitive patterns before sending.
-  resourceConfigMap:
-    # If set to false, ConfigMap events are not watched.
-    enabled: true
+    # FCG watches ConfigMaps by default. Redacts known sensitive patterns before sending.
+    resourceConfigMap:
+      # If set to false, ConfigMap events are not watched.
+      enabled: true
 
 # Falcon Image Analyzer namespace. Override its default value of "falcon-image-analyzer".
 falconImageAnalyzerNamespace: ""

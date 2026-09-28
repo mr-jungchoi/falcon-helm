@@ -249,30 +249,30 @@ On OpenShift lookup namespaces and emit namespaces prefixed with "openshift-"
 
 {{/*
 Generate the __CS_* env vars for the watcher/metadata containers.
-Reads .Values.clusterVisibility.* with safe defaults if values are missing.
+Reads .Values.cluster.visibility.* with safe defaults if values are missing.
 */}}
 {{- define "falcon-clusterguard.generateWatcherEnvVars" -}}
 {{- $snapshotsEnabled := true -}}
 {{- $snapshotInterval := "22h" -}}
 {{- $watcherEnabled := true -}}
 {{- $configMapEnabled := true -}}
-{{- if .Values.clusterVisibility -}}
-{{- if .Values.clusterVisibility.resourceSnapshots -}}
-  {{- if ne .Values.clusterVisibility.resourceSnapshots.enabled nil -}}
-  {{ $snapshotsEnabled = .Values.clusterVisibility.resourceSnapshots.enabled -}}
+{{- if .Values.cluster.visibility -}}
+{{- if .Values.cluster.visibility.resourceSnapshots -}}
+  {{- if ne .Values.cluster.visibility.resourceSnapshots.enabled nil -}}
+  {{ $snapshotsEnabled = .Values.cluster.visibility.resourceSnapshots.enabled -}}
   {{- end -}}
-  {{- if .Values.clusterVisibility.resourceSnapshots.interval -}}
-  {{ $snapshotInterval = .Values.clusterVisibility.resourceSnapshots.interval -}}
-  {{- end -}}
-{{- end -}}
-{{- if .Values.clusterVisibility.resourceWatcher -}}
-  {{- if ne .Values.clusterVisibility.resourceWatcher.enabled nil -}}
-  {{ $watcherEnabled = .Values.clusterVisibility.resourceWatcher.enabled -}}
+  {{- if .Values.cluster.visibility.resourceSnapshots.interval -}}
+  {{ $snapshotInterval = .Values.cluster.visibility.resourceSnapshots.interval -}}
   {{- end -}}
 {{- end -}}
-{{- if .Values.clusterVisibility.resourceConfigMap -}}
-  {{- if ne .Values.clusterVisibility.resourceConfigMap.enabled nil -}}
-  {{ $configMapEnabled = .Values.clusterVisibility.resourceConfigMap.enabled -}}
+{{- if .Values.cluster.visibility.resourceWatcher -}}
+  {{- if ne .Values.cluster.visibility.resourceWatcher.enabled nil -}}
+  {{ $watcherEnabled = .Values.cluster.visibility.resourceWatcher.enabled -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.cluster.visibility.resourceConfigMap -}}
+  {{- if ne .Values.cluster.visibility.resourceConfigMap.enabled nil -}}
+  {{ $configMapEnabled = .Values.cluster.visibility.resourceConfigMap.enabled -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -308,7 +308,7 @@ false
 Visibility enabled? True if either snapshots or watcher is enabled.
 */}}
 {{- define "falcon-clusterguard.visibilityEnabled" -}}
-{{- if or .Values.clusterVisibility.resourceSnapshots.enabled .Values.clusterVisibility.resourceWatcher.enabled -}}
+{{- if or .Values.cluster.visibility.resourceSnapshots.enabled .Values.cluster.visibility.resourceWatcher.enabled -}}
 true
 {{- else -}}
 false

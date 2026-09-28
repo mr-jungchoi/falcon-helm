@@ -205,7 +205,7 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
 | `falcon-kac.clusterName`                      | `falcon-clusterguard.node.clusterName`                 | Moved to `node.` — shared with DaemonSet                                                                       |
 | `falcon-kac.tolerations`                      | `falcon-clusterguard.cluster.tolerations`              | Moved under `cluster.`                                                                                         |
 | `falcon-kac.webhook.*`                        | `falcon-clusterguard.cluster.webhook.*`                | Moved under `cluster.`                                                                                         |
-| `falcon-kac.clusterVisibility.*`              | `falcon-clusterguard.clusterVisibility.*`              | Identical structure                                                                                            |
+| `falcon-kac.clusterVisibility.*`              | `falcon-clusterguard.cluster.visibility.*`             | Moved under `cluster.`                                                                                         |
 | `falcon-kac.falconSecret.*`                   | `falcon-clusterguard.falconSecret.*`                   | Sensor value takes precedence                                                                                  |
 | `falcon-kac.falcon.*`                         | `falcon-clusterguard.falcon.*`                         | Sensor value takes precedence                                                                                  |
 | `falcon-kac.openshift.*`                      | `falcon-clusterguard.openshift.*`                      | Merged with sensor openshift; sensor takes precedence                                                          |
@@ -381,9 +381,9 @@ falcon-clusterguard:
           memory: 384Mi
     serviceAccount:
       name: falcon-kac-sa
-  clusterVisibility:
-    resourceWatcher:
-      enabled: true
+    visibility:
+      resourceWatcher:
+        enabled: true
 
 # DEPRECATED: falcon-image-analyzer will be bundled into FCG in a future version.
 falcon-image-analyzer:
