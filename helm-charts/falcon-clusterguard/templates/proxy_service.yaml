@@ -1,0 +1,21 @@
+{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) .Values.node.guardian.proxy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: falcon-proxy
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clusterguard
+    crowdstrike.com/provider: crowdstrike
+spec:
+  selector:
+    {{- include "falcon-clusterguard.nodeSensorSelectorLabels" . | nindent 4 }}
+  # Local routing ensures each client pod reaches only the proxy on its own node.
+  internalTrafficPolicy: Local
+  ports:
+  - name: proxy
+    port: 80
+    targetPort: proxy
+    protocol: TCP
+{{- end }}

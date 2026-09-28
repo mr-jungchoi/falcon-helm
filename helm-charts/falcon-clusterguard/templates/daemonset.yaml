@@ -81,7 +81,14 @@ spec:
       priorityClassName: {{ include "falcon-clusterguard.priorityClassName" . }}
       {{- end }}
       hostNetwork: true
+      # dnsPolicy is fixed to ClusterFirstWithHostNet: the sensor pod runs with
+      # hostNetwork: true, and this is the only policy that lets it use cluster
+      # DNS in that mode. It is not configurable.
       dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.node.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       hostPID: true
       hostIPC: true
       initContainers:
@@ -170,11 +177,21 @@ spec:
               - NET_ADMIN
           {{- end }}
         {{- include "falcon-clusterguard.daemonsetResources" . | nindent 8 }}
+        {{- if .Values.node.guardian.proxy.enabled }}
+        ports:
+        - name: proxy
+          containerPort: {{ .Values.node.guardian.proxy.port }}
+          protocol: TCP
+        {{- end }}
         env:
           - name: POD_NODE_NAME
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+          - name: HOST_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
           - name: API_SERVICE_NAME
             value: {{ include "falcon-clusterguard.apiServiceName" . }}
         envFrom:
@@ -197,6 +214,11 @@ spec:
             mountPath: /run/secrets/ca
             readOnly: true
           {{- end }}
+          {{- if .Values.node.guardian.proxy.enabled }}
+          - name: proxy-tls
+            mountPath: /opt/CrowdStrike/certs
+            readOnly: true
+          {{- end }}
       volumes:
         - name: cs-config
           hostPath:
@@ -211,5 +233,12 @@ spec:
         - name: falcon-api-ca
           secret:
             secretName: "falcon-api-ca"
+        {{- end }}
+        {{- if .Values.node.guardian.proxy.enabled }}
+        - name: proxy-tls
+          secret:
+            secretName: {{ .Values.node.guardian.proxy.tlsSecretName }}
+            optional: true
+            defaultMode: 0400
         {{- end }}
 {{- end }}

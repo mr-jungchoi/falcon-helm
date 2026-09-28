@@ -160,6 +160,31 @@ node:
   # Enable to run cleanup for the prior daemonset deployment (skip main DaemonSet)
   cleanupOnly: false
 
+  # Guardian Local Proxy configuration.
+  # When enabled, a node-local falcon-proxy Service is created and the sensor container
+  # exposes the proxy port. An optional CA trust bundle can be mounted for TLS verification
+  # of upstream endpoints.
+  guardian:
+    proxy:
+      enabled: false
+      # Container port and Service port for the proxy.
+      port: 48080
+      # Name of an optional Secret containing CA certificate(s) for upstream TLS verification.
+      # If the Secret does not exist, the proxy runs without a custom CA bundle.
+      tlsSecretName: falcon-proxy-tls
+
+  # Custom DNS configuration mapped directly to the pod spec dnsConfig field.
+  # dnsPolicy is fixed to ClusterFirstWithHostNet and is not configurable
+  # (the only policy that enables cluster DNS with hostNetwork: true).
+  dnsConfig: {}
+  #  nameservers:
+  #    - "10.0.0.53"
+  #  searches:
+  #    - "corp.internal"
+  #  options:
+  #    - name: ndots
+  #      value: "2"
+
 # =============================================================================
 # Cluster Guard controller configuration
 # =============================================================================
