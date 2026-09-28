@@ -923,9 +923,9 @@ falcon-clusterguard:
         requests:
           cpu: 250m
           memory: 384Mi
-  clusterVisibility:
-    resourceWatcher:
-      enabled: true
+    visibility:
+      resourceWatcher:
+        enabled: true
 
   imageAnalyzer:
     enabled: true

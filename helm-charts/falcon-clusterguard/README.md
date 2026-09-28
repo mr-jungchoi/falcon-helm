@@ -153,13 +153,12 @@ cluster:
   webhook:
     failurePolicy: Ignore
   replicas: 1
-
-clusterVisibility:
-  resourceSnapshots:
-    enabled: true
-    interval: 22h
-  resourceWatcher:
-    enabled: true
+  visibility:
+    resourceSnapshots:
+      enabled: true
+      interval: 22h
+    resourceWatcher:
+      enabled: true
 ```
 
 ```bash
@@ -495,13 +494,13 @@ FCG has two independent feature gates for the clusterguard controller:
 
 Controls how FCG monitors and reports Kubernetes cluster state to CrowdStrike cloud.
 
-| Parameter                                      | Description                                                                                                                           | Default                 |
-|:-----------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:------------------------|
-| `clusterVisibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`                  |
-| `clusterVisibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`                   |
-| `clusterVisibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`                  |
-| `clusterVisibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`                  |
-| `falconImageAnalyzerNamespace`                 | Namespace where Falcon Image Analyzer is deployed, used for cross-component communication.                                            | `falcon-image-analyzer` |
+| Parameter                                       | Description                                                                                                                           | Default                 |
+|:------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:------------------------|
+| `cluster.visibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`                  |
+| `cluster.visibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`                   |
+| `cluster.visibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`                  |
+| `cluster.visibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`                  |
+| `falconImageAnalyzerNamespace`                  | Namespace where Falcon Image Analyzer is deployed, used for cross-component communication.                                            | `falcon-image-analyzer` |
 
 ### Webhook Configuration
 
