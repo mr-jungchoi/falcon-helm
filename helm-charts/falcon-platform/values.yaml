@@ -9,6 +9,8 @@ createComponentNamespaces: false
 
 # Global configuration shared across all Falcon components
 global:
+  # Must be updated for every falcon-platform chart version.
+  helmChart: "falcon-platform-1.5.1-fcg-test.3"
   # Falcon Customer ID (CID) - required for all components if not using falconSecret
   falcon:
     cid:
