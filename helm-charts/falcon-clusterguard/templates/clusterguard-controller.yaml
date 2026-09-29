@@ -208,11 +208,6 @@ spec:
         - name: falcon-ac
           image: {{ include "falcon-clusterguard.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
-          env:
-            - name: HELM_CHART
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['helm.sh/chart']
           envFrom:
             - configMapRef:
                 name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}
@@ -278,10 +273,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: spec.nodeName
-            - name: HELM_CHART
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['helm.sh/chart']
             {{- if .Values.falconImageAnalyzerNamespace }}
             - name: __CS_IAR_NAMESPACE
               value: {{ .Values.falconImageAnalyzerNamespace | quote }}
@@ -297,7 +288,11 @@ spec:
             - containerPort: {{ .Values.cluster.webhookPort }}
               name: webhook-port
           resources:
+            {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
             {{- toYaml .Values.cluster.resources.client | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.cluster.resources.clientNoWebhook | nindent 12 }}
+            {{- end }}
           securityContext:
             seccompProfile:
               type: RuntimeDefault
@@ -356,10 +351,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: spec.nodeName
-            - name: HELM_CHART
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.labels['helm.sh/chart']
           envFrom:
             - configMapRef:
                 name: {{ include "falcon-clusterguard.admissionConfigMapName" . }}

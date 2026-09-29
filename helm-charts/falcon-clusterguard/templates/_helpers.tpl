@@ -308,8 +308,12 @@ false
 Visibility enabled? True if either snapshots or watcher is enabled.
 */}}
 {{- define "falcon-clusterguard.visibilityEnabled" -}}
+{{- if .Values.cluster.visibility -}}
 {{- if or .Values.cluster.visibility.resourceSnapshots.enabled .Values.cluster.visibility.resourceWatcher.enabled -}}
 true
+{{- else -}}
+false
+{{- end -}}
 {{- else -}}
 false
 {{- end -}}
@@ -324,6 +328,9 @@ Validate high level FCG components are configured properly
 {{- end -}}
 {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.cluster.admissionControl.enabled -}}
 {{- fail "Error: cluster.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." -}}
+{{- end -}}
+{{- if and (not .Values.image.tag) (not .Values.image.digest) -}}
+{{- fail "Error: image.tag or image.digest must be set." -}}
 {{- end -}}
 {{- end -}}
 
@@ -468,6 +475,19 @@ OpenShift clusterguard controller createSCC — requires openshift enabled, crea
 */}}
 {{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
 {{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}
+{{- end -}}
+
+{{/*
+HELM_CHART value
+Use global.helmChart (set by a parent umbrella chart) when present so the value reflects the
+top-level chart identity rather than this subchart.
+*/}}
+{{- define "falcon-clusterguard.helmChart" -}}
+{{- if .Values.global.helmChart -}}
+{{- .Values.global.helmChart -}}
+{{- else -}}
+{{- include "falcon-clusterguard.chart" . -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

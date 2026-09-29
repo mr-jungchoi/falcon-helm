@@ -43,7 +43,7 @@ spec:
         {{- include "falcon-clusterguard.labels" . | nindent 8 }}
         {{- include "falcon-clusterguard.nodeSensorSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clusterguard
-        {{ include "falcon-clusterguard.workloadDeployAllowlistLabel" . }}
+        {{- include "falcon-clusterguard.workloadDeployAllowlistLabel" . | nindent 8 }}
         {{- range $key, $value := .Values.node.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
@@ -133,9 +133,6 @@ spec:
                 fieldPath: spec.nodeName
           - name: API_SERVICE_NAME
             value: {{ include "falcon-clusterguard.apiServiceName" . }}
-        envFrom:
-          - configMapRef:
-              name: {{ include "falcon-clusterguard.configMapName" . }}
         volumeMounts:
           - name: cs-config
             mountPath: /opt/CrowdStrike/config

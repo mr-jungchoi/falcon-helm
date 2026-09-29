@@ -1,0 +1,611 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "type": "object",
+    "properties": {
+        "image": {
+            "type": "object",
+            "required": ["repository"],
+            "properties": {
+                "repository": {
+                    "type": "string"
+                },
+                "pullPolicy": {
+                    "type": "string",
+                    "default": "Always",
+                    "pattern": "^(Always|Never|IfNotPresent)$"
+                },
+                "pullSecrets": {
+                    "type": ["null", "string"]
+                },
+                "registryConfigJSON": {
+                    "type": ["null", "string"]
+                },
+                "tag": {
+                    "type": ["null", "string"]
+                },
+                "digest": {
+                    "type": ["null", "string"],
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+            }
+        },
+        "falcon": {
+            "type": "object",
+            "properties": {
+                "cid": {
+                    "type": ["null", "string"],
+                    "pattern": "^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$",
+                    "examples": ["1234567890ABCDEF1234567890ABCDEF-12"]
+                },
+                "cloud": {
+                    "type": ["null", "string"],
+                    "enum": [null, "", "us-1", "us-2", "us-3", "eu-1", "us-gov-1", "us-gov-2"]
+                },
+                "trace": {
+                    "type": ["null", "string"],
+                    "pattern": "^(|none|err|warn|info|debug)$"
+                },
+                "apd": {
+                    "type": ["null", "boolean"]
+                },
+                "aph": {
+                    "type": ["null", "string"]
+                },
+                "app": {
+                    "type": ["null", "integer"],
+                    "minimum": 0,
+                    "maximum": 65535
+                },
+                "feature": {
+                    "type": ["null", "string"]
+                },
+                "billing": {
+                    "type": ["null", "string"]
+                },
+                "tags": {
+                    "type": ["null", "string"]
+                },
+                "provisioning_token": {
+                    "type": ["null", "string"]
+                }
+            }
+        },
+        "falconSecret": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "secretName": {
+                    "type": "string"
+                }
+            }
+        },
+        "secretsStore": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": ["boolean", "null"],
+                    "default": false
+                },
+                "provider": {
+                    "type": "string",
+                    "enum": ["", "azure"]
+                },
+                "secretName": {
+                    "type": "string"
+                },
+                "azure": {
+                    "type": "object",
+                    "properties": {
+                        "vaultName": { "type": "string" },
+                        "tenantID": { "type": "string" },
+                        "clientID": { "type": "string" }
+                    }
+                }
+            }
+        },
+        "node": {
+            "type": "object",
+            "required": ["enabled"],
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "clusterName": {
+                    "type": ["null", "string"]
+                },
+                "serviceAccount": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "default": "falcon-node-sensor-sa"
+                        },
+                        "annotations": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "gke": {
+                    "type": "object",
+                    "properties": {
+                        "autopilot": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "deployAllowListVersion": {
+                            "type": "string",
+                            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                        },
+                        "cleanupAllowListVersion": {
+                            "type": "string",
+                            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+                        }
+                    }
+                },
+                "daemonset": {
+                    "type": "object",
+                    "properties": {
+                        "annotations": {
+                            "type": "object"
+                        },
+                        "podAnnotationKey": {
+                            "type": "string"
+                        },
+                        "labels": {
+                            "type": "object"
+                        },
+                        "priorityClassCreate": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "priorityClassName": {
+                            "type": "string"
+                        },
+                        "priorityClassValue": {
+                            "type": "integer",
+                            "default": 1000000000,
+                            "minimum": 1
+                        },
+                        "tolerations": {
+                            "type": "array"
+                        },
+                        "nodeAffinity": {
+                            "type": "object"
+                        },
+                        "resources": {
+                            "type": "object",
+                            "properties": {
+                                "limits": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": { "type": "string" },
+                                        "memory": { "type": "string" },
+                                        "ephemeral-storage": { "type": "string" }
+                                    }
+                                },
+                                "requests": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": { "type": "string" },
+                                        "memory": { "type": "string" },
+                                        "ephemeral-storage": { "type": "string" }
+                                    }
+                                }
+                            }
+                        },
+                        "updateStrategy": {
+                            "type": "string",
+                            "default": "RollingUpdate",
+                            "pattern": "^(RollingUpdate|OnDelete)$"
+                        },
+                        "maxUnavailable": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+%$"
+                                },
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            ]
+                        }
+                    }
+                },
+                "podAnnotations": {
+                    "type": "object"
+                },
+                "podLabels": {
+                    "type": "object"
+                },
+                "terminationGracePeriod": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "hooks": {
+                    "type": "object",
+                    "properties": {
+                        "postDelete": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        }
+                    }
+                },
+                "cleanupOnly": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "guardian": {
+                    "type": "object",
+                    "properties": {
+                        "proxy": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": false
+                                },
+                                "port": {
+                                    "type": "integer",
+                                    "default": 48080,
+                                    "minimum": 1024,
+                                    "maximum": 65535
+                                },
+                                "tlsSecretName": {
+                                    "type": "string",
+                                    "default": "falcon-proxy-tls"
+                                }
+                            }
+                        }
+                    }
+                },
+                "dnsConfig": {
+                    "type": "object",
+                    "properties": {
+                        "nameservers": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "searches": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "value": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "cluster": {
+            "type": "object",
+            "properties": {
+                "admissionControl": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                },
+                "serviceAccount": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "default": "falcon-cg-controller-sa"
+                        },
+                        "annotations": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "replicas": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1
+                },
+                "resourceQuota": {
+                    "type": "object",
+                    "properties": {
+                        "pods": {
+                            "oneOf": [
+                                {
+                                    "type": ["string", "null"],
+                                    "pattern": "^[0-9]+$"
+                                },
+                                {
+                                    "type": ["integer", "null"],
+                                    "minimum": 1
+                                }
+                            ]
+                        }
+                    }
+                },
+                "hostNetwork": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "webhookPort": {
+                    "type": "integer",
+                    "default": 4443,
+                    "minimum": 1024,
+                    "maximum": 65535
+                },
+                "watcherPort": {
+                    "type": "integer",
+                    "default": 4080,
+                    "minimum": 1024,
+                    "maximum": 65535
+                },
+                "dnsPolicy": {
+                    "type": ["null", "string"],
+                    "enum": [null, "ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"]
+                },
+                "autoCertificateUpdate": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "certExpiration": {
+                    "type": "integer",
+                    "default": 3650,
+                    "minimum": 0
+                },
+                "certManager": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "issuerRef": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "domainName": {
+                    "type": ["null", "string"]
+                },
+                "tlsVersionMinimum": {
+                    "type": ["null", "string"],
+                    "pattern": "^(TLS1.2|TLS1.3)$"
+                },
+                "webhook": {
+                    "type": "object",
+                    "properties": {
+                        "failurePolicy": {
+                            "type": "string",
+                            "default": "Ignore",
+                            "pattern": "^(Ignore|Fail)$"
+                        },
+                        "disableNamespaces": {
+                            "type": ["null", "string"]
+                        }
+                    }
+                },
+                "resources": {
+                    "type": "object",
+                    "properties": {
+                        "client": { "$ref": "#/$defs/resourceRequirements" },
+                        "clientNoWebhook": { "$ref": "#/$defs/resourceRequirements" },
+                        "watcher": { "$ref": "#/$defs/resourceRequirements" },
+                        "admissionController": { "$ref": "#/$defs/resourceRequirements" }
+                    }
+                },
+                "tolerations": {
+                    "type": "array"
+                },
+                "affinity": {
+                    "type": "object"
+                },
+                "autoDeploymentUpdate": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "annotations": {
+                    "type": "object"
+                },
+                "labels": {
+                    "type": "object"
+                },
+                "podAnnotations": {
+                    "type": "object"
+                },
+                "podLabels": {
+                    "type": "object"
+                },
+                "disableClusterGuard": {
+                    "type": ["null", "string"]
+                },
+                "visibility": {
+                    "type": "object",
+                    "properties": {
+                        "resourceSnapshots": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                },
+                                "interval": {
+                                    "type": "string",
+                                    "default": "22h"
+                                }
+                            }
+                        },
+                        "resourceWatcher": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        },
+                        "resourceConfigMap": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "falconImageAnalyzerNamespace": {
+            "type": "string"
+        },
+        "testing": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "labelNamespace": {
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
+        "nameOverride": {
+            "type": ["null", "string"]
+        },
+        "fullnameOverride": {
+            "type": ["null", "string"]
+        },
+        "openshift": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "createSCC": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "nodeSCCName": {
+                    "type": "string"
+                },
+                "admissionSCCName": {
+                    "type": "string"
+                }
+            }
+        },
+        "global": {
+            "type": "object",
+            "properties": {
+                "helmChart": {
+                    "type": "string"
+                },
+                "falcon": {
+                    "type": "object",
+                    "properties": {
+                        "cid": {
+                            "type": ["null", "string"],
+                            "pattern": "^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$"
+                        }
+                    }
+                },
+                "falconSecret": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "secretName": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "containerRegistry": {
+                    "type": "object",
+                    "properties": {
+                        "pullSecret": { "type": "string" },
+                        "configJSON": { "type": "string" }
+                    }
+                },
+                "openshift": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "createSCC": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                },
+                "secretsStore": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": ["boolean", "null"],
+                            "default": false
+                        },
+                        "provider": {
+                            "type": "string",
+                            "enum": ["", "azure"]
+                        },
+                        "secretName": {
+                            "type": "string"
+                        },
+                        "azure": {
+                            "type": "object",
+                            "properties": {
+                                "vaultName": { "type": "string" },
+                                "tenantID": { "type": "string" },
+                                "clientID": { "type": "string" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "resourceRequirements": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "object",
+                    "properties": {
+                        "cpu": { "type": "string" },
+                        "memory": { "type": "string" }
+                    }
+                },
+                "limits": {
+                    "type": "object",
+                    "properties": {
+                        "cpu": { "type": "string" },
+                        "memory": { "type": "string" }
+                    }
+                }
+            }
+        }
+    }
+}

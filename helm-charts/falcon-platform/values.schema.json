@@ -113,6 +113,10 @@
               }
             }
           }
+        },
+        "helmChart": {
+          "type": "string",
+          "description": "Passed to subcharts so HELM_CHART env reflects the umbrella chart identity. Update when the chart version changes."
         }
       }
     },
@@ -127,13 +131,13 @@
         }
       }
     },
-    "falcon-kac": {
-      "type": "object", 
-      "description": "Falcon Kubernetes Admission Controller configuration",
+    "falcon-clusterguard": {
+      "type": "object",
+      "description": "Falcon Cluster Guard configuration",
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable Falcon KAC deployment", 
+          "description": "Enable Falcon Cluster Guard deployment",
           "default": true
         }
       }
