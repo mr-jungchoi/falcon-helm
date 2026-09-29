@@ -401,3 +401,5 @@ global:
       vaultName: ""
       tenantID: ""
       clientID: ""
+  # When deploying as a subchart, the parent chart sets this to its own chart name+version
+  helmChart: ""

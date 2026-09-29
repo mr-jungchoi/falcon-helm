@@ -1,0 +1,70 @@
+{{- if .Values.testing.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-helm-chart-env"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+      - /bin/sh
+      - -c
+      - |
+        FAILED=0
+        EXPECTED_CHART="{{ include "falcon-clusterguard.helmChart" . }}"
+
+        echo "--- Checking HELM_CHART in node sensor ConfigMap ---"
+        NODE_CM="{{ include "falcon-clusterguard.configMapName" . }}"
+        VALUE=$(kubectl get configmap "${NODE_CM}" \
+          -n "{{ include "falcon-clusterguard.namespace" . }}" \
+          -o jsonpath='{.data.HELM_CHART}' 2>&1)
+        if [ -z "${VALUE}" ]; then
+          echo "[FAIL]: ConfigMap '${NODE_CM}' missing HELM_CHART key"
+          FAILED=1
+        elif [ "${VALUE}" != "${EXPECTED_CHART}" ]; then
+          echo "[FAIL]: ConfigMap '${NODE_CM}' HELM_CHART='${VALUE}', expected '${EXPECTED_CHART}'"
+          FAILED=1
+        else
+          echo "[OK]: ConfigMap '${NODE_CM}' HELM_CHART='${VALUE}'"
+        fi
+
+        {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+        echo "--- Checking HELM_CHART in clusterguard controller ConfigMap ---"
+        CG_CM="{{ include "falcon-clusterguard.admissionConfigMapName" . }}"
+        VALUE=$(kubectl get configmap "${CG_CM}" \
+          -n "{{ include "falcon-clusterguard.namespace" . }}" \
+          -o jsonpath='{.data.HELM_CHART}' 2>&1)
+        if [ -z "${VALUE}" ]; then
+          echo "[FAIL]: ConfigMap '${CG_CM}' missing HELM_CHART key"
+          FAILED=1
+        elif [ "${VALUE}" != "${EXPECTED_CHART}" ]; then
+          echo "[FAIL]: ConfigMap '${CG_CM}' HELM_CHART='${VALUE}', expected '${EXPECTED_CHART}'"
+          FAILED=1
+        else
+          echo "[OK]: ConfigMap '${CG_CM}' HELM_CHART='${VALUE}'"
+        fi
+        {{- end }}
+
+        if [ "${FAILED}" -eq 1 ]; then exit 1; fi
+        exit 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

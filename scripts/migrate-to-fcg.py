@@ -714,7 +714,7 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
         print()
     if cluster_enabled:
         print(f"   # Cluster Guard Deployment")
-        print(f"   kubectl rollout status deployment/falcon-cluster-sensor -n {fcg_ns}")
+        print(f"   kubectl rollout status deployment/falcon-clusterguard-controller -n {fcg_ns}")
         print()
     print(f"   # All FCG pods")
     print(f"   kubectl get pods -n {fcg_ns} -l app.kubernetes.io/instance={release_name}")
