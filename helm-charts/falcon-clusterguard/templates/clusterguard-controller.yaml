@@ -140,7 +140,7 @@ spec:
   replicas: {{ .Values.cluster.replicas }}
   selector:
     matchLabels:
-      {{- include "falcon-clusterguard.clusterSensorSelectorLabels" . | nindent 6 }}
+      {{- include "falcon-clusterguard.clusterguardSelectorLabels" . | nindent 6 }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -150,7 +150,7 @@ spec:
     metadata:
       labels:
         {{- include "falcon-clusterguard.labels" . | nindent 8 }}
-        {{- include "falcon-clusterguard.clusterSensorSelectorLabels" . | nindent 8 }}
+        {{- include "falcon-clusterguard.clusterguardSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: clusterguard
         {{- range $key, $value := .Values.cluster.labels }}
         {{ $key }}: {{ $value | quote }}
