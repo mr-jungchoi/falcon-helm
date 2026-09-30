@@ -24,7 +24,7 @@ container registry accessible to your Kubernetes deployment.
     - Cluster name: {{ $fcg.node.clusterName | default "(auto-discovered)" }}
   {{- end }}
 
-  {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+  {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
 
   ✓ Cluster Guard Controller (Deployment)
     - Replaces: falcon-kac
@@ -105,7 +105,7 @@ Monitor components:
   Node sensor DaemonSet:
     kubectl rollout status daemonset/falcon-sensor -n {{ $ns }}
   {{- end }}
-  {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+  {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
   Cluster Guard Controller Deployment:
     kubectl rollout status deployment/falcon-clusterguard-controller -n {{ $ns }}
   {{- end }}
