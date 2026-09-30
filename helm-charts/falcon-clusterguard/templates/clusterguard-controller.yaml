@@ -188,6 +188,8 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+        runAsNonRoot: true
+        runAsUser: 1234
       serviceAccountName: {{ include "falcon-clusterguard.clusterServiceAccountName" . }}
       shareProcessNamespace: true
       {{- with .Values.cluster.affinity }}
@@ -221,7 +223,6 @@ spec:
             seccompProfile:
               type: RuntimeDefault
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -297,7 +298,6 @@ spec:
             seccompProfile:
               type: RuntimeDefault
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -370,7 +370,6 @@ spec:
             seccompProfile:
               type: RuntimeDefault
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
