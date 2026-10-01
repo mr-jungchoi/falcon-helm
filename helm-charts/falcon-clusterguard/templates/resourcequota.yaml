@@ -16,4 +16,7 @@ spec:
         scopeName: PriorityClass
         values:
           - system-cluster-critical
+          {{- if .Values.node.gke.enabled }}
+          - system-node-critical
+          {{- end }}
 {{- end }}
