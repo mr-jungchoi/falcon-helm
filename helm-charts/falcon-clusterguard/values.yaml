@@ -91,6 +91,7 @@ node:
 
   # Enable for use on Google's GKE Autopilot clusters
   gke:
+    enabled: false
     autopilot: false
     # deployAllowListVersion: ""
     # cleanupAllowListVersion: ""
