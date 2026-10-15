@@ -9,8 +9,7 @@ metadata:
   name: falcon-grpc-ca
   namespace: {{ $ns }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: falcon-clusterguard
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   secretName: falcon-api-ca
   issuerRef:
@@ -21,6 +20,7 @@ spec:
   usages:
     - cert sign
     - crl sign
+
 ---
 # Namespaced CA Issuer backed by the CA cert above.
 # Both leaf certs reference this issuer so they share the same CA trust root.
@@ -30,11 +30,11 @@ metadata:
   name: falcon-grpc-ca-issuer
   namespace: {{ $ns }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: falcon-clusterguard
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   ca:
     secretName: falcon-api-ca
+
 ---
 # gRPC API server certificate — presented by falcon-watcher to node sensors.
 apiVersion: cert-manager.io/v1
@@ -43,8 +43,7 @@ metadata:
   name: falcon-api-tls
   namespace: {{ $ns }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: falcon-clusterguard
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   secretName: falcon-api-tls
   issuerRef:
@@ -58,6 +57,7 @@ spec:
     - api
   usages:
     - server auth
+
 ---
 # Node sensor client certificate — presented by falcon-sensor pods to the gRPC server.
 # SPIFFE URI SAN allows the gRPC server to enforce identity-based authorization.
@@ -67,8 +67,7 @@ metadata:
   name: falcon-node-sensor-tls
   namespace: {{ $ns }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: falcon-clusterguard-sensor
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   secretName: falcon-node-sensor-tls
   issuerRef:

@@ -73,16 +73,19 @@ python3 scripts/migrate-to-fcg.py --interactive
 
 See `scripts/README.md` for full documentation.
 
-Key differences from the legacy charts:
+Key differences from non-fcg charts:
 
-| Behavior                           | falcon-sensor + falcon-kac           | falcon-clusterguard                  |
-|:-----------------------------------|:-------------------------------------|:-------------------------------------|
-| Container images                   | Separate per chart                   | Single unified image                 |
-| Node sensor                        | `falcon-sensor` chart                | `node.*` values                      |
-| Admission controller               | `falcon-kac` chart                   | `cluster.admissionControl.*` values  |
-| `admissionControl.enabled` default | `true`                               | **`false`**                          |
-| Container sidecar sensor           | Supported (`container.enabled=true`) | Not supported — use `falcon-sensor`  |
-| gRPC metadata service              | Not available                        | Built-in (always enabled)            |
+| Behavior                                       | falcon-sensor + falcon-kac           | falcon-clusterguard                                            |
+|:-----------------------------------------------|:-------------------------------------|:---------------------------------------------------------------|
+| Container images                               | Separate per chart                   | Single unified image                                           |
+| Node sensor                                    | `falcon-sensor` chart                | `node.*` values                                                |
+| Admission controller                           | `falcon-kac` chart                   | `cluster.*` values                                             |
+| `admissionControl.enabled` default             | `true`                               | **`false`**                                                    |
+| Container sidecar sensor                       | Supported (`container.enabled=true`) | Not supported — use `falcon-sensor`                            |
+| gRPC metadata service                          | Not available                        | Built-in (always enabled)                                      |
+| Controller Deployment name                     | `falcon-kac` (`<nameOverride>`)      | `falcon-clusterguard-controller` (`<nameOverride>-controller`) |
+| Controller pod `app` label                     | `falcon-kac`                         | `falcon-clusterguard`                                          |
+| Controller `app.kubernetes.io/component` label | `kac`                                | `fcg-controller`                                               |
 
 ## Kubernetes Cluster Compatibility
 
@@ -137,7 +140,7 @@ helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
 image:
   repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
   digest: sha256:ffdc91f66ef8570bd7612cf19145563a787f552656f5eec43cd80ef9caca0398
-  pullSecrets: crowdstrike-pull-secret
+  pullSecret: crowdstrike-pull-secret
 
 falcon:
   cid: "<CrowdStrike_CID>"
@@ -178,8 +181,8 @@ helm show values crowdstrike/falcon-clusterguard
 
 ## Image Configuration
 
-A single FCG container image is used by both the node sensor DaemonSet and the cluster
-sensor Deployment.
+A single FCG container image is used by both the node sensor DaemonSet and the clusterguard
+controller Deployment.
 
 | Parameter                  | Description                                                                                                          |
 |:---------------------------|:---------------------------------------------------------------------------------------------------------------------|
@@ -187,8 +190,8 @@ sensor Deployment.
 | `image.tag`                | Image tag. Prefer `image.digest` for immutability. (Default: `8.14.0-XXXXX-1`)                                       |
 | `image.digest`             | Image digest (`sha256:...`). Overrides `image.tag` when set.                                                         |
 | `image.pullPolicy`         | Kubernetes image pull policy (Default: `Always`)                                                                     |
-| `image.pullSecrets`        | Name of an existing docker-registry Secret (comma-separated for multiple)                                            |
-| `image.registryConfigJSON` | Base64-encoded Docker `config.json`. Conflicts with `image.pullSecrets`.                                             |
+| `image.pullSecret`         | Name of an existing docker-registry Secret                                                                           |
+| `image.registryConfigJSON` | Base64-encoded Docker `config.json`. Conflicts with `image.pullSecret`.                                              |
 
 ## Falcon Configuration Options
 
@@ -363,6 +366,7 @@ The following table lists the configurable parameters for the FCG node sensor Da
 | `node.clusterName`                   | Manually set cluster name. Usually auto-discovered on managed Kubernetes (EKS, GKE, AKS). Required for self-hosted clusters. | None (auto-discovery used)                       |
 | `node.serviceAccount.name`           | Name of the Kubernetes ServiceAccount used by the node sensor DaemonSet and cleanup DaemonSet                                | `falcon-node-sensor-sa`                          |
 | `node.serviceAccount.annotations`    | Annotations applied to the ServiceAccount (e.g., for IRSA or Workload Identity)                                              | `{}`                                             |
+| `node.gke.enabled`                   | Enable for GKE clusters (Standard or Autopilot). Adds `system-node-critical` to the clusterguard ResourceQuota scope.        | `false`                                          |
 | `node.gke.autopilot`                 | Enable for GKE Autopilot clusters                                                                                            | `false`                                          |
 | `node.daemonset.annotations`         | Annotations applied to the DaemonSet resource                                                                                | `{}`                                             |
 | `node.daemonset.labels`              | Additional labels applied to the DaemonSet resource                                                                          | `{}`                                             |
@@ -548,7 +552,7 @@ FCG has two independent feature gates for the clusterguard controller:
 | `cluster.serviceAccount.name`        | Name of the Kubernetes ServiceAccount used by the clusterguard controller Deployment                                                             | `falcon-cg-controller-sa`     |
 | `cluster.serviceAccount.annotations` | Annotations applied to the clusterguard controller ServiceAccount (e.g., for IRSA or Workload Identity)                                          | `{}`                          |
 | `cluster.replicas`                   | Number of clusterguard controller replicas. The metadata service is single-instance; keep at `1` unless you understand the implications.         | `1`                           |
-| `cluster.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the clusterguard controller namespace                                                        | `2`                           |
+| `cluster.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the `system-cluster-critical` PriorityClass (plus `system-node-critical` when `node.gke.enabled=true`) | `2`                           |
 | `cluster.hostNetwork`                | Run clusterguard controller in host network mode. Required when a custom CNI prevents control plane nodes from communicating directly with pods. | `false`                       |
 | `cluster.webhookPort`                | HTTPS port on which the validating webhook backend listens                                                                                       | `4443`                        |
 | `cluster.watcherPort`                | HTTP port on which the resource watcher listens (internal)                                                                                       | `4080`                        |
@@ -563,17 +567,19 @@ FCG has two independent feature gates for the clusterguard controller:
 | `cluster.tolerations`                | Pod tolerations for node scheduling                                                                                                              | `[]`                          |
 | `cluster.affinity`                   | Pod affinity/anti-affinity rules. Defaults to require `amd64` or `arm64` node architecture.                                                      | `nodeAffinity` (amd64, arm64) |
 
+The clusterguard controller Deployment is named `<nameOverride>-controller`, which is
+`falcon-clusterguard-controller` when `nameOverride` is not set.
+
 ### Cluster Visibility
 
 Controls how FCG monitors and reports Kubernetes cluster state to CrowdStrike cloud.
 
-| Parameter                                       | Description                                                                                                                           | Default                 |
-|:------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:------------------------|
-| `cluster.visibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`                  |
-| `cluster.visibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`                   |
-| `cluster.visibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`                  |
-| `cluster.visibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`                  |
-| `falconImageAnalyzerNamespace`                  | Namespace where Falcon Image Analyzer is deployed, used for cross-component communication.                                            | `falcon-image-analyzer` |
+| Parameter                                       | Description                                                                                                                           | Default |
+|:------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `cluster.visibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`  |
+| `cluster.visibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`   |
+| `cluster.visibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`  |
+| `cluster.visibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`  |
 
 ### Webhook Configuration
 

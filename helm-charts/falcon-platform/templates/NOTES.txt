@@ -107,7 +107,7 @@ Monitor components:
   {{- end }}
   {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
   Cluster Guard Controller Deployment:
-    kubectl rollout status deployment/falcon-clusterguard-controller -n {{ $ns }}
+    kubectl rollout status deployment/{{ printf "%s-controller" ($fcg.nameOverride | default "falcon-clusterguard" | trunc 52 | trimSuffix "-") }} -n {{ $ns }}
   {{- end }}
 {{- end }}
 
