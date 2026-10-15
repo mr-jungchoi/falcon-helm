@@ -23,7 +23,7 @@ spec:
         EXPECTED_CHART="{{ include "falcon-clusterguard.helmChart" . }}"
 
         echo "--- Checking HELM_CHART in node sensor ConfigMap ---"
-        NODE_CM="{{ include "falcon-clusterguard.configMapName" . }}"
+        NODE_CM="{{ include "falcon-clusterguard.nodeConfigMapName" . }}"
         VALUE=$(kubectl get configmap "${NODE_CM}" \
           -n "{{ include "falcon-clusterguard.namespace" . }}" \
           -o jsonpath='{.data.HELM_CHART}' 2>&1)
@@ -39,7 +39,7 @@ spec:
 
         {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
         echo "--- Checking HELM_CHART in clusterguard controller ConfigMap ---"
-        CG_CM="{{ include "falcon-clusterguard.admissionConfigMapName" . }}"
+        CG_CM="{{ include "falcon-clusterguard.cgContollerConfigMapName" . }}"
         VALUE=$(kubectl get configmap "${CG_CM}" \
           -n "{{ include "falcon-clusterguard.namespace" . }}" \
           -o jsonpath='{.data.HELM_CHART}' 2>&1)

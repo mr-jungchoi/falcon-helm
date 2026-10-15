@@ -1,0 +1,149 @@
+{{- if and .Values.testing.enabled (include "falcon-clusterguard.csiEnabled" . | eq "true") -}}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+{{- $imageAnalyzer := index .Values "image-analyzer" -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-csi-integration"
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+      - /bin/sh
+      - -c
+      - |
+        FAILED=0
+        NS="{{ $ns }}"
+        PROVIDER="{{ include "falcon-clusterguard.csiProvider" . }}"
+
+        echo "=== CSI Driver Integration Tests ==="
+
+        # check_spc <SecretProviderClass name> <synced secret name>
+        check_spc() {
+          echo "--- SecretProviderClass $1 ---"
+          if ! kubectl get secretproviderclass "$1" -n "${NS}" > /dev/null 2>&1; then
+            echo "[FAIL]: SecretProviderClass '$1' not found"; FAILED=1; return
+          fi
+          echo "[OK]: SecretProviderClass '$1' exists"
+          VALUE=$(kubectl get secretproviderclass "$1" -n "${NS}" -o jsonpath='{.spec.provider}' 2>&1)
+          if [ "${VALUE}" != "${PROVIDER}" ]; then
+            echo "[FAIL]: provider is '${VALUE}', expected '${PROVIDER}'"; FAILED=1
+          else
+            echo "[OK]: provider is '${VALUE}'"
+          fi
+          VALUE=$(kubectl get secretproviderclass "$1" -n "${NS}" -o jsonpath='{.spec.secretObjects[0].secretName}' 2>&1)
+          if [ "${VALUE}" != "$2" ]; then
+            echo "[FAIL]: secretObjects name is '${VALUE}', expected '$2'"; FAILED=1
+          else
+            echo "[OK]: secretObjects syncs to '$2'"
+          fi
+        }
+
+        # check_workload <kind> <name> <SecretProviderClass name> <container that mounts CSI> <env var> <synced secret name>
+        check_workload() {
+          echo "--- $1/$2 ---"
+          if ! kubectl get "$1" "$2" -n "${NS}" > /dev/null 2>&1; then
+            echo "[FAIL]: $1 '$2' not found"; FAILED=1; return
+          fi
+          VALUE=$(kubectl get "$1" "$2" -n "${NS}" \
+            -o jsonpath='{.spec.template.spec.volumes[?(@.name=="csi-secrets")].csi.volumeAttributes.secretProviderClass}' 2>&1)
+          if [ "${VALUE}" != "$3" ]; then
+            echo "[FAIL]: csi-secrets volume references '${VALUE}', expected '$3'"; FAILED=1
+          else
+            echo "[OK]: csi-secrets volume references '$3'"
+          fi
+          VALUE=$(kubectl get "$1" "$2" -n "${NS}" \
+            -o jsonpath="{.spec.template.spec.containers[?(@.name==\"$4\")].volumeMounts[?(@.name==\"csi-secrets\")].mountPath}" 2>&1)
+          if [ "${VALUE}" != "/mnt/secrets-store" ]; then
+            echo "[FAIL]: container '$4' CSI mount is '${VALUE}', expected '/mnt/secrets-store'"; FAILED=1
+          else
+            echo "[OK]: container '$4' mounts CSI at /mnt/secrets-store"
+          fi
+          VALUE=$(kubectl get "$1" "$2" -n "${NS}" \
+            -o jsonpath="{.spec.template.spec.containers[?(@.name==\"$4\")].env[?(@.name==\"$5\")].valueFrom.secretKeyRef.name}" 2>&1)
+          if [ "${VALUE}" != "$6" ]; then
+            echo "[FAIL]: container '$4' $5 reads secret '${VALUE}', expected '$6'"; FAILED=1
+          else
+            echo "[OK]: container '$4' $5 reads secret '$6'"
+          fi
+          if ! kubectl rollout status "$1" "$2" -n "${NS}" --timeout=300s; then
+            echo "[FAIL]: $1 '$2' pods failed to become ready"; FAILED=1
+          else
+            echo "[OK]: $1 '$2' pods are ready"
+          fi
+        }
+
+        # check_secret <synced secret name> <required keys...>
+        check_secret() {
+          NAME="$1"; shift
+          echo "--- CSI-synced secret ${NAME} ---"
+          RETRY=0
+          until kubectl get secret "${NAME}" -n "${NS}" > /dev/null 2>&1; do
+            RETRY=$((RETRY + 1))
+            if [ ${RETRY} -gt 12 ]; then
+              echo "[FAIL]: Secret '${NAME}' was not created by the CSI driver after 60 seconds"
+              echo "This could indicate the CSI driver is not running or Key Vault authentication failed"
+              FAILED=1; return
+            fi
+            echo "Waiting for secret '${NAME}' to be created by the CSI driver... (${RETRY}/12)"
+            sleep 5
+          done
+          for KEY in "$@"; do
+            # Only check that the key exists; never print the value.
+            if [ -z "$(kubectl get secret "${NAME}" -n "${NS}" -o jsonpath="{.data.${KEY}}" 2>&1)" ]; then
+              echo "[FAIL]: Secret '${NAME}' does not have key ${KEY}"; FAILED=1
+            else
+              echo "[OK]: Secret '${NAME}' contains ${KEY}"
+            fi
+          done
+        }
+
+        # Node sensor + clusterguard controller
+        SPC="{{ include "falcon-clusterguard.fullname" . }}-csi"
+        SECRET="{{ include "falcon-clusterguard.csiSecretName" . }}"
+        check_spc "${SPC}" "${SECRET}"
+        {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+        check_workload daemonset falcon-sensor "${SPC}" falcon-sensor FALCONCTL_OPT_CID "${SECRET}"
+        {{- end }}
+        {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+        check_workload deployment {{ include "falcon-clusterguard.controllerName" . }}"${SPC}" falcon-client FALCONCTL_OPT_CID "${SECRET}"
+        {{- end }}
+        check_secret "${SECRET}" FALCONCTL_OPT_CID{{ if .Values.secretsStore.provisioningTokenSecretName }} FALCONCTL_OPT_PROVISIONING_TOKEN{{ end }}
+
+        {{- if $imageAnalyzer.enabled }}
+
+        # Image Analyzer
+        IAR_SPC="{{ include "falcon-clusterguard.iarFullname" . }}-csi"
+        IAR_SECRET="{{ include "falcon-clusterguard.iarCsiSecretName" . }}"
+        check_spc "${IAR_SPC}" "${IAR_SECRET}"
+        check_workload deployment "{{ include "falcon-clusterguard.iarFullname" . }}" "${IAR_SPC}" "{{ include "falcon-clusterguard.iarName" . }}" AGENT_CLIENT_ID "${IAR_SECRET}"
+        check_secret "${IAR_SECRET}" AGENT_CLIENT_ID AGENT_CLIENT_SECRET AGENT_CID
+        {{- end }}
+
+        echo "=== Test Summary ==="
+        if [ "${FAILED}" -eq 1 ]; then
+          echo "[FAIL]: Some CSI integration tests failed"
+          exit 1
+        fi
+        echo "[PASS]: All CSI integration tests passed"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

@@ -6,7 +6,6 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard
 spec:
   hard:
     pods: {{ .Values.cluster.resourceQuota.pods }}

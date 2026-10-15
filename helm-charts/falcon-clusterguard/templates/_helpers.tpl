@@ -2,7 +2,16 @@
 Expand the name of the chart.
 */}}
 {{- define "falcon-clusterguard.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- default "falcon-clusterguard" .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Cluster Guard controller Deployment name: <name>-controller.
+Follows nameOverride; defaults to falcon-clusterguard-controller. The name is truncated before
+the suffix is added so the result always ends in -controller and stays within 63 characters.
+*/}}
+{{- define "falcon-clusterguard.controllerName" -}}
+{{- printf "%s-controller" (include "falcon-clusterguard.name" . | trunc 52 | trimSuffix "-") }}
 {{- end }}
 
 {{/*
@@ -10,7 +19,7 @@ gRPC API service name for the central metadata service.
 Hardcoded — always api.<release-namespace>.svc, not user-configurable.
 */}}
 {{- define "falcon-clusterguard.apiServiceName" -}}
-{{- printf "api.%s.svc" (include "falcon-clusterguard.namespace" .) -}}
+{{- printf "api.%s.svc" (include "falcon-clusterguard.namespace" .) }}
 {{- end -}}
 
 {{/*
@@ -50,34 +59,58 @@ Common labels
 */}}
 {{- define "falcon-clusterguard.labels" -}}
 helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
-{{ include "falcon-clusterguard.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
+app.kubernetes.io/component: falcon-clusterguard
+app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 crowdstrike.com/provider: crowdstrike
 {{- end }}
 
 {{/*
-Selector labels
+Common Node labels
 */}}
-{{- define "falcon-clusterguard.selectorLabels" -}}
+{{- define "falcon-clusterguard.nodeLabels" -}}
+helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{ include "falcon-clusterguard.nodeSelectorLabels" . }}
+{{- end }}
+
+{{/*
+Node specific selector labels (used by the node sensor workloads)
+*/}}
+{{- define "falcon-clusterguard.nodeSelectorLabels" -}}
 app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- /* TODO: Check with sensor team to see if anything is using the "kernel_sensor" component label, if not change component to fcg-sensor */}}
+app.kubernetes.io/component: kernel_sensor
+crowdstrike.com/provider: crowdstrike
 {{- end }}
 
 {{/*
-Admission-specific selector labels (used by the admission Deployment/Service/Webhook)
+Node sensor pod label used by the Guardian proxy Service selector.
 */}}
-{{- define "falcon-clusterguard.clusterguardSelectorLabels" -}}
-app: falcon-clusterguard
-{{- end }}
-
-{{/*
-Node-sensor-specific selector labels (used by the node DaemonSet sensor)
-*/}}
-{{- define "falcon-clusterguard.nodeSensorSelectorLabels" -}}
+{{- define "falcon-clusterguard.falconSensorAppLabel" -}}
 app: falcon-sensor
+{{- end }}
+
+{{/*
+Common CG Controller labels
+*/}}
+{{- define "falcon-clusterguard.cgControllerLabels" -}}
+helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+{{ include "falcon-clusterguard.cgControllerSelectorLabels" . }}
+app.kubernetes.io/component: fcg-controller
+app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+crowdstrike.com/provider: crowdstrike
+{{- end }}
+
+{{/*
+CG Controller specific selector labels (used by the cg-controller workloads)
+*/}}
+{{- define "falcon-clusterguard.cgControllerSelectorLabels" -}}
+app: falcon-clusterguard
 {{- end }}
 
 {{/*
@@ -158,15 +191,10 @@ resources:
 {{/*
 Init container args for the node daemonset (falconstore setup + cluster-id configure)
 */}}
-{{- define "falcon-clusterguard.initArgs" -}}
+{{- define "falcon-clusterguard.nodeInitArgs" -}}
 args:
   - '-c'
   - >-
-      set -e;
-      if [ ! -f /opt/CrowdStrike/falcon-daemonset-init ]; then
-      echo "Error: This is not a falcon node sensor(DaemonSet) image";
-      exit 1;
-      fi;
       echo "Running /opt/CrowdStrike/falcon-daemonset-init -i";
       /opt/CrowdStrike/falcon-daemonset-init -i;
       if [ ! -f /opt/CrowdStrike/configure-cluster-id ]; then
@@ -181,14 +209,14 @@ args:
 ConfigMap name for the node sensor DaemonSet.
 Fixed name — required by GKE Autopilot WorkloadAllowlist and matches the reference manifest.
 */}}
-{{- define "falcon-clusterguard.configMapName" -}}
+{{- define "falcon-clusterguard.nodeConfigMapName" -}}
 {{- printf "falcon-sensor-config" -}}
 {{- end -}}
 
 {{/*
 ConfigMap name for the admission controller Deployment.
 */}}
-{{- define "falcon-clusterguard.admissionConfigMapName" -}}
+{{- define "falcon-clusterguard.cgContollerConfigMapName" -}}
 {{- printf "falcon-clusterguard-config" -}}
 {{- end -}}
 
@@ -385,10 +413,10 @@ Validate exactly one of falcon.cid, falconSecret, or secretsStore is configured.
 Get container registry pull secret name
 */}}
 {{- define "falcon-clusterguard.imagePullSecret" -}}
-{{- if and .Values.global.containerRegistry.pullSecret (not .Values.image.pullSecrets) -}}
+{{- if and .Values.global.containerRegistry.pullSecret (not .Values.image.pullSecret) -}}
 {{- .Values.global.containerRegistry.pullSecret -}}
 {{- else -}}
-{{- .Values.image.pullSecrets | default "" -}}
+{{- .Values.image.pullSecret | default "" -}}
 {{- end -}}
 {{- end -}}
 
@@ -401,6 +429,14 @@ Get container registry config JSON
 {{- else -}}
 {{- .Values.image.registryConfigJSON | default "" -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Name of the image pull Secret the chart creates from the registry config JSON.
+Used by the Secret itself and by every workload that pulls the FCG image.
+*/}}
+{{- define "falcon-clusterguard.pullSecretName" -}}
+{{- printf "%s-pull-secret" (include "falcon-clusterguard.fullname" .) -}}
 {{- end -}}
 
 {{/*
@@ -435,6 +471,27 @@ Returns the effective CSI provider (chart-level overrides global).
 {{- end -}}
 
 {{/*
+Container env entries that read FALCONCTL_OPT_* from the CSI-synced secret.
+Used by every node sensor and clusterguard controller container when Secrets Store CSI is enabled.
+*/}}
+{{- define "falcon-clusterguard.csiEnvVars" -}}
+- name: FALCONCTL_OPT_CID
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "falcon-clusterguard.csiSecretName" . }}
+      key: FALCONCTL_OPT_CID
+      optional: true
+{{- if .Values.secretsStore.provisioningTokenSecretName }}
+- name: FALCONCTL_OPT_PROVISIONING_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "falcon-clusterguard.csiSecretName" . }}
+      key: FALCONCTL_OPT_PROVISIONING_TOKEN
+      optional: true
+{{- end }}
+{{- end -}}
+
+{{/*
 OpenShift SCC name for the node sensor DaemonSet (privileged SCC)
 */}}
 {{- define "falcon-clusterguard.nodeSccName" -}}
@@ -448,7 +505,7 @@ OpenShift SCC name for the node sensor DaemonSet (privileged SCC)
 {{/*
 OpenShift SCC name for the admission controller Deployment (hostNetwork SCC)
 */}}
-{{- define "falcon-clusterguard.admissionSccName" -}}
+{{- define "falcon-clusterguard.cgControllerSccName" -}}
 {{- if .Values.openshift.admissionSCCName -}}
 {{- .Values.openshift.admissionSCCName -}}
 {{- else -}}

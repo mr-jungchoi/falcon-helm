@@ -14,7 +14,7 @@
                     "default": "Always",
                     "pattern": "^(Always|Never|IfNotPresent)$"
                 },
-                "pullSecrets": {
+                "pullSecret": {
                     "type": ["null", "string"]
                 },
                 "registryConfigJSON": {
@@ -87,7 +87,7 @@
             "properties": {
                 "enabled": {
                     "type": ["boolean", "null"],
-                    "default": false
+                    "default": null
                 },
                 "provider": {
                     "type": "string",
@@ -103,6 +103,10 @@
                         "tenantID": { "type": "string" },
                         "clientID": { "type": "string" }
                     }
+                },
+                "provisioningTokenSecretName": {
+                    "type": "string",
+                    "description": "Name of the secrets store secret containing FALCONCTL_OPT_PROVISIONING_TOKEN (optional)"
                 }
             }
         },
@@ -471,9 +475,6 @@
                     }
                 }
             }
-        },
-        "falconImageAnalyzerNamespace": {
-            "type": "string"
         },
         "testing": {
             "type": "object",

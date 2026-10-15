@@ -5,12 +5,10 @@ metadata:
   name: falcon-proxy
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard
-    crowdstrike.com/provider: crowdstrike
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "falcon-clusterguard.nodeSensorSelectorLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 4 }}
   # Local routing ensures each client pod reaches only the proxy on its own node.
   internalTrafficPolicy: Local
   ports:

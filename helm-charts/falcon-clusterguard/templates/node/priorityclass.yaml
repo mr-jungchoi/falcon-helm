@@ -5,10 +5,10 @@ kind: PriorityClass
 metadata:
   name: {{ include "falcon-clusterguard.priorityClassName" . }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard
+    {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 4 }}
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
 value: {{ .Values.node.daemonset.priorityClassValue }}
 globalDefault: false
-description: "Priority class for the CrowdStrike Falcon Cluster Guard node sensor DaemonSet."
+description: "Priority class for the CrowdStrike Falcon Cluster Guard node sensor DaemonSet on GKE Autopilot clusters."
 {{- end }}
 {{- end }}

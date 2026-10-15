@@ -1,0 +1,47 @@
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+{{- $falconSecretKeys := list "cid" "provisioning_token" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "falcon-clusterguard.cgContollerConfigMapName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+data:
+  HELM_CHART: {{ include "falcon-clusterguard.helmChart" . | quote }}
+  FALCON_MODE: kac
+  __CS_ADMISSION_CONTROL_ENABLED: {{ include "falcon-clusterguard.admissionControlEnabled" . | quote }}
+  __CS_GRPC_API_ENABLED: "true"
+  {{- if .Values.cluster.tlsVersionMinimum }}
+  __CS_TLS_PROTOCOL_MIN: {{ .Values.cluster.tlsVersionMinimum | quote }}
+  {{- end }}
+
+  {{- include "falcon-clusterguard.generateWatcherEnvVars" . | nindent 2 }}
+
+  {{- if not (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") }}
+  FALCONCTL_OPT_CID: {{ include "falcon-clusterguard.falconCid" . | quote }}
+  {{- if .Values.falcon.provisioning_token }}
+  FALCONCTL_OPT_PROVISIONING_TOKEN: {{ .Values.falcon.provisioning_token | quote }}
+  {{- end }}
+  {{- end }}
+
+  {{- range $key, $value := .Values.falcon }}
+  {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
+  FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+
+{{- if .Values.node.clusterName }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  {{- /* TODO: Check if this configmap name can be changed */}}
+  name: falcon-kac-meta
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+data:
+  ClusterName: {{ .Values.node.clusterName | quote }}
+{{- end }}
+{{- end }}

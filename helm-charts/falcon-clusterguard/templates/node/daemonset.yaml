@@ -1,0 +1,249 @@
+{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+{{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . -}}
+{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+{{- /* TODO: Make sure node sensor daemonset name is configurable */}}
+  name: falcon-sensor
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    app: "falcon-sensor"
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
+    {{- range $key, $value := .Values.node.daemonset.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- with .Values.node.daemonset.annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: {{ .Values.node.daemonset.updateStrategy }}
+    {{- if and (eq .Values.node.daemonset.updateStrategy "RollingUpdate") (ne (int .Values.node.daemonset.maxUnavailable) 1) }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.node.daemonset.maxUnavailable }}
+    {{- end }}
+  template:
+    metadata:
+      annotations:
+        {{ .Values.node.daemonset.podAnnotationKey }}: disabled
+        {{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
+        openshift.io/scc: {{ include "falcon-clusterguard.nodeSccName" . }}
+        {{- end }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/node/configmap.yaml") . | sha256sum | quote }}
+        {{- range $key, $value := .Values.node.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      labels:
+        {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 8 }}
+        {{- include "falcon-clusterguard.nodeLabels" . | nindent 8 }}
+        {{- include "falcon-clusterguard.workloadDeployAllowlistLabel" . | nindent 8 }}
+        {{- range $key, $value := .Values.node.daemonset.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- range $key, $value := .Values.node.podLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
+      {{- fail "image.pullSecret and image.registryConfigJSON cannot be used together." }}
+      {{- else if or (len $imagePullSecretName) (len $registryConfigJson) }}
+      imagePullSecrets:
+        {{- if len $imagePullSecretName }}
+        - name: {{ $imagePullSecretName }}
+        {{- end }}
+        {{- if len $registryConfigJson }}
+        - name: {{ include "falcon-clusterguard.pullSecretName" . }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.node.daemonset.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      {{- with .Values.node.daemonset.nodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 65534
+      serviceAccountName: {{ include "falcon-clusterguard.nodeServiceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
+      {{- if or .Values.node.daemonset.priorityClassName .Values.node.gke.autopilot }}
+      priorityClassName: {{ include "falcon-clusterguard.priorityClassName" . }}
+      {{- end }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.node.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostPID: true
+      hostIPC: true
+      initContainers:
+        # Creates the falconstore file on the host so Kubernetes mounts it as a file
+        # (not a directory), preserving the AID across container restarts.
+        - name: init-falconstore
+          image: {{ include "falcon-clusterguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          command:
+            - /bin/bash
+          {{ include "falcon-clusterguard.nodeInitArgs" . | nindent 10 }}
+          {{- /* TODO: Check with Gabe why resources are hardcoded and not configurable */}}
+          {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+          resources:
+            requests:
+              cpu: 10m
+              ephemeral-storage: 100Mi
+              memory: 50Mi
+            limits:
+              cpu: 10m
+              ephemeral-storage: 100Mi
+              memory: 50Mi
+          {{- end }}
+          securityContext:
+            runAsUser: 0
+            privileged: true
+            allowPrivilegeEscalation: true
+            {{- if .Values.node.gke.autopilot }}
+            readOnlyRootFilesystem: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_PTRACE
+                - SYS_CHROOT
+                - DAC_READ_SEARCH
+            {{- else }}
+            readOnlyRootFilesystem: false
+            {{- end }}
+          env:
+            - name: POD_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: API_SERVICE_NAME
+              value: {{ include "falcon-clusterguard.apiServiceName" . }}
+      containers:
+        - name: falcon-node-sensor
+          image: {{ include "falcon-clusterguard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          # Various pod security context settings required for Falcon Sensor functionality:
+          # - User that the container will execute as. Typically necessary to run as root (0).
+          # - Run the Falcon Sensor containers as privileged containers. This is required when
+          #   running the Falcon Linux Sensor on Kubernetes nodes to properly run in the node's
+          #   kernel and to actually protect the node.
+          securityContext:
+            runAsUser: 0
+            privileged: true
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: true
+            {{- if .Values.node.gke.autopilot }}
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SETGID
+                - SETUID
+                - SYS_PTRACE
+                - SYS_CHROOT
+                - DAC_OVERRIDE
+                - SETPCAP
+                - DAC_READ_SEARCH
+                - BPF
+                - PERFMON
+                - SYS_RESOURCE
+                - NET_RAW
+                - CHOWN
+                - NET_ADMIN
+            {{- end }}
+          {{- include "falcon-clusterguard.daemonsetResources" . | nindent 10 }}
+          {{- if .Values.node.guardian.proxy.enabled }}
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.node.guardian.proxy.port }}
+              protocol: TCP
+          {{- end }}
+          env:
+            - name: POD_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: API_SERVICE_NAME
+              value: {{ include "falcon-clusterguard.apiServiceName" . }}
+            {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+            {{- include "falcon-clusterguard.csiEnvVars" . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "falcon-clusterguard.nodeConfigMapName" . }}
+            {{- if and (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") (not (include "falcon-clusterguard.csiEnabled" . | eq "true")) }}
+            - secretRef:
+                name: {{ include "falcon-clusterguard.falconSecretName" . }}
+            {{- end }}
+          volumeMounts:
+            - name: cs-config
+              mountPath: /opt/CrowdStrike/config
+            {{- /* TODO: Check with sensor team if the falconstore volume is necessary for FCG */}}
+            - name: falconstore
+              mountPath: /opt/CrowdStrike/falconstore
+            {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+            - name: falcon-node-sensor-tls-certs
+              mountPath: /run/secrets/tls
+              readOnly: true
+            - name: falcon-api-ca
+              mountPath: /run/secrets/ca
+              readOnly: true
+            {{- end }}
+            {{- if .Values.node.guardian.proxy.enabled }}
+            - name: proxy-tls
+              mountPath: /opt/CrowdStrike/certs
+              readOnly: true
+            {{- end }}
+            {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+            - name: csi-secrets
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: cs-config
+          hostPath:
+            path: /opt/CrowdStrike/config
+        {{- /* TODO: Check with sensor team if the falconstore volume is necessary for FCG */}}
+        - name: falconstore
+          hostPath:
+            path: /opt/CrowdStrike/falconstore
+        {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+        - name: falcon-node-sensor-tls-certs
+          secret:
+            secretName: "falcon-node-sensor-tls"
+        - name: falcon-api-ca
+          secret:
+            secretName: "falcon-api-ca"
+        {{- end }}
+        {{- if .Values.node.guardian.proxy.enabled }}
+        - name: proxy-tls
+          secret:
+            secretName: {{ .Values.node.guardian.proxy.tlsSecretName }}
+            optional: true
+            defaultMode: 0400
+        {{- end }}
+        {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+        - name: csi-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ include "falcon-clusterguard.fullname" . }}-csi
+        {{- end }}
+{{- end }}

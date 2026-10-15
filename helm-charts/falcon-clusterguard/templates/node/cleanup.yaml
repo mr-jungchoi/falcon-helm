@@ -1,19 +1,19 @@
 {{- if and .Values.node.enabled .Values.node.hooks.postDelete.enabled }}
-{{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . -}}
-{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
+  {{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . }}
+  {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard-cleanup
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
   annotations:
     {{- if not .Values.node.cleanupOnly }}
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "0"
     {{- end }}
+
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -21,8 +21,13 @@ metadata:
   name: {{ include "falcon-clusterguard.fullname" . }}-node-cleanup
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard-cleanup
+    helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+    {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: kernel_sensor
+    crowdstrike.com/provider: crowdstrike
     {{- range $key, $value := .Values.node.daemonset.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
@@ -40,7 +45,8 @@ spec:
     matchLabels:
       app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
       app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: clusterguard-cleanup
+      app.kubernetes.io/component: kernel_sensor
+      crowdstrike.com/provider: crowdstrike
   template:
     metadata:
       annotations:
@@ -52,23 +58,28 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
       labels:
+        helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+        {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 8 }}
         app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
         app.kubernetes.io/instance: {{ .Release.Name }}
-        app.kubernetes.io/component: clusterguard-cleanup
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/component: kernel_sensor
+        crowdstrike.com/provider: crowdstrike
         {{ include "falcon-clusterguard.workloadCleanupAllowlistLabel" . }}
         {{- range $key, $value := .Values.node.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
       {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
-      {{- fail "image.pullSecrets and image.registryConfigJSON cannot be used together." }}
+      {{- /* TODO: Move the pullsecret vs configJSON check to validate.yaml */}}
+      {{- fail "image.pullSecret and image.registryConfigJSON cannot be used together." }}
       {{- else if or (len $imagePullSecretName) (len $registryConfigJson) }}
       imagePullSecrets:
         {{- if len $imagePullSecretName }}
         - name: {{ $imagePullSecretName }}
         {{- end }}
         {{- if len $registryConfigJson }}
-        - name: {{ include "falcon-clusterguard.fullname" . }}-pull-secret
+        - name: {{ include "falcon-clusterguard.pullSecretName" . }}
         {{- end }}
       {{- end }}
       {{- with .Values.node.daemonset.tolerations }}
@@ -77,10 +88,10 @@ spec:
       {{- end }}
       nodeSelector:
         kubernetes.io/os: linux
-      {{- if .Values.node.daemonset.nodeAffinity }}
+      {{- with .Values.node.daemonset.nodeAffinity }}
       affinity:
         nodeAffinity:
-          {{- toYaml .Values.node.daemonset.nodeAffinity | nindent 10 }}
+          {{- toYaml . | nindent 10 }}
       {{- end }}
       serviceAccountName: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
       terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}

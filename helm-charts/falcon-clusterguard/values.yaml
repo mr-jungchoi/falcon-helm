@@ -15,11 +15,11 @@ image:
   pullPolicy: Always
 
   # Registry authentication - configure ONE of the following:
-  # pullSecrets: name of an existing docker-registry Secret (comma-separated for multiple)
-  pullSecrets:
+  # pullSecret: name of an existing docker-registry Secret
+  pullSecret:
   # registryConfigJSON: base64 of docker config.json; the chart creates the Secret for you.
   # $ cat ~/.docker/config.json | base64 -w 0
-  # This setting conflicts with image.pullSecrets.
+  # This setting conflicts with image.pullSecret.
   registryConfigJSON:
 
   # Overrides the image tag. In general, tags should not be used (including semver tags or `latest`).
@@ -51,25 +51,49 @@ falcon:
 
 # If falcon.cid is not defined, falconSecret.enabled must be true, and FALCONCTL_OPT_CID
 # must be defined in the referenced existing secret.
+# When image-analyzer.enabled is true, the same secret must also contain AGENT_CLIENT_ID,
+# AGENT_CLIENT_SECRET, and AGENT_CID. Credentials are not mixed across sources: with
+# falconSecret, image-analyzer.crowdstrikeConfig.clientID/clientSecret must be empty.
 falconSecret:
   enabled: false
   secretName: ""
 
 # Secrets Store CSI Driver integration.
 # Requires secrets-store-csi-driver and the appropriate provider addon to be installed.
-# When enabled, FALCONCTL_OPT_CID (and optionally FALCONCTL_OPT_PROVISIONING_TOKEN)
-# are sourced from the secrets store rather than from falcon.cid or falconSecret.
-# Auth wiring (pod annotations/labels, serviceAccount annotations) is provider-specific
-# and left to the user via podAnnotations/podLabels/serviceAccount.annotations.
-# Component-level setting overrides global setting.
+# One block configures every FCG workload:
+#   - Node sensor and clusterguard controller: FALCONCTL_OPT_CID (and optionally
+#     FALCONCTL_OPT_PROVISIONING_TOKEN) are sourced from the secrets store rather than
+#     from falcon.cid or falconSecret.
+#   - Image Analyzer (when image-analyzer.enabled): AGENT_CLIENT_ID, AGENT_CLIENT_SECRET,
+#     and AGENT_CID (unless global.falcon.cid is set).
+# Auth wiring (pod labels, serviceAccount annotations) is provider-specific and left to the
+# user via node/cluster/image-analyzer podLabels and serviceAccount.annotations.
 secretsStore:
-  enabled: false
+  # Component-level setting overrides global setting.
+  enabled:
+
+  # Provider: azure
   provider: ""
+
+  # Name of the Kubernetes secret that will be created by the CSI driver for the node sensor
+  # and clusterguard controller. The SecretProviderClass will sync secrets from the provider
+  # into this Kubernetes secret. If empty, defaults to "<release-fullname>-csi".
+  # The Image Analyzer secret is named "<secretName>-iar" when this (or
+  # global.secretsStore.secretName) is set, otherwise "<release-fullname>-iar-csi".
   secretName: ""
+
+  # Azure Key Vault
+  # Required when provider: azure
+  # Auth: set podLabels: {azure.workload.identity/use: "true"} and
+  #       serviceAccount.annotations: {azure.workload.identity/client-id: "<id>"}
   azure:
     vaultName: ""
     tenantID: ""
-    clientID: ""
+    clientID: ""  # optional: workload identity client ID
+
+  # Name of the secrets store secret containing the provisioning token
+  # (FALCONCTL_OPT_PROVISIONING_TOKEN). Leave empty to omit.
+  provisioningTokenSecretName: ""
 
 # =============================================================================
 # Node sensor DaemonSet configuration
@@ -78,7 +102,7 @@ node:
   # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
   enabled: true
 
-  # Falcon KAC can usually discover the clusterName automatically so setting clusterName here is normally
+  # Falcon Cluster Guard can usually discover the clusterName automatically so setting clusterName here is normally
   # not necessary, but in some cases the clusterName cannot be discovered, e.g. for self-hosted
   # kubernetes clusters such as MicroK8s. In those cases, the clusterName can be manually set here.
   clusterName: ""
@@ -127,7 +151,9 @@ node:
     # https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
     nodeAffinity: {}
 
-    # Resource settings that apply when backend is set to bpf only. Ignored when backend is kernel.
+    # Resource settings for the DaemonSet Sensor. Resource limits are not recommended when running in
+    # kernel mode. Purposefully, the defaults are set to the minimum requirements. Depending on the
+    # size of your cluster and the node types, you may need to increase these values.
     # resources:
     #   limits:
     #     cpu: 250m
@@ -200,10 +226,6 @@ cluster:
   serviceAccount:
     name: falcon-cg-controller-sa
     annotations: {}
-
-  # Number of clusterguard-controller replicas. Currently, the metadata service is single-instance
-  # (architectural constraint), so keep this at 1 unless you understand the implications.
-  replicas: 1
 
   # ResourceQuota for clusterguard-controller pods (scoped to system-cluster-critical PriorityClass)
   resourceQuota:
@@ -346,8 +368,106 @@ cluster:
       # If set to false, ConfigMap events are not watched.
       enabled: true
 
-# Falcon Image Analyzer namespace. Override its default value of "falcon-image-analyzer".
-falconImageAnalyzerNamespace: ""
+# =============================================================================
+# Image Analyzer configuration
+# =============================================================================
+# When image-analyzer.enabled is true, a falcon-imageanalyzer Deployment is added to this
+# chart release in the same namespace as the rest of FCG.
+image-analyzer:
+  enabled: false
+
+  serviceAccount:
+    name: ""
+    annotations: {}
+
+  replicaCount: 1
+
+  crowdstrikeConfig:
+    enableKlogs: "false"
+    clientID: ""
+    clientSecret: ""
+    dockerAPIToken: ""
+    agentRegion: "autodiscovery"
+    agentMaxConsumerThreads: "1"
+
+  # Namespace exclusions for IAR scanning — comma-separated list
+  exclusions:
+    namespace: ""
+    registry: ""
+    imageName: ""
+
+  # Set to true to bypass Kubernetes network and use node/host network.
+  hostNetwork: false
+
+  # Pod DNS policy. Defaults to ClusterFirstWithHostNet when hostNetwork=true.
+  dnsPolicy:
+
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+
+  resources: {}
+
+  tolerations: []
+
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+
+  priorityClassName: ""
+
+  nodeSelector: {}
+
+  # Watcher list page size
+  watcher:
+    listPageSize: 500
+
+  # Log output: 1=stdout, 2=stderr
+  log:
+    output: 2
+    verbosity: "info"
+
+  # IAR agent service configuration
+  iarAgentService:
+    httpPort: 8001
+    autoCertificateUpdate: true
+    certExpiration: 3650
+    domainName:
+
+  # Private registry credentials for IAR scanning
+  privateRegistries:
+    credentials: ""
+    autoDiscoverCredentials: true
+
+  # Mandatory tmp working space mount for image storage
+  volumes:
+    - name: tmp-volume
+      emptyDir:
+        sizeLimit: 20Gi
+
+  volumeMounts:
+    - mountPath: /tmp
+      name: tmp-volume
+
+  # AKS: mount azure.json for registry auth
+  azure:
+    enabled: false
+    azureConfig: /etc/kubernetes/azure.json
+
+  # GCP GKE workload identity init container
+  gcp:
+    enabled: false
+
+  proxyConfig:
+    HTTP_PROXY: ""
+    HTTPS_PROXY: ""
+    NO_PROXY: ""
 
 # Deploys the test suite during install for testing purposes.
 testing:
@@ -378,6 +498,9 @@ openshift:
 
   # Name of the admission SCC. Defaults to "<release-fullname>-admission".
   admissionSCCName: ""
+
+  # Name of the image analyzer SCC. Defaults to "<release-fullname>-iar".
+  iarSccName: ""
 
 # Global values — used when falcon-clusterguard is deployed as a subchart of falcon-platform.
 # These mirror the global values schema of the other falcon-platform subcharts.

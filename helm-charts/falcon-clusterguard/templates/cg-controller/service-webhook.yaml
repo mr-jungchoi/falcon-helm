@@ -6,11 +6,10 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     app: falcon-kac
-    {{- include "falcon-clusterguard.labels" . | nindent 4 }}
-    app.kubernetes.io/component: clusterguard
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "falcon-clusterguard.clusterguardSelectorLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.cgControllerSelectorLabels" . | nindent 4 }}
   ports:
     - port: 443
       targetPort: webhook-port

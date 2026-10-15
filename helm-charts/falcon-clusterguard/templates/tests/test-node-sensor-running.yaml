@@ -46,7 +46,7 @@ spec:
           fi
 
           echo "--- Checking ConfigMap ---"
-          CM_NAME="{{ include "falcon-clusterguard.configMapName" . }}"
+          CM_NAME="{{ include "falcon-clusterguard.nodeConfigMapName" . }}"
           if ! kubectl get configmap "${CM_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: ConfigMap '${CM_NAME}' not found"
             FAILED=1
