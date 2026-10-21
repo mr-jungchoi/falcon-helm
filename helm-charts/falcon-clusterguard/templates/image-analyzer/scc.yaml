@@ -17,7 +17,7 @@ metadata:
       Grants the Falcon Image Analyzer Deployment permission to run as root
       (UID 0) for image analysis. No host access is granted.
       {{- end }}
-allowHostDirVolumePlugin: {{ or $daemonsetEnabled $imageAnalyzer.azure.enabled }}
+allowHostDirVolumePlugin: {{ or $daemonsetEnabled .Values.azure.enabled }}
 allowHostIPC: false
 allowHostNetwork: {{ $imageAnalyzer.hostNetwork | default false }}
 allowHostPID: false
@@ -47,7 +47,7 @@ volumes:
   - emptyDir
   - projected
   - secret
-  {{- if or $daemonsetEnabled $imageAnalyzer.azure.enabled }}
+  {{- if or $daemonsetEnabled .Values.azure.enabled }}
   - hostPath
   {{- end }}
 {{- end }}

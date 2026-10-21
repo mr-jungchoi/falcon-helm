@@ -116,7 +116,7 @@ Monitor components:
 
   {{- if $fcg.node.enabled }}
   Node sensor DaemonSet:
-    kubectl rollout status daemonset/falcon-sensor -n {{ $ns }}
+    kubectl rollout status daemonset/{{ ($fcg.node.daemonset).name | default "falcon-sensor" }} -n {{ $ns }}
   {{- end }}
   {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
   Cluster Guard Controller Deployment:

@@ -113,6 +113,32 @@ certManager:
   #  kind: ClusterIssuer
 
 # =============================================================================
+# Cloud provider settings (apply across FCG components)
+# =============================================================================
+# Google Kubernetes Engine (GKE)
+gke:
+  # Set to true on GKE clusters (Standard or Autopilot). When true:
+  #   - the clusterguard ResourceQuota also covers the system-node-critical PriorityClass
+  #   - the Image Analyzer pod gets an init container that waits for the GKE metadata server,
+  #     which Workload Identity needs before the Image Analyzer starts
+  enabled: false
+  # Set to true on GKE Autopilot clusters. Applies Autopilot resource defaults and the
+  # PriorityClass and WorkloadAllowlist annotations to the node sensor DaemonSets.
+  autopilot: false
+  # Version of the GKE Autopilot WorkloadAllowlist for the node sensor DaemonSet
+  deployAllowListVersion: ""
+  # Version of the GKE Autopilot WorkloadAllowlist for the node sensor cleanup DaemonSet
+  cleanupAllowListVersion: ""
+
+# Azure Kubernetes Service (AKS)
+azure:
+  # Mount the node's Azure config file into the Image Analyzer pod for registry
+  # authentication on AKS without a pull token.
+  enabled: false
+  # Path to the Azure config file on worker nodes
+  azureConfig: /etc/kubernetes/azure.json
+
+# =============================================================================
 # Node sensor DaemonSet configuration
 # =============================================================================
 node:
@@ -129,13 +155,6 @@ node:
   serviceAccount:
     name: falcon-node-sensor-sa
     annotations: { }
-
-  # Enable for use on Google's GKE Autopilot clusters
-  gke:
-    enabled: false
-    autopilot: false
-    # deployAllowListVersion: ""
-    # cleanupAllowListVersion: ""
 
   daemonset:
     # Annotations to apply to the daemonset
@@ -211,8 +230,8 @@ node:
   guardian:
     proxy:
       enabled: false
-      # Container port and Service port for the proxy.
-      port: 48080
+      # Container port for the proxy (1024-65535). Required when enabled is true.
+      port:
       # Name of an optional Secret containing CA certificate(s) for upstream TLS verification.
       # If the Secret does not exist, the proxy runs without a custom CA bundle.
       tlsSecretName: falcon-proxy-tls
@@ -482,15 +501,6 @@ imageAnalyzer:
   volumeMounts:
     - mountPath: /tmp
       name: tmp-volume
-
-  # AKS: mount azure.json for registry auth
-  azure:
-    enabled: false
-    azureConfig: /etc/kubernetes/azure.json
-
-  # GCP GKE workload identity init container
-  gcp:
-    enabled: false
 
   proxyConfig:
     HTTP_PROXY: ""

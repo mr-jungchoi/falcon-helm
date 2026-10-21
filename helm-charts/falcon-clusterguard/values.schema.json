@@ -166,6 +166,54 @@
                 }
             }
         },
+        "gke": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "GKE cluster (Standard or Autopilot). Adds system-node-critical to the clusterguard ResourceQuota scope and the Image Analyzer metadata-server init container."
+                },
+                "autopilot": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "deployAllowListVersion": {
+                    "type": ["null", "string"],
+                    "description": "GKE Autopilot WorkloadAllowlist version for the node sensor DaemonSet (vX.Y.Z). Required when autopilot is true."
+                },
+                "cleanupAllowListVersion": {
+                    "type": ["null", "string"],
+                    "description": "GKE Autopilot WorkloadAllowlist version for the node sensor cleanup DaemonSet (vX.Y.Z). Required when autopilot is true."
+                }
+            },
+            "$comment": "The WorkloadAllowlist versions are only used on GKE Autopilot, so they are only required and validated when autopilot is true.",
+            "if": {
+                "required": ["autopilot"],
+                "properties": {"autopilot": {"const": true}}
+            },
+            "then": {
+                "required": ["deployAllowListVersion", "cleanupAllowListVersion"],
+                "properties": {
+                    "deployAllowListVersion": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+                    "cleanupAllowListVersion": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}
+                }
+            }
+        },
+        "azure": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Mount azure.json from the node for AKS image pull authentication"
+                },
+                "azureConfig": {
+                    "type": "string",
+                    "default": "/etc/kubernetes/azure.json"
+                }
+            }
+        },
         "node": {
             "type": "object",
             "required": ["enabled"],
@@ -186,23 +234,6 @@
                         },
                         "annotations": {
                             "type": "object"
-                        }
-                    }
-                },
-                "gke": {
-                    "type": "object",
-                    "properties": {
-                        "autopilot": {
-                            "type": "boolean",
-                            "default": false
-                        },
-                        "deployAllowListVersion": {
-                            "type": "string",
-                            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
-                        },
-                        "cleanupAllowListVersion": {
-                            "type": "string",
-                            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
                         }
                     }
                 },
@@ -315,15 +346,23 @@
                                     "default": false
                                 },
                                 "port": {
-                                    "type": "integer",
-                                    "default": 48080,
+                                    "type": ["null", "integer"],
                                     "minimum": 1024,
-                                    "maximum": 65535
+                                    "maximum": 65535,
+                                    "description": "Container port for the Guardian Local Proxy. Required when enabled is true."
                                 },
                                 "tlsSecretName": {
                                     "type": "string",
                                     "default": "falcon-proxy-tls"
                                 }
+                            },
+                            "if": {
+                                "required": ["enabled"],
+                                "properties": {"enabled": {"const": true}}
+                            },
+                            "then": {
+                                "required": ["port"],
+                                "properties": {"port": {"type": "integer"}}
                             }
                         }
                     }
@@ -652,23 +691,6 @@
                 },
                 "volumes": {"type": "array"},
                 "volumeMounts": {"type": "array"},
-                "azure": {
-                    "type": "object",
-                    "properties": {
-                        "enabled": {
-                            "type": "boolean",
-                            "default": false,
-                            "description": "Mount azure.json from the node for AKS image pull authentication"
-                        },
-                        "azureConfig": {"type": "string", "default": "/etc/kubernetes/azure.json"}
-                    }
-                },
-                "gcp": {
-                    "type": "object",
-                    "properties": {
-                        "enabled": {"type": "boolean", "default": false}
-                    }
-                },
                 "proxyConfig": {
                     "default": {},
                     "type": "object",

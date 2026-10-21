@@ -34,6 +34,17 @@ the suffix is added so the result always ends in -controller and stays within 63
 {{- end }}
 
 {{/*
+Node sensor DaemonSet name. Configurable with node.daemonset.name; defaults to falcon-sensor.
+*/}}
+{{- define "falcon-clusterguard.nodeDaemonsetName" -}}
+{{- if .Values.nameOverride }}
+    {{- printf "%s-sensor" (.Values.nameOverride | trunc 56 | trimSuffix "-") }}
+{{- else }}
+    {{- "falcon-sensor" }}
+{{- end }}
+{{- end -}}
+
+{{/*
 gRPC API service name for the central metadata service.
 Hardcoded — always api.<release-namespace>.svc, not user-configurable.
 */}}
@@ -171,7 +182,7 @@ PriorityClass name for the node DaemonSet
 DaemonSet resource block (GKE Autopilot enforces minimum defaults)
 */}}
 {{- define "falcon-clusterguard.daemonsetResources" -}}
-{{- if .Values.node.gke.autopilot -}}
+{{- if .Values.gke.autopilot -}}
 resources:
   {{- if (.Values.node.daemonset.resources | default dict).limits }}
   limits:
@@ -240,8 +251,8 @@ ConfigMap name for the clusterguard controller Deployment.
 GKE WorkloadAllowlist label for the deploy DaemonSet
 */}}
 {{- define "falcon-clusterguard.workloadDeployAllowlistLabel" -}}
-{{- if and .Values.node.gke.autopilot .Values.node.enabled .Values.node.gke.deployAllowListVersion -}}
-{{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-deploy-allowlist-%s\"" .Values.node.gke.deployAllowListVersion -}}
+{{- if and .Values.gke.autopilot .Values.node.enabled .Values.gke.deployAllowListVersion -}}
+{{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-deploy-allowlist-%s\"" .Values.gke.deployAllowListVersion -}}
 {{- end -}}
 {{- end -}}
 
@@ -249,8 +260,8 @@ GKE WorkloadAllowlist label for the deploy DaemonSet
 GKE WorkloadAllowlist label for the cleanup DaemonSet
 */}}
 {{- define "falcon-clusterguard.workloadCleanupAllowlistLabel" -}}
-{{- if and .Values.node.gke.autopilot .Values.node.enabled .Values.node.gke.cleanupAllowListVersion -}}
-{{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-cleanup-allowlist-%s\"" .Values.node.gke.cleanupAllowListVersion -}}
+{{- if and .Values.gke.autopilot .Values.node.enabled .Values.gke.cleanupAllowListVersion -}}
+{{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-cleanup-allowlist-%s\"" .Values.gke.cleanupAllowListVersion -}}
 {{- end -}}
 {{- end -}}
 

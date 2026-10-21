@@ -39,7 +39,7 @@ spec:
   {{- if $imageAnalyzer.podSecurityContext }}
   {{- toYaml $imageAnalyzer.podSecurityContext | nindent 4 }}
   {{- end }}
-  {{- if $imageAnalyzer.gcp.enabled }}
+  {{- if .Values.gke.enabled }}
   initContainers:
     - name: {{ include "falcon-clusterguard.iarName" . }}-init-container
       image: "gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine"
@@ -145,7 +145,7 @@ spec:
       {{- if $isDaemonset }}
       {{- include "falcon-clusterguard.iarRuntimeVolumeMounts" . | nindent 8 }}
       {{- end }}
-      {{- if $imageAnalyzer.azure.enabled }}
+      {{- if .Values.azure.enabled }}
         - name: azure-config
           mountPath: /etc/kubernetes/azure.json
       {{- end }}
@@ -166,10 +166,10 @@ spec:
     {{- if $isDaemonset }}
     {{- include "falcon-clusterguard.iarRuntimeVolumes" . | nindent 4 }}
     {{- end }}
-    {{- if $imageAnalyzer.azure.enabled }}
+    {{- if .Values.azure.enabled }}
     - name: azure-config
       hostPath:
-        path: {{ $imageAnalyzer.azure.azureConfig }}
+        path: {{ .Values.azure.azureConfig }}
         type: File
     {{- end }}
     {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
