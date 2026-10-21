@@ -18,7 +18,7 @@ WORKLOADS
   Node Sensor: cleanup only (node.cleanupOnly=true). The sensor DaemonSet is not deployed.
 {{- else if .Values.node.enabled }}
   Node Sensor DaemonSet:
-    kubectl rollout status daemonset/falcon-sensor \
+    kubectl rollout status daemonset/{{ include "falcon-clusterguard.nodeDaemonsetName" . }} \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
   Node Sensor: disabled (node.enabled=false)

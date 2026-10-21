@@ -4,8 +4,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-{{- /* TODO: Make sure node sensor daemonset name is configurable */}}
-  name: falcon-sensor
+  name: {{ include "falcon-clusterguard.nodeDaemonsetName" . }}
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     app: "falcon-sensor"
@@ -77,7 +76,7 @@ spec:
         fsGroup: 65534
       serviceAccountName: {{ include "falcon-clusterguard.nodeServiceAccountName" . }}
       terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
-      {{- if or .Values.node.daemonset.priorityClassName .Values.node.gke.autopilot }}
+      {{- if or .Values.node.daemonset.priorityClassName .Values.gke.autopilot }}
       priorityClassName: {{ include "falcon-clusterguard.priorityClassName" . }}
       {{- end }}
       hostNetwork: true
@@ -98,7 +97,7 @@ spec:
             - /bin/bash
           {{ include "falcon-clusterguard.nodeInitArgs" . | nindent 10 }}
           {{- /* TODO: Check with Gabe why resources are hardcoded and not configurable */}}
-          {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+          {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
           resources:
             requests:
               cpu: 10m
@@ -113,7 +112,7 @@ spec:
             runAsUser: 0
             privileged: true
             allowPrivilegeEscalation: true
-            {{- if .Values.node.gke.autopilot }}
+            {{- if .Values.gke.autopilot }}
             readOnlyRootFilesystem: true
             capabilities:
               add:
@@ -145,7 +144,7 @@ spec:
             privileged: true
             readOnlyRootFilesystem: false
             allowPrivilegeEscalation: true
-            {{- if .Values.node.gke.autopilot }}
+            {{- if .Values.gke.autopilot }}
             capabilities:
               add:
                 - SYS_ADMIN

@@ -18,7 +18,7 @@ allowHostDirVolumePlugin: true
 allowHostIPC: true
 allowHostNetwork: true
 allowHostPID: true
-allowHostPorts: false
+allowHostPorts: {{ .Values.node.guardian.proxy.enabled | default false }}
 allowPrivilegeEscalation: true
 allowPrivilegedContainer: true
 allowedCapabilities:

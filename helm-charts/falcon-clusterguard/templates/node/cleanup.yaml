@@ -107,7 +107,7 @@ spec:
           - >-
             echo "Running /opt/CrowdStrike/falcon-daemonset-init -u";
             /opt/CrowdStrike/falcon-daemonset-init -u
-        {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+        {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
         resources:
           requests:
             cpu: 10m
@@ -122,7 +122,7 @@ spec:
           runAsUser: 0
           privileged: true
           allowPrivilegeEscalation: true
-          {{- if .Values.node.gke.autopilot }}
+          {{- if .Values.gke.autopilot }}
           readOnlyRootFilesystem: true
           capabilities:
             add:
@@ -142,7 +142,7 @@ spec:
         args:
           - -c
           - sleep infinity
-        {{- if or .Values.node.gke.autopilot .Values.node.daemonset.resources }}
+        {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
         resources:
           requests:
             cpu: 10m

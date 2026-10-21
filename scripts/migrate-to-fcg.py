@@ -77,7 +77,7 @@ IAR_KEYS = [
     "serviceAccount", "replicaCount", "crowdstrikeConfig", "exclusions", "hostNetwork",
     "dnsPolicy", "podAnnotations", "podLabels", "podSecurityContext", "securityContext",
     "resources", "tolerations", "affinity", "priorityClassName", "nodeSelector", "watcher",
-    "log", "iarAgentService", "privateRegistries", "volumes", "volumeMounts", "azure", "gcp",
+    "log", "iarAgentService", "privateRegistries", "volumes", "volumeMounts",
     "proxyConfig",
 ]
 
@@ -93,7 +93,7 @@ IAR_DAEMONSET_ONLY_KEYS = {"securityContext", "agentRuntime", "agentRuntimeSocke
 # falcon-image-analyzer keys handled outside the IAR_KEYS copy, or that no longer apply
 # once the image analyzer runs inside FCG (kac, namespaceOverride, global, testing).
 IAR_HANDLED_KEYS = {
-    "enabled", "deployment", "daemonset", "image", "openshift", "secretsStore",
+    "enabled", "deployment", "daemonset", "image", "openshift", "secretsStore", "azure", "gcp",
     "kac", "namespaceOverride", "global", "testing",
 }
 IAR_HANDLED_CROWDSTRIKE_CONFIG_KEYS = {"clusterName", "cid", "existingSecret"}
@@ -120,6 +120,14 @@ def set_nested(d, keys, value):
             d[k] = CommentedMap()
         d = d[k]
     d[keys[-1]] = value
+
+
+def insert_before(cm, key, value, before):
+    """Set cm[key] = value, placing a new key just before `before` when that key exists."""
+    if key not in cm and before in cm:
+        cm.insert(list(cm.keys()).index(before), key, value)
+    else:
+        cm[key] = value
 
 
 def annotate_deprecated(cm, key, comment):
@@ -282,6 +290,20 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
         if fcg_os.get("enabled") or fcg_os.get("createSCC") is False or fcg_os.get("iarSCCName"):
             fcg["openshift"] = fcg_os
 
+    # Cloud provider settings live at the FCG top level: azure.* moves as-is, and
+    # gcp.enabled (the GKE metadata-server init container) becomes gke.enabled.
+    if "azure" in iar:
+        azure = deepcopy(iar["azure"])
+        strip_comments(azure)
+        insert_before(fcg, "azure", azure, before="node")
+    if get_nested(iar, "gcp", "enabled"):
+        if "gke" not in fcg:
+            insert_before(fcg, "gke", CommentedMap(), before="node")
+        if "enabled" not in fcg["gke"]:
+            fcg["gke"].insert(0, "enabled", True)
+        else:
+            fcg["gke"]["enabled"] = True
+
     if get_nested(iar, "secretsStore", "enabled"):
         warnings.append(
             "falcon-image-analyzer.secretsStore was omitted. FCG uses one falcon-clusterguard.secretsStore "
@@ -334,12 +356,19 @@ def migrate(values: dict, warnings: list,
         node = CommentedMap()
 
         direct_node_keys = [
-            "enabled", "clusterName", "gke", "daemonset", "podAnnotations", "podLabels",
+            "enabled", "clusterName", "daemonset", "podAnnotations", "podLabels",
             "terminationGracePeriod", "hooks", "cleanupOnly",
         ]
         for k in direct_node_keys:
             if k in sensor_node:
                 node[k] = deepcopy(sensor_node[k])
+
+        # node.gke.* (autopilot, allowlist versions) moves to the FCG top level, shared with
+        # the image analyzer. Assigned before fcg["node"] so it sits ahead of node in the output.
+        if "gke" in sensor_node:
+            gke = deepcopy(sensor_node["gke"])
+            strip_comments(gke)
+            fcg["gke"] = gke
 
         # backend is deprecated — omit it, add warning and comment
         if sensor_node.get("backend"):
@@ -858,8 +887,9 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
 3) Verify the upgrade:
 """)
     if node_enabled:
+        node_ds = ((fcg.get("node") or {}).get("daemonset") or {}).get("name") or "falcon-sensor"
         print(f"   # Node Sensor DaemonSet")
-        print(f"   kubectl rollout status daemonset/falcon-sensor -n {fcg_ns}")
+        print(f"   kubectl rollout status daemonset/{node_ds} -n {fcg_ns}")
         print()
     if cluster_enabled:
         print(f"   # Cluster Guard Deployment")
