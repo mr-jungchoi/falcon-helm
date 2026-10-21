@@ -37,13 +37,16 @@ container registry accessible to your Kubernetes deployment.
   {{- end }}
 
   {{- if $fcg.imageAnalyzer.enabled }}
-
   {{- if eq (toString $fcg.imageAnalyzer.mode) "daemonset" }}
+
   ✓ Image Analyzer (DaemonSet)
+    - Replaces: falcon-image-analyzer
     - Mode: socket
     - Runtime: {{ $fcg.imageAnalyzer.crowdstrikeConfig.agentRuntime }}
   {{- else }}
+
   ✓ Image Analyzer (Deployment)
+    - Replaces: falcon-image-analyzer
     - Mode: watcher
   {{- end }}
     - Cluster name: {{ ($fcg.node).clusterName | default "(auto-discovered)" }}
@@ -87,12 +90,14 @@ The default image name to deploy the pod sensor is `falcon-sensor`.
 {{- end }}
 {{- end }}
 
-{{- if (index .Values "falcon-image-analyzer").enabled }}
-{{- $anyEnabled = true }}
+{{- /* falcon-image-analyzer is no longer a subchart; its values only remain from older releases
+       (for example with --reuse-values). Warn instead of reporting a component that isn't deployed. */}}
+{{- if (index .Values "falcon-image-analyzer" | default dict).enabled }}
 
-✓ Falcon Image Analyzer - Container Image Vulnerability Scanning and Assessment
-  - Mode: {{ if (index .Values "falcon-image-analyzer").deployment.enabled }}watcher{{ else if (index .Values "falcon-image-analyzer").daemonset.enabled }}socket{{ end }}
-  - Namespace: {{ (index .Values "falcon-image-analyzer").namespaceOverride }}
+{{ "\033[33m" }}WARNING: falcon-image-analyzer is no longer part of falcon-platform, so the
+falcon-image-analyzer.* values are ignored and no standalone image analyzer is deployed.
+The image analyzer is now part of falcon-clusterguard: move these settings to
+falcon-clusterguard.imageAnalyzer.* (scripts/migrate-to-fcg.py does this).{{ "\033[0m" }}
 {{- end }}
 
 {{- if not $anyEnabled }}

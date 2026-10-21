@@ -347,8 +347,8 @@
                                 },
                                 "port": {
                                     "type": ["null", "integer"],
-                                    "minimum": 1024,
-                                    "maximum": 65535,
+                                    "minimum": 40000,
+                                    "maximum": 49512,
                                     "description": "Container port for the Guardian Local Proxy. Required when enabled is true."
                                 },
                                 "tlsSecretName": {
