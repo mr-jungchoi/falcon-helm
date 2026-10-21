@@ -89,6 +89,19 @@ FALCON IMAGE ANALYZER CONFIGURATION
   {{- else }}
   Credentials:   chart-managed secret ({{ include "falcon-clusterguard.iarFullname" . }})
   {{- end }}
+  {{- if .Values.certManager.enabled }}
+  TLS:           issued by cert-manager ({{ include "falcon-clusterguard.iarName" . }}-tls)
+  {{- else if .Values.imageAnalyzer.iarAgentService.autoCertificateUpdate }}
+  TLS:           Helm-generated ({{ include "falcon-clusterguard.iarName" . }}-tls), refreshed on every helm upgrade
+  {{- else }}
+  TLS:           Helm-generated ({{ include "falcon-clusterguard.iarName" . }}-tls), preserved across upgrades
+  {{- end }}
+  {{- if .Values.gke.enabled }}
+  GKE:           waits for the GKE metadata server before starting (gke.enabled)
+  {{- end }}
+  {{- if .Values.azure.enabled }}
+  AKS:           mounts {{ .Values.azure.azureConfig }} for registry authentication (azure.enabled)
+  {{- end }}
 
   View Image Analyzer logs:
     kubectl logs -l app=falcon-image-analyzer \

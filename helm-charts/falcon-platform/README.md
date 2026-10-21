@@ -746,8 +746,8 @@ kubectl delete namespace falcon-platform falcon-system falcon-kac falcon-image-a
 
 ## Migrating to Falcon Cluster Guard (FCG)
 
-Falcon Cluster Guard (`falcon-clusterguard`) replaces `falcon-sensor` (node mode) and
-`falcon-kac` with a single unified chart and container image. If you are upgrading to a version
+Falcon Cluster Guard (`falcon-clusterguard`) replaces `falcon-sensor` (node mode), `falcon-kac`,
+and `falcon-image-analyzer` with a single unified chart and container image. If you are upgrading to a version
 of `falcon-platform` that includes FCG, follow the steps below.
 
 > [!IMPORTANT]
@@ -755,7 +755,7 @@ of `falcon-platform` that includes FCG, follow the steps below.
 > **Container mode** (`container.enabled: true`) — has no FCG equivalent. `falcon-sensor`
 > must remain deployed for any cluster running container sensor workloads.
 >
-> `falcon-kac` and `falcon-image-analyzer` are fully deprecated and equivalent features have been migrated to `falcon-cluster-guard`.
+> `falcon-kac` and `falcon-image-analyzer` are fully deprecated and equivalent features have been migrated to `falcon-clusterguard`.
 
 ### What Changed
 
@@ -764,15 +764,16 @@ of `falcon-platform` that includes FCG, follow the steps below.
 | Node sensor      | `falcon-sensor` subchart, `falcon-sensor.node.*`       | `falcon-clusterguard.node.*` — `falcon-sensor` subchart removed |
 | Container sensor | `falcon-sensor.container.*`                            | **Unchanged** — `falcon-sensor` subchart retained if container mode is needed |
 | KAC              | `falcon-kac` subchart, `falcon-kac.*`                  | `falcon-clusterguard.cluster.*` — `falcon-kac` subchart removed |
-| Image scanning   | `falcon-image-analyzer` subchart, `falcon-image-analyzer.*` | `falcon-clusterguard.imageAnalyzer.*` — `falcon-image-analyzer` subchart disabled |
-| Container image  | Separate images per component                          | Single unified FCG image              |
-| Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer` | `falcon-system` for FCG               |
+| Image scanning   | `falcon-image-analyzer` subchart, `falcon-image-analyzer.*` | `falcon-clusterguard.imageAnalyzer.*` — `falcon-image-analyzer` subchart removed |
+| IAR mode         | `deployment.enabled` or `daemonset.enabled`              | `falcon-clusterguard.imageAnalyzer.mode` (`deployment` or `daemonset`) |
+| Container image  | Separate images per component                            | Single unified FCG image              |
+| Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer`   | `falcon-system` for FCG               |
 
 > [!NOTE]
-> `falcon-sensor` (node mode) and `falcon-kac` have been **removed as subchart dependencies**
-> from `falcon-platform`. Their existing Kubernetes resources are automatically pruned by
-> `helm upgrade` — no manual deletion needed, and the `falcon-sensor` cleanup DaemonSet
-> will not run.
+> `falcon-sensor` (node mode), `falcon-kac`, and `falcon-image-analyzer` have been **removed as
+> subchart dependencies** from `falcon-platform`. Their existing Kubernetes resources are
+> automatically pruned by `helm upgrade` — no manual deletion needed, and the `falcon-sensor`
+> cleanup DaemonSet will not run.
 
 ### Step 1 — Run the migration script
 
@@ -807,19 +808,20 @@ diff my-values.yaml my-values-fcg.yaml
 
 ### Step 2 — Check for deprecated keys
 
-The migrated file annotates deprecated keys with inline `# DEPRECATED:` comments. Review and
-remove any that are flagged, particularly:
+The migrated file annotates deprecated keys with inline `# DEPRECATED:` comments, and the
+script prints warnings for keys it drops. Review and remove any that are flagged, particularly:
 
 | Deprecated key | Action |
 |----------------|--------|
 | `falcon-sensor.node.backend` | Removed automatically — FCG auto-selects eBPF/kernel |
-| `falcon-kac.tlsVersionMinimum` | Remove — not supported in FCG |
-| `falcon-kac.podLabels` | Remove — not supported in FCG clusterguard controller |
+| `falcon-image-analyzer.image.repository` / `tag` / `digest` | Removed automatically — the image analyzer runs from the FCG image |
+| `falcon-image-analyzer.crowdstrikeConfig.existingSecret` | Removed with a warning — add `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, and `AGENT_CID` to `falcon-clusterguard.falconSecret` instead |
+| `falcon-image-analyzer.secretsStore.*` | Removed with a warning — configure `falcon-clusterguard.secretsStore`, which covers every FCG component |
 
 ### Step 3 — Confirm the image analyzer settings
 
-The migration script moves `falcon-image-analyzer.*` values to `falcon-clusterguard.imageAnalyzer.*`
-and disables the standalone subchart:
+The image analyzer now runs inside FCG, in the FCG namespace and from the FCG image. The migration
+script moves `falcon-image-analyzer.*` values to `falcon-clusterguard.imageAnalyzer.*`:
 
 ```yaml
 falcon-clusterguard:
@@ -828,14 +830,23 @@ falcon-clusterguard:
     crowdstrikeConfig:
       clientID: "abc123"
       clientSecret: "secret"
-
-falcon-image-analyzer:
-  enabled: false   # falcon-platform defaults this to true; keep it false so only the FCG image analyzer runs
 ```
 
-The image analyzer now runs in the FCG namespace from the FCG image, so `falcon-image-analyzer.kac.namespace`,
-`namespaceOverride`, and `image.repository`/`tag` are no longer used. Check the script warnings for
-settings that need manual attention, such as `crowdstrikeConfig.existingSecret` or `secretsStore`.
+Some settings move outside `imageAnalyzer` because FCG shares them across components:
+
+| Standalone `falcon-image-analyzer` value | FCG value |
+|------------------------------------------|-----------|
+| `daemonset.enabled: true` | `imageAnalyzer.mode: daemonset` (`agentRuntime`, `agentRuntimeSocket`, and `securityContext` move with it) |
+| `crowdstrikeConfig.clusterName` | `node.clusterName` |
+| `crowdstrikeConfig.cid` | `falcon.cid`, if no FCG or global CID is set |
+| `azure.*` | `azure.*` (top level) |
+| `gcp.enabled` | `gke.enabled` |
+| `openshift.sccName` | `openshift.iarSCCName` |
+
+`kac.namespace` and `namespaceOverride` are no longer used. The script also writes
+`falcon-image-analyzer.enabled: false`; because `falcon-platform` no longer includes the
+`falcon-image-analyzer` subchart, this has no effect. See
+[`scripts/README.md`](../../scripts/README.md) for the full list of image analyzer mappings.
 
 ### Step 4 — Apply the upgrade
 
@@ -847,11 +858,12 @@ helm upgrade falcon-platform crowdstrike/falcon-platform \
 ```
 
 > [!NOTE]
-> `falcon-sensor` (node mode) and `falcon-kac` have been removed as subchart dependencies
-> from `falcon-platform`. Running `helm upgrade` will automatically remove their Kubernetes
-> resources (DaemonSet, Deployment, RBAC, etc.) as part of the normal diff — no explicit
-> `enabled: false` flag is required, and the `falcon-sensor` cleanup DaemonSet will **not**
-> run (that only fires on `helm uninstall`).
+> `falcon-sensor` (node mode), `falcon-kac`, and `falcon-image-analyzer` have been removed as
+> subchart dependencies from `falcon-platform`. Running `helm upgrade` will automatically remove
+> their Kubernetes resources (DaemonSet, Deployment, RBAC, etc.) as part of the normal diff — no
+> explicit `enabled: false` flag is required, and the `falcon-sensor` cleanup DaemonSet will
+> **not** run (that only fires on `helm uninstall`). The FCG image analyzer starts in the FCG
+> namespace in the same upgrade.
 
 ### Step 5 — Clean up deprecated namespaces
 
@@ -897,6 +909,8 @@ falcon-kac:
 
 falcon-image-analyzer:
   enabled: true
+  deployment:
+    enabled: true
   crowdstrikeConfig:
     clientID: "abc123"
     clientSecret: "secret"
@@ -908,13 +922,14 @@ global:
   falcon:
     cid: YOUR-CID-HERE
 
-# Falcon Cluster Guard — replaces falcon-sensor.node and falcon-kac.
+# Falcon Cluster Guard — replaces falcon-sensor.node, falcon-kac, and falcon-image-analyzer.
 falcon-clusterguard:
   enabled: true
   namespaceOverride: falcon-system
   image:
     repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
     tag: "<fcg-tag>"
+    pullSecret: YOUR-IMAGE-PULL-SECRET-NAME
 
   node:
     clusterName: my-cluster
@@ -942,15 +957,12 @@ falcon-clusterguard:
     crowdstrikeConfig:
       clientID: "abc123"
       clientSecret: "secret"
-
-falcon-image-analyzer:
-  enabled: false
 ```
 
 ### Container sensor + FCG together
 
 If your cluster uses container sensor, KAC and/or IAR, the migrated values file should have
-**both** `falcon-sensor` and `falcon-clusterguard` enabled:
+**both** `falcon-sensor` and `falcon-clusterguard` enabled. The image analyzer runs in FCG:
 
 ```yaml
 # Container sensor — stays on falcon-sensor chart
@@ -975,6 +987,8 @@ falcon-clusterguard:
     enabled: false
   cluster:
     enabled: true
+  imageAnalyzer:
+    enabled: true         # image analyzer moved to falcon-clusterguard
 ```
 
 ## Troubleshooting

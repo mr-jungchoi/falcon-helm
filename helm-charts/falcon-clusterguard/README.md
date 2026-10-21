@@ -548,12 +548,12 @@ GKE and GKE Autopilot settings (`gke.*`) are in [Cloud Provider Configuration](#
 
 ### Guardian Local Proxy
 
-| Parameter                           | Description                                                                                  | Default            |
-|:------------------------------------|:---------------------------------------------------------------------------------------------|:-------------------|
-| `node.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                                    | `false`            |
-| `node.guardian.proxy.port`          | Container port for the proxy (1024–65535). Required when `node.guardian.proxy.enabled=true`. | None               |
-| `node.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification.             | `falcon-proxy-tls` |
-| `node.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                                      | `{}`               |
+| Parameter                           | Description                                                                                   | Default            |
+|:------------------------------------|:----------------------------------------------------------------------------------------------|:-------------------|
+| `node.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                                     | `false`            |
+| `node.guardian.proxy.port`          | Container port for the proxy (40000–49512). Required when `node.guardian.proxy.enabled=true`. | None               |
+| `node.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification.              | `falcon-proxy-tls` |
+| `node.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                                       | `{}`               |
 
 When `node.guardian.proxy.enabled: true`, FCG:
 

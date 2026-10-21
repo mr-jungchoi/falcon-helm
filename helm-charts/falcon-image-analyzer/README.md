@@ -49,7 +49,7 @@ The Falcon Image Analyzer Helm chart has been tested to deploy on the following 
 
 | Helm Chart Version | Falcon Image Analyzer Version | Notes                                                                                                        |
 |:-------------------|:------------------------------|:-------------------------------------------------------------------------------------------------------------|
-| `1.2.1`            | `>= 1.0.26`                   | falcon-imageanalyzer will connect to kubernetes-admission-controller (KAC) or the falcon-cluster-guard agent |
+| `1.2.1`            | `>= 1.0.26`                   | falcon-imageanalyzer will connect to kubernetes-admission-controller (KAC) or the falcon-clusterguard agent  |
 | `1.2.0`            | `>= 1.0.24`                   | —                                                                                                            |
 | `1.1.20`           | `>= 1.0.24`                   | falcon-imageanalyzer images now use a non-regionalized unified image repo, starting with 1.0.24.             |
 | `1.1.19`           | `>= 1.0.21`                   | —                                                                                                            |
@@ -59,7 +59,7 @@ The Falcon Image Analyzer Helm chart has been tested to deploy on the following 
 
 ## New updates in current release
 ### Helm (1.2.1) + iar 1.0.26
-- Adding support for Falcon-Cluster-Guard ( future agent )
+- Adding support for Falcon Cluster Guard ( future agent )
 - Adding `log.verbosity` param to control log verbosity. this will supersede the old `crowdstrikeConfig.enableDebug` param.
 - Add Support for US3 Cloud 
 
