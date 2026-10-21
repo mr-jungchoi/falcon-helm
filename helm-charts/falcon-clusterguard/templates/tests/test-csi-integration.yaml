@@ -1,6 +1,6 @@
 {{- if and .Values.testing.enabled (include "falcon-clusterguard.csiEnabled" . | eq "true") -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
-{{- $imageAnalyzer := index .Values "image-analyzer" -}}
+{{- $imageAnalyzer := .Values.imageAnalyzer -}}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -119,13 +119,13 @@ spec:
         {{- end }}
         check_secret "${SECRET}" FALCONCTL_OPT_CID{{ if .Values.secretsStore.provisioningTokenSecretName }} FALCONCTL_OPT_PROVISIONING_TOKEN{{ end }}
 
-        {{- if $imageAnalyzer.enabled }}
+        {{- if .Values.imageAnalyzer.enabled }}
 
         # Image Analyzer
         IAR_SPC="{{ include "falcon-clusterguard.iarFullname" . }}-csi"
         IAR_SECRET="{{ include "falcon-clusterguard.iarCsiSecretName" . }}"
         check_spc "${IAR_SPC}" "${IAR_SECRET}"
-        check_workload deployment "{{ include "falcon-clusterguard.iarFullname" . }}" "${IAR_SPC}" "{{ include "falcon-clusterguard.iarName" . }}" AGENT_CLIENT_ID "${IAR_SECRET}"
+        check_workload {{ ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }} "{{ include "falcon-clusterguard.iarFullname" . }}" "${IAR_SPC}" "{{ include "falcon-clusterguard.iarName" . }}" AGENT_CLIENT_ID "${IAR_SECRET}"
         check_secret "${IAR_SECRET}" AGENT_CLIENT_ID AGENT_CLIENT_SECRET AGENT_CID
         {{- end }}
 

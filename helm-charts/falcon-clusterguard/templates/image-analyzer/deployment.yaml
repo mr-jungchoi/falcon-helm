@@ -1,0 +1,20 @@
+{{- if and .Values.imageAnalyzer.enabled (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "false") }}
+{{- $imageAnalyzer := .Values.imageAnalyzer }}
+{{- $daemonset := include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
+{{- $imagePullSecret := include "falcon-clusterguard.pullSecretName" . }}
+{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "falcon-clusterguard.iarFullname" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "falcon-clusterguard.iarSelectorLabels" . | nindent 6 }}
+  template:
+    {{- include "falcon-clusterguard.iarPodTemplate" . | nindent 4 }}
+{{- end }}

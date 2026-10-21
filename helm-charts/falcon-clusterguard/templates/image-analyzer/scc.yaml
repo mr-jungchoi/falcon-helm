@@ -1,0 +1,54 @@
+{{- $imageAnalyzer := .Values.imageAnalyzer }}
+{{- $daemonsetEnabled := include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
+{{- if $imageAnalyzer.enabled }}
+{{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftIARCreateSCC" . | eq "true") }}
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: {{ include "falcon-clusterguard.iarSCCName" . }}
+  labels:
+    {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/description: >-
+      {{- if $daemonsetEnabled }}
+      Grants the Falcon Image Analyzer DaemonSet the privileges required to
+      access the container runtime socket on each node for image scanning.
+      {{- else }}
+      Grants the Falcon Image Analyzer Deployment permission to run as root
+      (UID 0) for image analysis. No host access is granted.
+      {{- end }}
+allowHostDirVolumePlugin: {{ or $daemonsetEnabled $imageAnalyzer.azure.enabled }}
+allowHostIPC: false
+allowHostNetwork: {{ $imageAnalyzer.hostNetwork | default false }}
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: {{ $daemonsetEnabled }}
+allowPrivilegedContainer: {{ $daemonsetEnabled }}
+allowedCapabilities: []
+defaultAddCapabilities: []
+fsGroup:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+requiredDropCapabilities: []
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+seccompProfiles:
+  - runtime/default
+supplementalGroups:
+  type: RunAsAny
+users:
+  - system:serviceaccount:{{ include "falcon-clusterguard.namespace" . }}:{{ include "falcon-clusterguard.iarServiceAccountName" . }}
+groups: []
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - projected
+  - secret
+  {{- if or $daemonsetEnabled $imageAnalyzer.azure.enabled }}
+  - hostPath
+  {{- end }}
+{{- end }}
+{{- end }}

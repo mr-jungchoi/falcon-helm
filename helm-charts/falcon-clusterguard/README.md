@@ -20,6 +20,11 @@ built around a single container image.
 - [Falcon Configuration Options](#falcon-configuration-options)
   - [Using Existing Kubernetes Secrets](#using-existing-kubernetes-secrets)
   - [Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration)
+- [Certificate Management](#certificate-management)
+  - [Certificates Used by FCG](#certificates-used-by-fcg)
+  - [Certificate Parameters](#certificate-parameters)
+  - [Helm-Generated Certificates](#helm-generated-certificates)
+  - [Using cert-manager](#using-cert-manager)
 - [Node Sensor Configuration](#node-sensor-configuration)
   - [Deployment Considerations](#deployment-considerations)
   - [Sensor Uninstall and Maintenance Protection](#sensor-uninstall-and-maintenance-protection)
@@ -33,11 +38,16 @@ built around a single container image.
   - [Cluster Guard Controller and Admission Control](#cluster-guard-controller-and-admission-control)
   - [Cluster Visibility](#cluster-visibility)
   - [Webhook Configuration](#webhook-configuration)
-  - [Certificate Management](#certificate-management)
   - [Resource Limits](#resource-limits)
+- [Image Analyzer Configuration](#image-analyzer-configuration)
+  - [Enabling Image Analyzer](#enabling-image-analyzer)
+  - [DaemonSet Mode](#daemonset-mode)
+  - [Image Analyzer Credentials](#image-analyzer-credentials)
+  - [Image Analyzer Options](#image-analyzer-options)
 - [OpenShift Compatibility](#openshift-compatibility)
 - [Uninstall Helm Chart](#uninstall-helm-chart)
 - [Troubleshooting](#troubleshooting)
+- [Chart Layout](#chart-layout)
 
 ## What is FCG?
 
@@ -48,6 +58,7 @@ unified installer built around a single container image. FCG provides:
 - **Cluster Guard controller**: central gRPC metadata service that supplies Kubernetes context to node sensors, eliminating the scalability bottleneck of each sensor querying the API server directly
 - **Admission control**: optional ValidatingWebhookConfiguration that inspects Kubernetes API requests
 - **Resource visibility**: periodic snapshots + live event watchers for cluster-wide resource discovery
+- **Image assessment** (optional): a Falcon Image Analyzer (IAR) Deployment that assesses the container images running in the cluster. Disabled by default; see [Image Analyzer Configuration](#image-analyzer-configuration)
 
 > **Note:** FCG does not currently support container sidecar injection. If you need the
 > Falcon Container sensor (sidecar mode), continue using the `falcon-sensor` chart with
@@ -55,14 +66,15 @@ unified installer built around a single container image. FCG provides:
 
 ## Migrating from falcon-sensor and falcon-kac
 
-If you are currently using `falcon-sensor` (node mode) and/or `falcon-kac`, use the
-migration script to generate a new values file:
+If you are currently using `falcon-sensor` (node mode), `falcon-kac`, and/or `falcon-image-analyzer`,
+use the migration script to generate a new values file:
 
 ```bash
 # From individual chart values files
 python3 scripts/migrate-to-fcg.py \
   --sensor-values my-sensor-values.yaml \
-  --kac-values my-kac-values.yaml
+  --kac-values my-kac-values.yaml \
+  --iar-values my-iar-values.yaml
 
 # From a falcon-platform umbrella values file
 python3 scripts/migrate-to-fcg.py --platform-values my-platform-values.yaml
@@ -75,17 +87,18 @@ See `scripts/README.md` for full documentation.
 
 Key differences from non-fcg charts:
 
-| Behavior                                       | falcon-sensor + falcon-kac           | falcon-clusterguard                                            |
-|:-----------------------------------------------|:-------------------------------------|:---------------------------------------------------------------|
-| Container images                               | Separate per chart                   | Single unified image                                           |
-| Node sensor                                    | `falcon-sensor` chart                | `node.*` values                                                |
-| Admission controller                           | `falcon-kac` chart                   | `cluster.*` values                                             |
-| `admissionControl.enabled` default             | `true`                               | **`false`**                                                    |
-| Container sidecar sensor                       | Supported (`container.enabled=true`) | Not supported — use `falcon-sensor`                            |
-| gRPC metadata service                          | Not available                        | Built-in (always enabled)                                      |
-| Controller Deployment name                     | `falcon-kac` (`<nameOverride>`)      | `falcon-clusterguard-controller` (`<nameOverride>-controller`) |
-| Controller pod `app` label                     | `falcon-kac`                         | `falcon-clusterguard`                                          |
-| Controller `app.kubernetes.io/component` label | `kac`                                | `fcg-controller`                                               |
+| Behavior                                       | falcon-sensor + falcon-kac + falcon-image-analyzer | falcon-clusterguard                                            |
+|:-----------------------------------------------|:---------------------------------------------------|:---------------------------------------------------------------|
+| Container images                               | Separate per chart                                 | Single unified image                                           |
+| Node sensor                                    | `falcon-sensor` chart                              | `node.*` values                                                |
+| KAC                                            | `falcon-kac` chart                                 | `cluster.*` values                                             |
+| `admissionControl.enabled` default             | `true`                                             | **`false`**                                                    |
+| Image Analyzer                                 | `falcon-image-analyzer` chart                      | `imageAnalyzer.*` values                                       |
+| Container sidecar sensor                       | Supported (`container.enabled=true`)               | Not supported — use `falcon-sensor`                            |
+| gRPC metadata service                          | Not available                                      | Built-in (always enabled)                                      |
+| Controller Deployment name                     | `falcon-kac` (`<nameOverride>`)                    | `falcon-clusterguard-controller` (`<nameOverride>-controller`) |
+| Controller pod `app` label                     | `falcon-kac`                                       | `falcon-clusterguard`                                          |
+| Controller `app.kubernetes.io/component` label | `kac`                                              | `clusterguard`                                                 |
 
 ## Kubernetes Cluster Compatibility
 
@@ -226,6 +239,13 @@ The secret must be in the same namespace as the FCG deployment and must contain:
 - `FALCONCTL_OPT_CID`: Falcon Customer ID (CID) — required
 - `FALCONCTL_OPT_PROVISIONING_TOKEN`: Falcon provisioning token — optional
 
+When the image analyzer is enabled (`imageAnalyzer.enabled=true`), the same secret must also contain
+its credentials. Do not set `imageAnalyzer.crowdstrikeConfig.clientID`/`clientSecret` when using an
+existing secret.
+- `AGENT_CLIENT_ID`: CrowdStrike Falcon OAuth API client ID — required
+- `AGENT_CLIENT_SECRET`: CrowdStrike Falcon OAuth API client secret — required
+- `AGENT_CID`: Falcon Customer ID (CID) — required
+
 > [!NOTE]
 > `falcon.trace` and other `falcon.*` options are **not** sourced from `falconSecret` —
 > they must still be set as Helm values. Only `cid` and `provisioning_token` are
@@ -239,6 +259,11 @@ kubectl create namespace falcon-system
 kubectl create secret generic $FALCON_SECRET_NAME -n falcon-system \
   --from-literal=FALCONCTL_OPT_CID=$FALCON_CID \
   --from-literal=FALCONCTL_OPT_PROVISIONING_TOKEN=$FALCON_PROVISIONING_TOKEN
+
+# With the image analyzer enabled, add its credentials to the same secret:
+#   --from-literal=AGENT_CLIENT_ID=$FALCON_CLIENT_ID \
+#   --from-literal=AGENT_CLIENT_SECRET=$FALCON_CLIENT_SECRET \
+#   --from-literal=AGENT_CID=$FALCON_CID
 ```
 
 Then reference the secret during installation:
@@ -254,32 +279,53 @@ helm install falcon-clusterguard crowdstrike/falcon-clusterguard \
 | Parameter                 | Description                                                                                                 | Default |
 |:--------------------------|:------------------------------------------------------------------------------------------------------------|:--------|
 | `falconSecret.enabled`    | Use an existing Kubernetes secret for sensitive Falcon values. Must be `true` when `falcon.cid` is not set. | `false` |
-| `falconSecret.secretName` | Name of the secret. Must be in the same namespace as FCG and must contain `FALCONCTL_OPT_CID`.              | None    |
+| `falconSecret.secretName` | Name of the secret. Must be in the same namespace as FCG and must contain `FALCONCTL_OPT_CID`, plus `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, and `AGENT_CID` when `imageAnalyzer.enabled`. | None    |
 
 > [!NOTE]
 > When `falconSecret.enabled` is `true`, `falcon.cid` must not be set. These are mutually exclusive.
 
 ### Secrets Store CSI Driver Integration
 
-The chart supports sourcing `FALCONCTL_OPT_CID` (and optionally
-`FALCONCTL_OPT_PROVISIONING_TOKEN`) from external secret stores via the
+The chart supports sourcing Falcon credentials from external secret stores via the
 [Secrets Store CSI Driver](https://secrets-store-csi-driver.sigs.k8s.io/). The supported
 provider is:
 - [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault) via the [Azure Key Vault provider](https://azure.github.io/secrets-store-csi-driver-provider-azure/)
 
+A single `secretsStore` block configures every FCG workload. It follows the same conventions as the
+standalone `falcon-sensor`, `falcon-kac`, and `falcon-image-analyzer` charts:
+
+- `secretsStore.*` (chart level) overrides `global.secretsStore.*`. `secretsStore.enabled` is unset by
+  default, so `global.secretsStore.enabled=true` turns CSI on for FCG. Setting `secretsStore.enabled=false`
+  explicitly turns it off even when the global value is `true`.
+- Each set of credentials gets its own `SecretProviderClass` and CSI-synced Kubernetes secret, so a pod
+  only mounts the secrets it uses:
+
+| Workloads                                       | SecretProviderClass          | Synced Kubernetes secret                                              | Keys                                                               |
+|:------------------------------------------------|:-----------------------------|:----------------------------------------------------------------------|:-------------------------------------------------------------------|
+| Node sensor DaemonSet, Cluster Guard Controller | `<release-fullname>-csi`     | `secretsStore.secretName`, default `<release-fullname>-csi`           | `FALCONCTL_OPT_CID`, `FALCONCTL_OPT_PROVISIONING_TOKEN` (optional) |
+| Image Analyzer (when `imageAnalyzer.enabled`)   | `<release-fullname>-iar-csi` | `<secretsStore.secretName>-iar`, default `<release-fullname>-iar-csi` | `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, `AGENT_CID`              |
+
+The secrets store volume is mounted at `/mnt/secrets-store` in the node sensor container, the
+`falcon-client` container of the clusterguard controller, and the image analyzer container. Every
+controller container reads `FALCONCTL_OPT_CID` from the synced secret.
+
 #### Configuration Parameters
 
-| Parameter                      | Description                                                                                               | Default |
-|:-------------------------------|:----------------------------------------------------------------------------------------------------------|:--------|
-| `secretsStore.enabled`         | Enable Secrets Store CSI Driver integration.                                                              | `false` |
-| `secretsStore.provider`        | Secrets Store CSI Driver provider (`azure`)                                                               | None    |
-| `secretsStore.secretName`      | Name of the Kubernetes secret created by the CSI driver. Defaults to `<release-fullname>-csi` if empty.   | None    |
-| `secretsStore.azure.vaultName` | Azure Key Vault name                                                                                      | None    |
-| `secretsStore.azure.tenantID`  | Azure Tenant ID                                                                                           | None    |
-| `secretsStore.azure.clientID`  | Azure Workload Identity client ID. Only required if multiple managed identities are assigned to the node. | None    |
+| Parameter                                  | Description                                                                                               | Default |
+|:-------------------------------------------|:----------------------------------------------------------------------------------------------------------|:--------|
+| `secretsStore.enabled`                     | Enable Secrets Store CSI Driver integration. Overrides `global.secretsStore.enabled` when set.            | None    |
+| `secretsStore.provider`                    | Secrets Store CSI Driver provider (`azure`). Falls back to `global.secretsStore.provider`.                | `""`    |
+| `secretsStore.secretName`                  | Name of the node sensor/controller secret synced by the CSI driver.                                       | `""`    |
+| `secretsStore.azure.vaultName`             | Azure Key Vault name. Falls back to `global.secretsStore.azure.vaultName`.                                | `""`    |
+| `secretsStore.azure.tenantID`              | Azure Tenant ID. Falls back to `global.secretsStore.azure.tenantID`.                                      | `""`    |
+| `secretsStore.azure.clientID`              | Azure Workload Identity client ID. Only required if multiple managed identities are assigned to the node. | `""`    |
+| `secretsStore.provisioningTokenSecretName` | Name of the Key Vault secret containing `FALCONCTL_OPT_PROVISIONING_TOKEN`. Leave empty to omit.          | `""`    |
 
 > [!NOTE]
-> `secretsStore.enabled` cannot be combined with `falcon.cid` or `falconSecret.enabled`. These are mutually exclusive secret sources.
+> When the Secrets Store CSI Driver is enabled:
+> - It cannot be combined with `falcon.cid`, `global.falcon.cid`, or `falconSecret` / `global.falconSecret`. The
+>   CID for every component, including the image analyzer, comes from the `falcon-cid` Key Vault secret.
+> - For the image analyzer, it cannot be combined with `imageAnalyzer.crowdstrikeConfig.clientID`/`clientSecret`.
 
 #### Prerequisites
 
@@ -292,18 +338,26 @@ The following must be installed and configured on your AKS cluster before enabli
 - [Azure Workload Identity](https://azure.github.io/azure-workload-identity/docs/installation.html) webhook installed on the cluster
 - AKS cluster with OIDC issuer enabled (`az aks update --enable-oidc-issuer --name <cluster> --resource-group <rg>`)
 - A user-assigned managed identity with `Key Vault Secrets User` role on the vault
-- A federated credential binding the managed identity to the chart's ServiceAccount
+- A federated credential binding the managed identity to **each** FCG ServiceAccount that mounts secrets:
+  the node sensor (`node.serviceAccount.name`), the clusterguard controller (`cluster.serviceAccount.name`),
+  and, when enabled, the image analyzer (`imageAnalyzer.serviceAccount.name`, default `<release-fullname>-iar`).
+  All of them are in the FCG namespace.
 
 #### Required secrets in Azure Key Vault
 
-| Secret name (default)       | Required | Value                         |
-|:----------------------------|:---------|:------------------------------|
-| `falcon-cid`                | Yes      | CrowdStrike Customer ID (CID) |
-| `falcon-provisioning-token` | No       | Provisioning token            |
+| Key Vault secret name                        | Used by                              | Required                                  | Value                                      |
+|:---------------------------------------------|:-------------------------------------|:------------------------------------------|:-------------------------------------------|
+| `falcon-cid`                                 | All components                       | Yes                                       | CrowdStrike Customer ID (CID)              |
+| `<secretsStore.provisioningTokenSecretName>` | Node sensor, clusterguard controller | When `provisioningTokenSecretName` is set | Provisioning token                         |
+| `falcon-client-id`                           | Image Analyzer                       | When `imageAnalyzer.enabled`              | CrowdStrike Falcon OAuth API client ID     |
+| `falcon-client-secret`                       | Image Analyzer                       | When `imageAnalyzer.enabled`              | CrowdStrike Falcon OAuth API client secret |
 
 #### Configuration
 
 **Azure Key Vault example:**
+
+The `secretsStore` block configures the vault connection once. Azure Workload Identity still has to be
+enabled per workload, through its ServiceAccount annotation and pod label:
 
 ```yaml
 secretsStore:
@@ -314,6 +368,7 @@ secretsStore:
     tenantID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     # clientID is optional - only required if multiple managed identities are assigned
     clientID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  # provisioningTokenSecretName: "falcon-provisioning-token"   # optional
 
 node:
   serviceAccount:
@@ -321,6 +376,90 @@ node:
       azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   podLabels:
     azure.workload.identity/use: "true"
+
+cluster:
+  serviceAccount:
+    annotations:
+      azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  podLabels:
+    azure.workload.identity/use: "true"
+
+imageAnalyzer:            # only when the image analyzer is enabled
+  enabled: true
+  serviceAccount:
+    annotations:
+      azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  podLabels:
+    azure.workload.identity/use: "true"
+```
+
+## Certificate Management
+
+FCG uses TLS in three places: the clusterguard controller's admission webhook, mutual TLS (mTLS)
+on the gRPC API between the node sensor and the clusterguard controller, and, when enabled, the
+Image Analyzer agent service. The chart creates these certificates with Helm (default) or has
+cert-manager issue them. Either way they are stored in the same Secrets, so workloads mount them
+the same way.
+
+### Certificates Used by FCG
+
+| Secret                              | Used by                                               | Purpose                                                 | Created by           |
+|:------------------------------------|:------------------------------------------------------|:--------------------------------------------------------|:---------------------|
+| `falcon-cg-controller-tls`          | Clusterguard controller; admission webhook `caBundle` | Admission webhook server certificate                    | Helm or cert-manager |
+| `falcon-api-ca`                     | Clusterguard controller, node sensor                  | CA for gRPC mTLS between them                           | Helm or cert-manager |
+| `falcon-api-tls`                    | Clusterguard controller                               | gRPC API server certificate                             | Helm or cert-manager |
+| `falcon-node-sensor-tls`            | Node sensor                                           | gRPC client certificate                                 | Helm or cert-manager |
+| `<release-fullname>-iar-tls`        | Image Analyzer (when `imageAnalyzer.enabled=true`)    | Image Analyzer agent service certificate                | Helm or cert-manager |
+| `node.guardian.proxy.tlsSecretName` | Node sensor (when `node.guardian.proxy.enabled=true`) | Optional CA bundle for verifying upstream TLS endpoints | You (optional)       |
+
+### Certificate Parameters
+
+| Parameter                                             | Description                                                                                                                                                                                  | Default            |
+|:------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------|
+| `certManager.enabled`                                 | Use cert-manager to issue every FCG certificate instead of Helm-generated self-signed certs. Requires cert-manager, including its cainjector. See [Using cert-manager](#using-cert-manager). | `false`            |
+| `certManager.issuerRef`                               | cert-manager `Issuer` or `ClusterIssuer` reference. `issuerRef.name` is required when `certManager.enabled=true`.                                                                            | `{}`               |
+| `cluster.autoCertificateUpdate`                       | Regenerate the admission webhook and gRPC mTLS certificates (controller and node sensor) on each `helm upgrade`. Set to `false` to reuse them. Ignored with cert-manager.                    | `true`             |
+| `cluster.certExpiration`                              | Validity period in days for the admission webhook and gRPC mTLS certificates                                                                                                                 | `3650`             |
+| `cluster.domainName`                                  | Custom DNS domain suffix. Also changes the admission webhook certificate's DNS names to `webhook.<namespace>.svc.<domainName>`                                                               | None               |
+| `imageAnalyzer.iarAgentService.autoCertificateUpdate` | Regenerate the Image Analyzer certificate on each `helm upgrade`. Set to `false` to reuse it. Ignored with cert-manager.                                                                     | `true`             |
+| `imageAnalyzer.iarAgentService.certExpiration`        | Image Analyzer certificate validity period in days                                                                                                                                           | `3650`             |
+| `imageAnalyzer.iarAgentService.domainName`            | Custom DNS domain suffix for the Image Analyzer certificate (e.g., `testing.io` if `svc.testing.io` is required)                                                                             | None               |
+
+### Helm-Generated Certificates
+
+By default, Helm generates a self-signed CA and certificates on install, and again on every
+`helm upgrade` while `autoCertificateUpdate=true`. The clusterguard controller restarts on upgrade
+(`cluster.autoDeploymentUpdate`), so it picks up its new certificates.
+
+Set `autoCertificateUpdate=false` to keep certificates across upgrades. Each set of certificates is
+reused only if all of its Secrets still exist; if any of them is missing, that whole set is
+regenerated together so certificates always match their CA:
+
+- **Admission webhook** (`cluster.autoCertificateUpdate`): certificate, key, and CA from `falcon-cg-controller-tls`
+- **gRPC mTLS** (`cluster.autoCertificateUpdate`): `falcon-api-ca`, `falcon-api-tls`, and `falcon-node-sensor-tls`
+- **Image Analyzer** (`imageAnalyzer.iarAgentService.autoCertificateUpdate`): certificate, key, and CA from `<release-fullname>-iar-tls`
+
+### Using cert-manager
+
+With `certManager.enabled=true`, the chart creates a cert-manager `Certificate` for each Secret in
+[Certificates Used by FCG](#certificates-used-by-fcg) except the Guardian proxy CA bundle, which
+you always provide:
+
+- The admission webhook and Image Analyzer certificates are issued directly by `issuerRef`.
+- The gRPC certificates come from a chart-managed CA (`falcon-grpc-ca`, issued by `issuerRef`) so
+  the controller and node sensor share one trust root.
+- The `ValidatingWebhookConfiguration` gets its `caBundle` from cert-manager's cainjector
+  (`cert-manager.io/inject-ca-from`).
+
+The issuer must be able to sign certificates for in-cluster service names, so use a self-signed or
+CA issuer rather than an ACME issuer.
+
+```yaml
+certManager:
+  enabled: true
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
 ```
 
 ## Node Sensor Configuration
@@ -540,7 +679,7 @@ When using `falconSecret` with GKE Autopilot, `falconSecret.secretName` must be
 FCG has two independent feature gates for the clusterguard controller:
 
 - **`cluster.admissionControl.enabled`**: controls only the ValidatingWebhookConfiguration and webhook Service. The clusterguard controller runs in visibility-only mode by default.
-- **`cluster.imageAnalyzer.enabled`**: controls only Image Assessment with Image Analyzer. This is disabled by default.
+- **`imageAnalyzer.enabled`**: deploys the image analyzer alongside the clusterguard controller for image assessment. This is disabled by default. See [Image Analyzer Configuration](#image-analyzer-configuration).
 
 > **Important:** The FCG default for `cluster.admissionControl.enabled` is `false`, whereas
 > the old `falcon-kac` default was `true`. If you are migrating from `falcon-kac`, you must
@@ -588,30 +727,6 @@ Controls how FCG monitors and reports Kubernetes cluster state to CrowdStrike cl
 | `cluster.webhook.failurePolicy`     | Webhook failure policy (`Ignore` or `Fail`). `Ignore` allows workloads to proceed if FCG is unavailable. | `Ignore` |
 | `cluster.webhook.disableNamespaces` | Comma-separated list of namespaces excluded from webhook validation (e.g., `test1,test2`)                | None     |
 
-### Certificate Management
-
-FCG uses mTLS between the node sensor and the clusterguard controller gRPC API, and a separate TLS
-certificate for the admission webhook. Certificates can be managed by Helm (default) or
-by cert-manager.
-
-| Parameter                       | Description                                                                                                                          | Default |
-|:--------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------|:--------|
-| `cluster.autoCertificateUpdate` | Automatically rotate TLS certificates on each `helm upgrade`. Set to `false` to preserve existing certs across upgrades.             | `true`  |
-| `cluster.certExpiration`        | Certificate validity period in days                                                                                                  | `3650`  |
-| `cluster.certManager.enabled`   | Use cert-manager to issue gRPC mTLS certificates instead of Helm-generated self-signed certs. Requires cert-manager to be installed. | `false` |
-| `cluster.certManager.issuerRef` | cert-manager `Issuer` or `ClusterIssuer` reference. Required when `certManager.enabled=true`.                                        | `{}`    |
-
-**cert-manager example:**
-
-```yaml
-cluster:
-  certManager:
-    enabled: true
-    issuerRef:
-      name: selfsigned-cluster-issuer
-      kind: ClusterIssuer
-```
-
 ### Resource Limits
 
 CPU and memory resource requests and limits for each clusterguard controller container.
@@ -631,6 +746,170 @@ CPU and memory resource requests and limits for each clusterguard controller con
 | `cluster.resources.admissionController.requests.memory` | Memory request for the `falcon-ac` container                          | `256Mi` |
 | `cluster.resources.admissionController.limits.memory`   | Memory limit for the `falcon-ac` container                            | `256Mi` |
 
+## Image Analyzer Configuration
+
+FCG can optionally deploy the Falcon Image Analyzer (IAR) to assess the container images
+running in your cluster. IAR is installed in the same namespace as the rest of FCG.
+
+When `imageAnalyzer.enabled=true`, the chart creates:
+
+- A `<release-fullname>-iar` Deployment or DaemonSet (see `imageAnalyzer.mode`), ServiceAccount, ConfigMap, ClusterRole, and ClusterRoleBinding (read access to pods, secrets, services, namespaces, and nodes)
+- An `iar-agent-service` Service (port `443` → `imageAnalyzer.iarAgentService.httpPort`) and a `<falcon-clusterguard.name>-iar-tls` Secret with a Helm-generated (or cert-manager) certificate
+- A credentials Secret, image pull Secret, `SecretProviderClass`, or OpenShift SCC, depending on configuration
+
+IAR runs in one of two modes:
+
+| `imageAnalyzer.mode`   | Workload   | How images are assessed                                                                          | Privileges                                                                                        |
+|:-----------------------|:-----------|:-------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------------------------------------|
+| `deployment` (default) | Deployment | Watcher mode: discovers running images through the Kubernetes API and pulls them from registries | Root (UID 0), privilege escalation disabled, all capabilities dropped                             |
+| `daemonset`            | DaemonSet  | Socket mode: reads images directly from the container runtime socket on each node                | Privileged, with the runtime socket mounted from the host (see [DaemonSet Mode](#daemonset-mode)) |
+
+The `privileged` Pod Security Standards label that the node sensor already requires on the FCG
+namespace also covers IAR in both modes (see [Pod Security Standards](#pod-security-standards)).
+
+### Enabling Image Analyzer
+
+```yaml
+# falcon-clusterguard-values.yaml
+falcon:
+  cid: "<CrowdStrike_CID>"
+
+image:
+  repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
+  digest: sha256:<FCG_IMAGE_DIGEST>
+
+imageAnalyzer:
+  enabled: true
+  crowdstrikeConfig:
+    clientID: "<FALCON_API_CLIENT_ID>"
+    clientSecret: "<FALCON_API_CLIENT_SECRET>"
+    agentRegion: us-1
+```
+
+```bash
+helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
+  -n falcon-system --create-namespace \
+  -f falcon-clusterguard-values.yaml
+```
+
+### DaemonSet Mode
+
+Set `imageAnalyzer.mode=daemonset` to run IAR on every node in socket mode. Instead of pulling
+images from registries, each pod reads them from the node's container runtime, so it also
+assesses images that are only present on the node. `crowdstrikeConfig.agentRuntime` is required:
+
+```yaml
+imageAnalyzer:
+  enabled: true
+  mode: daemonset
+  crowdstrikeConfig:
+    clientID: "<FALCON_API_CLIENT_ID>"
+    clientSecret: "<FALCON_API_CLIENT_SECRET>"
+    agentRuntime: containerd        # docker, containerd, crio, or podman
+    # agentRuntimeSocket: unix:///run/k3s/containerd/containerd.sock   # only for non-standard paths
+```
+
+The chart mounts the runtime socket from the host. It defaults to the standard path for
+`agentRuntime`: `/run/docker.sock`, `/run/containerd/containerd.sock`, `/run/crio/crio.sock`, or
+`/run/podman/podman.sock`. Set `agentRuntimeSocket` if your nodes use a different path. For
+CRI-O, the chart also mounts the node's container storage (`/run/containers/storage`,
+`/var/lib/containers`), `/etc/containers`, and `/usr/bin/fuse-overlayfs`.
+
+Reading the runtime socket requires a privileged container. `imageAnalyzer.securityContext`
+supports `privileged`, `allowPrivilegeEscalation`, `runAsUser`, and `runAsGroup`; any of these not
+set default to `true`, `true`, `0`, and `0`. Explicit values, including `false`, take precedence.
+Other keys are ignored.
+
+### Image Analyzer Credentials
+
+IAR authenticates to the CrowdStrike API with an OAuth client ID and secret, in addition to
+the CID. All three must come from **one** source. The chart validates at install time that exactly
+one source is configured and rejects any mix, such as a CID in Helm values with the client
+credentials in a secret.
+
+| Source                     | Client ID / client secret                                                                                | CID                                   |
+|:---------------------------|:---------------------------------------------------------------------------------------------------------|:--------------------------------------|
+| Helm values                | `imageAnalyzer.crowdstrikeConfig.clientID` / `clientSecret`                                              | `falcon.cid` (or `global.falcon.cid`) |
+| Existing Kubernetes secret | `AGENT_CLIENT_ID` / `AGENT_CLIENT_SECRET` keys in the `falconSecret` secret (or `global.falconSecret`)   | `AGENT_CID` key in the same secret    |
+| Secrets Store CSI Driver   | `falcon-client-id` / `falcon-client-secret` in the store (chart-level `secretsStore.*` block, see below) | `falcon-cid` in the store             |
+
+With Helm values, the chart creates a `<release-fullname>-iar` Secret containing all three keys.
+The existing-secret option uses the same `falconSecret` as the node sensor and clusterguard
+controller (see [Using Existing Kubernetes Secrets](#using-existing-kubernetes-secrets)). The
+secret is loaded into every FCG workload with `envFrom`, so the node sensor and controller pods
+also receive the `AGENT_*` keys. The Secrets Store CSI Driver keeps the image analyzer credentials
+in their own synced secret.
+
+| Parameter                                        | Description                                                                                                                                                                                           | Default |
+|:-------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `imageAnalyzer.crowdstrikeConfig.clientID`       | CrowdStrike Falcon OAuth API client ID. Must be provided together with `clientSecret` and `falcon.cid`. Must be empty when using `falconSecret` or `secretsStore`.                                    | `""`    |
+| `imageAnalyzer.crowdstrikeConfig.clientSecret`   | CrowdStrike Falcon OAuth API client secret. Must be provided together with `clientID` and `falcon.cid`. Must be empty when using `falconSecret` or `secretsStore`.                                    | `""`    |
+
+#### Image Analyzer Secrets Store CSI Driver Integration
+
+The image analyzer uses the same chart-level `secretsStore` block as the node sensor and clusterguard
+controller. There is no separate `imageAnalyzer.secretsStore` block. See
+[Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration) for the parameters,
+prerequisites, and an example.
+
+When `secretsStore` is enabled and `imageAnalyzer.enabled=true`, the chart creates a separate
+`<release-fullname>-iar-csi` SecretProviderClass. It syncs these Key Vault secrets into the
+`<release-fullname>-iar-csi` Kubernetes secret, or `<secretsStore.secretName>-iar` when a name is set:
+
+| Key Vault secret name  | Synced key            | Value                                      |
+|:-----------------------|:----------------------|:-------------------------------------------|
+| `falcon-client-id`     | `AGENT_CLIENT_ID`     | CrowdStrike Falcon OAuth API client ID     |
+| `falcon-client-secret` | `AGENT_CLIENT_SECRET` | CrowdStrike Falcon OAuth API client secret |
+| `falcon-cid`           | `AGENT_CID`           | CrowdStrike Customer ID (CID)              |
+
+The API client credentials are only synced into the image analyzer's own secret and are only mounted by
+the image analyzer pod. They are never mounted by the node sensor or clusterguard controller.
+
+### Image Analyzer Options
+
+| Parameter                                                 | Description                                                                                                                                 | Default                                    |
+|:----------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------|
+| `imageAnalyzer.enabled`                                   | Deploy the image analyzer                                                                                                                   | `false`                                    |
+| `imageAnalyzer.mode`                                      | Workload type: `deployment` (watcher mode) or `daemonset` (socket mode, privileged). See [DaemonSet Mode](#daemonset-mode).                 | `deployment`                               |
+| `imageAnalyzer.serviceAccount.name`                       | IAR ServiceAccount name                                                                                                                     | `<release-fullname>-iar`                   |
+| `imageAnalyzer.serviceAccount.annotations`                | Annotations applied to the IAR ServiceAccount (e.g., for IRSA or Workload Identity)                                                         | `{}`                                       |
+| `imageAnalyzer.crowdstrikeConfig.agentRegion`             | CrowdStrike API region (`us-1`, `us-2`, `eu-1`, `gov1`, `gov2`), or `autodiscovery`                                                         | `autodiscovery`                            |
+| `imageAnalyzer.crowdstrikeConfig.agentMaxConsumerThreads` | Maximum number of image-processing consumer threads                                                                                         | `"1"`                                      |
+| `imageAnalyzer.crowdstrikeConfig.agentRuntime`            | DaemonSet mode only, required. Node container runtime: `docker`, `containerd`, `crio`, or `podman`.                                         | `""`                                       |
+| `imageAnalyzer.crowdstrikeConfig.agentRuntimeSocket`      | DaemonSet mode only. Runtime socket, e.g. `unix:///run/containerd/containerd.sock`. Defaults to the standard socket for `agentRuntime`.     | `""`                                       |
+| `imageAnalyzer.crowdstrikeConfig.enableKlogs`             | Enable Kubernetes client (klog) logging. Use only for troubleshooting.                                                                      | `"false"`                                  |
+| `imageAnalyzer.log.output`                                | Log output stream: `1` = stdout, `2` = stderr                                                                                               | `2`                                        |
+| `imageAnalyzer.log.verbosity`                             | Log verbosity (`info`, `debug`, `warn`, `error`)                                                                                            | `info`                                     |
+| `imageAnalyzer.watcher.listPageSize`                      | Page size used when listing pods in watcher mode                                                                                            | `500`                                      |
+| `imageAnalyzer.privateRegistries.credentials`             | Comma-separated `namespace:secretname` list of docker-registry secrets for private registries. Ignored when `autoDiscoverCredentials=true`. | `""`                                       |
+| `imageAnalyzer.privateRegistries.autoDiscoverCredentials` | Discover docker-registry secrets in all namespaces at startup. Secrets added later require an IAR restart.                                  | `true`                                     |
+| `imageAnalyzer.exclusions.namespace`                      | Comma-separated list of namespaces to exclude from image assessment                                                                         | `""`                                       |
+| `imageAnalyzer.exclusions.registry`                       | Comma-separated list of registries (without `http(s)://`) to exclude                                                                        | `""`                                       |
+| `imageAnalyzer.exclusions.imageName`                      | Comma-separated list of fully qualified image names to exclude                                                                              | `""`                                       |
+| `imageAnalyzer.iarAgentService.httpPort`                  | Container port for the IAR agent service                                                                                                    | `8001`                                     |
+| `imageAnalyzer.volumes`                                   | Pod volumes. Must include the `tmp-volume` emptyDir used as image working space; size it to your largest image.                             | `tmp-volume` emptyDir, `sizeLimit: 20Gi`   |
+| `imageAnalyzer.volumeMounts`                              | Container volume mounts                                                                                                                     | `tmp-volume` at `/tmp`                     |
+| `imageAnalyzer.hostNetwork`                               | Run IAR on the host network. Sets `dnsPolicy: ClusterFirstWithHostNet` unless `imageAnalyzer.dnsPolicy` is set.                             | `false`                                    |
+| `imageAnalyzer.dnsPolicy`                                 | Pod DNS policy                                                                                                                              | None                                       |
+| `imageAnalyzer.podAnnotations`                            | Annotations applied to IAR pods                                                                                                             | `{}`                                       |
+| `imageAnalyzer.podLabels`                                 | Additional labels applied to IAR pods                                                                                                       | `{}`                                       |
+| `imageAnalyzer.podSecurityContext`                        | Pod-level security context                                                                                                                  | `{}`                                       |
+| `imageAnalyzer.securityContext`                           | DaemonSet mode only. `privileged`, `allowPrivilegeEscalation`, `runAsUser`, `runAsGroup`; unset keys default to privileged root.            | `{}`                                       |
+| `imageAnalyzer.resources`                                 | CPU and memory requests and limits. Suggested: requests 500m CPU / 2Gi memory, limits 1000m CPU / 6Gi memory.                               | `{}`                                       |
+| `imageAnalyzer.nodeSelector`                              | Node selector for IAR pods                                                                                                                  | `{}`                                       |
+| `imageAnalyzer.tolerations`                               | Pod tolerations                                                                                                                             | `[]`                                       |
+| `imageAnalyzer.affinity`                                  | Pod affinity rules. Defaults to require Linux nodes.                                                                                        | `nodeAffinity` (`kubernetes.io/os: linux`) |
+| `imageAnalyzer.priorityClassName`                         | PriorityClass for IAR pods                                                                                                                  | `""`                                       |
+| `imageAnalyzer.azure.enabled`                             | Mount the node's Azure config file for registry authentication on AKS without a pull token                                                  | `false`                                    |
+| `imageAnalyzer.azure.azureConfig`                         | Path to the Azure config file on worker nodes                                                                                               | `/etc/kubernetes/azure.json`               |
+| `imageAnalyzer.gcp.enabled`                               | Add an init container that waits for the GKE metadata server (Workload Identity)                                                            | `false`                                    |
+| `imageAnalyzer.proxyConfig.HTTP_PROXY`                    | HTTP proxy for IAR outbound traffic                                                                                                         | `""`                                       |
+| `imageAnalyzer.proxyConfig.HTTPS_PROXY`                   | HTTPS proxy for IAR outbound traffic                                                                                                        | `""`                                       |
+| `imageAnalyzer.proxyConfig.NO_PROXY`                      | Comma-separated list of hosts that bypass the proxy                                                                                         | `""`                                       |
+
+The Image Analyzer TLS certificate settings (`imageAnalyzer.iarAgentService.autoCertificateUpdate`,
+`certExpiration`, and `domainName`) are documented in [Certificate Management](#certificate-management).
+
 ## OpenShift Compatibility
 
 > **Note:** OpenShift is **not a recommended** configuration for this Helm chart. The
@@ -641,24 +920,28 @@ This chart provides a best-effort compatibility mode for deploying FCG on OpenSh
 
 ### Security Context Constraints
 
-OpenShift uses Security Context Constraints (SCC) to control pod privileges. FCG requires
-two separate SCCs:
+OpenShift uses Security Context Constraints (SCC) to control pod privileges. FCG uses up to
+three separate SCCs:
 
 - **Node sensor SCC**: grants privileged host access (`hostPID`, `hostIPC`, `hostNetwork`,
   and a privileged container) required by the node DaemonSet
-- **Admission SCC**: grants host network access required by the clusterguard controller when
+- **Cluster Guard Controller SCC**: grants host network access required by the clusterguard controller when
   `cluster.hostNetwork=true`
+- **Image Analyzer SCC**: allows the IAR Deployment to run as root (UID 0) when
+  `imageAnalyzer.enabled=true`. No host access is granted unless `imageAnalyzer.hostNetwork` or `imageAnalyzer.azure.enabled`
+  is set. With `imageAnalyzer.mode=daemonset`, it also allows privileged containers, privilege
+  escalation, and `hostPath` volumes for the runtime socket.
 
-When `openshift.enabled=true` and `openshift.createSCC=true`, the chart creates both SCCs
-and binds them to the appropriate service accounts automatically.
+When `openshift.enabled=true` and `openshift.createSCC=true`, the chart creates the SCCs
+that apply and binds them to the appropriate service accounts automatically.
 
 **Helm User Permissions:** When `openshift.createSCC: true`, the user or service account
 running Helm must have permission to create, update, and delete `SecurityContextConstraints`
 resources at the cluster level.
 
 To use existing SCCs instead, set `openshift.createSCC=false` and provide names via
-`openshift.nodeSCCName` and `openshift.admissionSCCName`. The SCCs must be created and
-bound to the service accounts before installing.
+`openshift.nodeSCCName`, `openshift.cgControllerSCCName`, and (for IAR) `openshift.iarSCCName`.
+The SCCs must be created and bound to the service accounts before installing.
 
 OpenShift runs Pod Security Admission in warn/audit mode alongside SCCs. To suppress PSA warnings:
 
@@ -671,12 +954,13 @@ kubectl label namespace falcon-system \
 
 ### OpenShift Values
 
-| Parameter                    | Description                                                                                                                      | Default               |
-|:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------|:----------------------|
-| `openshift.enabled`          | Enable OpenShift compatibility mode                                                                                              | `false`               |
-| `openshift.createSCC`        | Create SCCs for the node sensor and clusterguard controller (when `cluster.hostNetwork=true`) and binds them to service accounts | `true`                |
-| `openshift.nodeSCCName`      | Name of the node sensor SCC. Defaults to `<release-fullname>-node-sensor`                                                        | `""` (auto-generated) |
-| `openshift.admissionSCCName` | Name of the clusterguard controller SCC. Defaults to `<release-fullname>-admission`                                              | `""` (auto-generated) |
+| Parameter                       | Description                                                                             | Default               |
+|:--------------------------------|:----------------------------------------------------------------------------------------|:----------------------|
+| `openshift.enabled`             | Enable OpenShift compatibility mode                                                     | `false`               |
+| `openshift.createSCC`           | Create SCCs for all FCG components, and bind them to their respective service accounts. | `true`                |
+| `openshift.nodeSCCName`         | Name of the node sensor SCC. Defaults to `<release-fullname>-node-sensor`               | `""` (auto-generated) |
+| `openshift.cgControllerSCCName` | Name of the clusterguard controller SCC. Defaults to `<release-fullname>-cg-controller` | `""` (auto-generated) |
+| `openshift.iarSCCName`          | Name of the image analyzer SCC. Defaults to `<release-fullname>-iar`                    | `""` (auto-generated) |
 
 ### Installing on OpenShift
 
@@ -745,3 +1029,36 @@ kubectl get validatingwebhookconfiguration | grep falcon
 ```
 
 If it is missing, upgrade with `cluster.admissionControl.enabled=true`.
+
+### Image Analyzer Not Starting
+
+Credential problems are reported at install time. `helm install` fails with an
+`IAR credential validation failed` message that lists the missing values. If the
+install succeeds but the pod does not become ready, check its status and logs:
+
+```bash
+kubectl get pods -n falcon-system -l app=falcon-image-analyzer
+kubectl logs -n falcon-system -l app=falcon-image-analyzer --tail=100
+```
+
+Common causes:
+
+- Pod rejected by Pod Security Admission: IAR runs as root, so the namespace needs the `privileged` (or at least `baseline`) enforcement label.
+- Authentication errors in the logs: verify the API client credentials and `imageAnalyzer.crowdstrikeConfig.agentRegion`.
+- DaemonSet pods stuck in `ContainerCreating` with a `hostPath type check failed` event: the runtime socket is not at the expected path. Check `crowdstrikeConfig.agentRuntime`, or set `crowdstrikeConfig.agentRuntimeSocket` to the socket on your nodes.
+
+## Chart Layout
+
+Templates are grouped by component under `templates/`:
+
+| Directory                   | Contents                                                                                                     |
+|:----------------------------|:-------------------------------------------------------------------------------------------------------------|
+| `templates/shared/`         | Resources used by more than one component (image pull Secret, ResourceQuota) and chart-wide validation       |
+| `templates/node/`           | Node sensor DaemonSet, ConfigMap, RBAC, SCC, PriorityClass, Guardian proxy Service, and post-delete cleanup  |
+| `templates/cg-controller/`  | Cluster Guard controller Deployment, webhook configuration, ConfigMap, RBAC, SCC, Services, and certificates |
+| `templates/image-analyzer/` | Image Analyzer Deployment or DaemonSet and supporting resources, plus `_helpers.tpl` and `_pod.tpl`          |
+| `templates/tests/`          | `helm test` hooks                                                                                            |
+
+Shared helpers live in `templates/_helpers.tpl`. Templates that compute a checksum of another
+template must use its full path under `templates/`, for example
+`include (print $.Template.BasePath "/node/configmap.yaml") .`.

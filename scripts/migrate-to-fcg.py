@@ -71,6 +71,33 @@ RESOURCE_RENAMES = {
     "falconAcResources":              ("admissionController", "# was: falconAcResources"),
 }
 
+# falcon-image-analyzer keys copied to falcon-clusterguard.imageAnalyzer.*, in FCG values.yaml
+# order. crowdstrikeConfig is filtered down to IAR_CROWDSTRIKE_CONFIG_KEYS.
+IAR_KEYS = [
+    "serviceAccount", "replicaCount", "crowdstrikeConfig", "exclusions", "hostNetwork",
+    "dnsPolicy", "podAnnotations", "podLabels", "podSecurityContext", "securityContext",
+    "resources", "tolerations", "affinity", "priorityClassName", "nodeSelector", "watcher",
+    "log", "iarAgentService", "privateRegistries", "volumes", "volumeMounts", "azure", "gcp",
+    "proxyConfig",
+]
+
+IAR_CROWDSTRIKE_CONFIG_KEYS = [
+    "enableKlogs", "clientID", "clientSecret", "dockerAPIToken", "agentRegion",
+    "agentMaxConsumerThreads", "agentRuntime", "agentRuntimeSocket",
+]
+
+# Keys the standalone chart only reads in DaemonSet mode. Copied only when migrating a DaemonSet,
+# so Deployment-mode output doesn't carry settings that never took effect.
+IAR_DAEMONSET_ONLY_KEYS = {"securityContext", "agentRuntime", "agentRuntimeSocket"}
+
+# falcon-image-analyzer keys handled outside the IAR_KEYS copy, or that no longer apply
+# once the image analyzer runs inside FCG (kac, namespaceOverride, global, testing).
+IAR_HANDLED_KEYS = {
+    "enabled", "deployment", "daemonset", "image", "openshift", "secretsStore",
+    "kac", "namespaceOverride", "global", "testing",
+}
+IAR_HANDLED_CROWDSTRIKE_CONFIG_KEYS = {"clusterName", "cid", "existingSecret"}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,16 +169,135 @@ def apply_overrides(migrated: dict, admission_control_override, image_analyzer_o
             fcg["cluster"]["admissionControl"]["enabled"] = admission_control_override
 
     if image_analyzer_override is not None:
-        iar = migrated.get("falcon-image-analyzer")
-        if iar is None:
-            migrated["falcon-image-analyzer"] = CommentedMap()
-            iar = migrated["falcon-image-analyzer"]
-        iar["enabled"] = image_analyzer_override
+        fcg = migrated.get("falcon-clusterguard")
+        if fcg is not None:
+            if "imageAnalyzer" not in fcg or not isinstance(fcg.get("imageAnalyzer"), dict):
+                fcg["imageAnalyzer"] = CommentedMap()
+                fcg.yaml_set_comment_before_after_key("imageAnalyzer", before="\n")
+            fcg["imageAnalyzer"]["enabled"] = image_analyzer_override
 
 
 # ---------------------------------------------------------------------------
 # Migration logic
 # ---------------------------------------------------------------------------
+
+def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: list) -> CommentedMap:
+    """Map standalone falcon-image-analyzer values to falcon-clusterguard.imageAnalyzer.*.
+
+    Settings that FCG keeps outside imageAnalyzer (CID, cluster name, image pull auth,
+    OpenShift) are folded into fcg with the lowest precedence, after sensor and kac.
+    """
+    ia = CommentedMap()
+    # falcon-platform defaults falcon-image-analyzer.enabled=true, so a block without
+    # an explicit enabled: false was deployed.
+    ia["enabled"] = iar.get("enabled") is not False
+    # The standalone chart's schema requires exactly one of deployment/daemonset. FCG defaults
+    # to deployment, so mode is only written for DaemonSet installs.
+    daemonset = bool(get_nested(iar, "daemonset", "enabled"))
+    if daemonset:
+        ia["mode"] = "daemonset"
+
+    def copied(key, source):
+        return key in source and (daemonset or key not in IAR_DAEMONSET_ONLY_KEYS)
+
+    cs_config = iar.get("crowdstrikeConfig") or {}
+    for k in IAR_KEYS:
+        if k == "crowdstrikeConfig":
+            ia_cs = CommentedMap(
+                (ck, deepcopy(cs_config[ck])) for ck in IAR_CROWDSTRIKE_CONFIG_KEYS if copied(ck, cs_config)
+            )
+            if ia_cs:
+                ia[k] = ia_cs
+        elif copied(k, iar):
+            val = deepcopy(iar[k])
+            strip_comments(val)
+            ia[k] = val
+
+    # crowdstrikeConfig.clusterName → node.clusterName (shared by all FCG components)
+    iar_cluster_name = cs_config.get("clusterName")
+    if iar_cluster_name:
+        if "node" not in fcg:
+            fcg["node"] = CommentedMap()
+        if not fcg["node"].get("clusterName"):
+            fcg["node"]["clusterName"] = iar_cluster_name
+        elif fcg["node"]["clusterName"] != iar_cluster_name:
+            warnings.append(
+                f"falcon-image-analyzer.crowdstrikeConfig.clusterName='{iar_cluster_name}' conflicts with "
+                f"falcon-clusterguard.node.clusterName='{fcg['node']['clusterName']}'. "
+                "The node value has been kept. Review manually."
+            )
+
+    # crowdstrikeConfig.cid → falcon.cid, unless a CID is already set for FCG
+    iar_cid = cs_config.get("cid")
+    if iar_cid:
+        current_cid = (fcg.get("falcon") or {}).get("cid") or global_cid
+        if not current_cid:
+            if "falcon" not in fcg:
+                fcg.insert(list(fcg.keys()).index("image") + 1, "falcon", CommentedMap())
+            fcg["falcon"]["cid"] = iar_cid
+        elif current_cid != iar_cid:
+            warnings.append(
+                "falcon-image-analyzer.crowdstrikeConfig.cid differs from the CID used for FCG. "
+                "The image analyzer will use the FCG CID. Review manually."
+            )
+
+    if cs_config.get("existingSecret"):
+        warnings.append(
+            f"falcon-image-analyzer.crowdstrikeConfig.existingSecret='{cs_config['existingSecret']}' "
+            "has no FCG equivalent and was omitted. FCG reads image analyzer credentials from "
+            "falconSecret (keys AGENT_CLIENT_ID, AGENT_CLIENT_SECRET, AGENT_CID) or "
+            "imageAnalyzer.crowdstrikeConfig.clientID/clientSecret."
+        )
+    if ia.get("crowdstrikeConfig", {}).get("clientID") and get_nested(fcg, "falconSecret", "enabled"):
+        warnings.append(
+            "falcon-clusterguard.falconSecret is enabled, so imageAnalyzer.crowdstrikeConfig.clientID/"
+            "clientSecret must be removed. Add AGENT_CLIENT_ID and AGENT_CLIENT_SECRET to the secret instead."
+        )
+
+    # image — the image analyzer runs from the FCG image. Carry over pull auth only if
+    # FCG has none, since FCG rejects pullSecret and registryConfigJSON together.
+    iar_image = iar.get("image") or {}
+    fcg_image = fcg["image"]
+    if not any(fcg_image.get(f) for f in ("pullSecret", "pullSecrets", "registryConfigJSON")):
+        for field in ("pullSecret", "registryConfigJSON"):
+            if iar_image.get(field):
+                fcg_image[field] = iar_image[field]
+                break
+    dropped_image = [f for f in ("repository", "tag", "digest") if iar_image.get(f)]
+    if dropped_image:
+        warnings.append(
+            f"{', '.join('falcon-image-analyzer.image.' + f for f in dropped_image)} omitted — the "
+            "image analyzer now runs from the FCG image (falcon-clusterguard.image.*)."
+        )
+
+    # openshift — merge at fcg root with the lowest precedence; sccName → iarSCCName
+    iar_os = iar.get("openshift") or {}
+    if iar_os:
+        fcg_os = fcg.get("openshift") or CommentedMap()
+        for k in ("enabled", "createSCC"):
+            if k in iar_os and fcg_os.get(k) is None:
+                fcg_os[k] = iar_os[k]
+        if iar_os.get("sccName") and not fcg_os.get("iarSCCName"):
+            fcg_os["iarSCCName"] = iar_os["sccName"]
+        if fcg_os.get("enabled") or fcg_os.get("createSCC") is False or fcg_os.get("iarSCCName"):
+            fcg["openshift"] = fcg_os
+
+    if get_nested(iar, "secretsStore", "enabled"):
+        warnings.append(
+            "falcon-image-analyzer.secretsStore was omitted. FCG uses one falcon-clusterguard.secretsStore "
+            "for all components; the image analyzer reads falcon-client-id and falcon-client-secret from "
+            "the same store. Review manually."
+        )
+
+    for k, v in iar.items():
+        if v and k not in IAR_KEYS and k not in IAR_HANDLED_KEYS:
+            warnings.append(f"falcon-image-analyzer.{k} has no FCG equivalent and was omitted.")
+    for k, v in cs_config.items():
+        if v and k not in IAR_CROWDSTRIKE_CONFIG_KEYS and k not in IAR_HANDLED_CROWDSTRIKE_CONFIG_KEYS:
+            warnings.append(f"falcon-image-analyzer.crowdstrikeConfig.{k} has no FCG equivalent and was omitted.")
+
+    return ia
+
 
 def migrate(values: dict, warnings: list,
             fcg_image_repo: str = FCG_DEFAULT_IMAGE_REPO,
@@ -255,10 +401,6 @@ def migrate(values: dict, warnings: list,
         if "resourceQuota" in kac:
             cluster["resourceQuota"] = deepcopy(kac["resourceQuota"])
 
-        # certManager (newer kac versions)
-        if "certManager" in kac:
-            cluster["certManager"] = deepcopy(kac["certManager"])
-
         # Resource renames — add EOL comment showing the old key name
         resources = CommentedMap()
         for old_key, (new_key, eol_comment) in RESOURCE_RENAMES.items():
@@ -295,11 +437,16 @@ def migrate(values: dict, warnings: list,
 
         # clusterVisibility — now lives under cluster.visibility.*
         if "clusterVisibility" in kac:
-            cluster["visibility"] = deepcopy(kac["clusterVisibility"])
+            visibility = deepcopy(kac["clusterVisibility"])
+            strip_comments(visibility)
+            cluster["visibility"] = visibility
 
-        # falconImageAnalyzerNamespace — lives at fcg root
-        if "falconImageAnalyzerNamespace" in kac and kac["falconImageAnalyzerNamespace"]:
-            fcg["falconImageAnalyzerNamespace"] = kac["falconImageAnalyzerNamespace"]
+        # falconImageAnalyzerNamespace is dropped — the image analyzer now runs in the FCG namespace.
+        if kac.get("falconImageAnalyzerNamespace"):
+            warnings.append(
+                "falcon-kac.falconImageAnalyzerNamespace has been omitted — the image analyzer "
+                "now runs in the FCG namespace."
+            )
 
         # falconSecret — prefer sensor value if both present
         if "falconSecret" in kac:
@@ -355,6 +502,15 @@ def migrate(values: dict, warnings: list,
     if merged_os.get("enabled") or merged_os.get("createSCC") is False:
         fcg["openshift"] = merged_os
 
+    # ---- falcon-image-analyzer → falcon-clusterguard.imageAnalyzer ---------
+
+    iar = values.get("falcon-image-analyzer", {}) or {}
+    if iar:
+        fcg["imageAnalyzer"] = migrate_image_analyzer(
+            iar, fcg, get_nested(values, "global", "falcon", "cid"), warnings,
+        )
+        fcg.yaml_set_comment_before_after_key("imageAnalyzer", before="\n")
+
     # ---- Build output values -----------------------------------------------
 
     out = CommentedMap()
@@ -399,25 +555,16 @@ def migrate(values: dict, warnings: list,
         before=sensor_node_deprecated_note + kac_deprecated_note,
     )
 
-    # falcon-image-analyzer: pass through, but fix kac.namespace if it pointed to
-    # the old falcon-kac namespace. Use falcon-sensor.namespaceOverride as the FCG
-    # namespace, falling back to "falcon-system".
-    if "falcon-image-analyzer" in values:
-        iar = deepcopy(values["falcon-image-analyzer"])
-        fcg_ns = sensor.get("namespaceOverride") or "falcon-system"
-        kac_block = iar.get("kac", {}) or {}
-        old_kac_ns = kac_block.get("namespace", "")
-        if old_kac_ns and old_kac_ns != fcg_ns:
-            iar["kac"]["namespace"] = fcg_ns
-            iar["kac"].yaml_add_eol_comment(
-                f"updated from '{old_kac_ns}' — FCG runs in {fcg_ns}",
-                key="namespace",
-            )
-        out["falcon-image-analyzer"] = iar
-        out.yaml_set_comment_before_after_key(
-            "falcon-image-analyzer",
-            before="\nDEPRECATED: falcon-image-analyzer will be bundled into FCG in a future version.",
-        )
+    # falcon-image-analyzer: replaced by falcon-clusterguard.imageAnalyzer.*. falcon-platform
+    # defaults falcon-image-analyzer.enabled=true, so disable it explicitly — otherwise both
+    # image analyzers run, and --reuse-values would keep the old enabled value.
+    iar_out = CommentedMap()
+    iar_out["enabled"] = False
+    out["falcon-image-analyzer"] = iar_out
+    out.yaml_set_comment_before_after_key(
+        "falcon-image-analyzer",
+        before="\nfalcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*",
+    )
 
     return out
 
@@ -645,7 +792,7 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
 
     if cli_image_analyzer is not None:
         image_analyzer_override = cli_image_analyzer
-        print(f"  ✓ falcon-image-analyzer.enabled = {str(image_analyzer_override).lower()} (from --image-analyzer flag)")
+        print(f"  ✓ falcon-clusterguard.imageAnalyzer.enabled = {str(image_analyzer_override).lower()} (from --image-analyzer flag)")
     else:
         current_iar = get_nested(values, "falcon-image-analyzer", "enabled")
         if current_iar is None:
@@ -656,14 +803,15 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
             print("  NOTE: No falcon-image-analyzer values were found — defaulting to false.")
         else:
             print(f"  Current: falcon-image-analyzer.enabled = {iar_default}")
-        print("  NOTE: falcon-image-analyzer will be integrated into FCG in a future release.")
+        print("  NOTE: The image analyzer now runs inside FCG. falcon-image-analyzer values are moved")
+        print("        to falcon-clusterguard.imageAnalyzer.* and the standalone subchart is disabled.")
         iar_raw = _prompt("Enable Image Analyzer? (true/false)", default=iar_default)
         try:
             image_analyzer_override = _parse_bool(iar_raw)
         except ValueError:
             print(f"  Invalid value '{iar_raw}' — keeping current ({iar_default})", file=sys.stderr)
             image_analyzer_override = _parse_bool(iar_default)
-        print(f"  ✓ falcon-image-analyzer.enabled = {str(image_analyzer_override).lower()}")
+        print(f"  ✓ falcon-clusterguard.imageAnalyzer.enabled = {str(image_analyzer_override).lower()}")
 
     print("\n" + "=" * 60)
     return values, primary_input_label, fcg_image_repo, fcg_image_tag, release_name, release_ns, admission_control_override, image_analyzer_override
@@ -690,6 +838,7 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
     fcg_ns = fcg.get("namespaceOverride") or release_ns or "falcon-system"
     node_enabled    = (fcg.get("node") or {}).get("enabled", True)
     cluster_enabled = (fcg.get("cluster") or {}).get("enabled", True)
+    iar_enabled     = (fcg.get("imageAnalyzer") or {}).get("enabled", False)
 
     sep = "─" * 60
     print(f"\n{sep}")
@@ -715,6 +864,10 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
     if cluster_enabled:
         print(f"   # Cluster Guard Deployment")
         print(f"   kubectl rollout status deployment/falcon-clusterguard-controller -n {fcg_ns}")
+        print()
+    if iar_enabled:
+        print(f"   # Image Analyzer Deployment")
+        print(f"   kubectl get pods -n {fcg_ns} -l app=falcon-image-analyzer")
         print()
     print(f"   # All FCG pods")
     print(f"   kubectl get pods -n {fcg_ns} -l app.kubernetes.io/instance={release_name}")
@@ -792,7 +945,7 @@ def main():
         "--image-analyzer",
         metavar="BOOL",
         default=None,
-        help="Override falcon-image-analyzer.enabled (true/false)",
+        help="Override falcon-clusterguard.imageAnalyzer.enabled (true/false)",
     )
     parser.add_argument(
         "--output",

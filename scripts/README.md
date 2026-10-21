@@ -1,7 +1,7 @@
 # migrate-to-fcg.py
 
-Migrates a `falcon-platform` values file from the legacy `falcon-sensor` + `falcon-kac` schema
-to the new `falcon-clusterguard` (FCG) schema.
+Migrates a `falcon-platform` values file from the legacy `falcon-sensor` + `falcon-kac` +
+`falcon-image-analyzer` schema to the new `falcon-clusterguard` (FCG) schema.
 
 ## Requirements
 
@@ -57,7 +57,7 @@ invocation), not nested under subchart name prefixes.
 | `--fcg-image-repo`    | FCG image repository (default: `registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard`) |
 | `--fcg-image-tag`     | FCG image tag (default: `8.14.0-12345-1`)                                                                  |
 | `--admission-control` | Override `falcon-clusterguard.cluster.admissionControl.enabled` (`true`/`false`)                           |
-| `--image-analyzer`    | Override `falcon-image-analyzer.enabled` (`true`/`false`)                                                  |
+| `--image-analyzer`    | Override `falcon-clusterguard.imageAnalyzer.enabled` (`true`/`false`)                                      |
 | `--output`            | Path for migrated output file. Defaults to `<input>.fcg-migrated.yaml`                                     |
 | `--dry-run`           | Print the migrated YAML to stdout without writing any file                                                 |
 
@@ -113,8 +113,8 @@ change it.
 ### Step 5 — Image Analyzer
 
 The wizard checks whether `falcon-image-analyzer` is present in your values and whether
-`falcon-image-analyzer.enabled` is set, then prompts accordingly. Note that
-`falcon-image-analyzer` will be integrated into FCG in a future release.
+`falcon-image-analyzer.enabled` is set, then prompts accordingly. Your answer is written to
+`falcon-clusterguard.imageAnalyzer.enabled` — the image analyzer now runs inside FCG.
 
 ### Overriding wizard prompts with CLI flags
 
@@ -189,29 +189,39 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
 
 ### Moves
 
-| Source                                        | Destination                                            | Notes                                                                                                          |
-|-----------------------------------------------|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
-| `falcon-sensor.node.*`                        | `falcon-clusterguard.node.*`                           | Copied verbatim                                                                                                |
-| `falcon-sensor.serviceAccount.*`              | `falcon-clusterguard.node.serviceAccount.*`            | Moved under `node.`; old name preserved                                                                        |
-| `falcon-sensor.falcon.*`                      | `falcon-clusterguard.falcon.*`                         | Identical structure                                                                                            |
-| `falcon-sensor.falconSecret.*`                | `falcon-clusterguard.falconSecret.*`                   | Identical structure                                                                                            |
-| `falcon-sensor.secretsStore.*`                | `falcon-clusterguard.secretsStore.*`                   | Sensor takes precedence over kac                                                                               |
-| `falcon-sensor.node.openshift.*`              | `falcon-clusterguard.openshift.*`                      | Moved to chart root                                                                                            |
-| `falcon-sensor.node.image.pullSecrets`        | `falcon-clusterguard.image.pullSecrets`                | Sensor takes precedence over kac                                                                               |
-| `falcon-sensor.node.image.registryConfigJSON` | `falcon-clusterguard.image.registryConfigJSON`         | Sensor takes precedence over kac                                                                               |
-| `falcon-sensor.node.image.digest`             | `falcon-clusterguard.image.digest`                     | Sensor takes precedence over kac                                                                               |
-| `falcon-kac.enabled`                          | `falcon-clusterguard.cluster.enabled`                  | Controls cluster sensor Deployment                                                                             |
-| `falcon-kac.admissionControl.enabled`         | `falcon-clusterguard.cluster.admissionControl.enabled` | Controls VWC + webhook Service; **old default was `true`, new default is `false`** — always written explicitly |
-| `falcon-kac.clusterName`                      | `falcon-clusterguard.node.clusterName`                 | Moved to `node.` — shared with DaemonSet                                                                       |
-| `falcon-kac.tolerations`                      | `falcon-clusterguard.cluster.tolerations`              | Moved under `cluster.`                                                                                         |
-| `falcon-kac.webhook.*`                        | `falcon-clusterguard.cluster.webhook.*`                | Moved under `cluster.`                                                                                         |
-| `falcon-kac.clusterVisibility.*`              | `falcon-clusterguard.cluster.visibility.*`             | Moved under `cluster.`                                                                                         |
-| `falcon-kac.falconSecret.*`                   | `falcon-clusterguard.falconSecret.*`                   | Sensor value takes precedence                                                                                  |
-| `falcon-kac.falcon.*`                         | `falcon-clusterguard.falcon.*`                         | Sensor value takes precedence                                                                                  |
-| `falcon-kac.openshift.*`                      | `falcon-clusterguard.openshift.*`                      | Merged with sensor openshift; sensor takes precedence                                                          |
-| `falcon-kac.image.pullSecrets`                | `falcon-clusterguard.image.pullSecrets`                | Only used if sensor image not set                                                                              |
-| `falcon-image-analyzer.kac.namespace`         | `falcon-image-analyzer.kac.namespace`                  | Updated to FCG namespace automatically                                                                         |
-| `global.*`                                    | `global.*`                                             | Unchanged                                                                                                      |
+| Source                                                | Destination                                             | Notes                                                                                                                                                                 |
+|-------------------------------------------------------|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `falcon-sensor.node.*`                                | `falcon-clusterguard.node.*`                            | Copied verbatim                                                                                                                                                       |
+| `falcon-sensor.serviceAccount.*`                      | `falcon-clusterguard.node.serviceAccount.*`             | Moved under `node.`; old name preserved                                                                                                                               |
+| `falcon-sensor.falcon.*`                              | `falcon-clusterguard.falcon.*`                          | Identical structure                                                                                                                                                   |
+| `falcon-sensor.falconSecret.*`                        | `falcon-clusterguard.falconSecret.*`                    | Identical structure                                                                                                                                                   |
+| `falcon-sensor.secretsStore.*`                        | `falcon-clusterguard.secretsStore.*`                    | Sensor takes precedence over kac                                                                                                                                      |
+| `falcon-sensor.node.openshift.*`                      | `falcon-clusterguard.openshift.*`                       | Moved to chart root                                                                                                                                                   |
+| `falcon-sensor.node.image.pullSecrets`                | `falcon-clusterguard.image.pullSecrets`                 | Sensor takes precedence over kac                                                                                                                                      |
+| `falcon-sensor.node.image.registryConfigJSON`         | `falcon-clusterguard.image.registryConfigJSON`          | Sensor takes precedence over kac                                                                                                                                      |
+| `falcon-sensor.node.image.digest`                     | `falcon-clusterguard.image.digest`                      | Sensor takes precedence over kac                                                                                                                                      |
+| `falcon-kac.enabled`                                  | `falcon-clusterguard.cluster.enabled`                   | Controls cluster sensor Deployment                                                                                                                                    |
+| `falcon-kac.admissionControl.enabled`                 | `falcon-clusterguard.cluster.admissionControl.enabled`  | Controls VWC + webhook Service; **old default was `true`, new default is `false`** — always written explicitly                                                        |
+| `falcon-kac.clusterName`                              | `falcon-clusterguard.node.clusterName`                  | Moved to `node.` — shared with DaemonSet                                                                                                                              |
+| `falcon-kac.tolerations`                              | `falcon-clusterguard.cluster.tolerations`               | Moved under `cluster.`                                                                                                                                                |
+| `falcon-kac.webhook.*`                                | `falcon-clusterguard.cluster.webhook.*`                 | Moved under `cluster.`                                                                                                                                                |
+| `falcon-kac.clusterVisibility.*`                      | `falcon-clusterguard.cluster.visibility.*`              | Moved under `cluster.`                                                                                                                                                |
+| `falcon-kac.falconSecret.*`                           | `falcon-clusterguard.falconSecret.*`                    | Sensor value takes precedence                                                                                                                                         |
+| `falcon-kac.falcon.*`                                 | `falcon-clusterguard.falcon.*`                          | Sensor value takes precedence                                                                                                                                         |
+| `falcon-kac.openshift.*`                              | `falcon-clusterguard.openshift.*`                       | Merged with sensor openshift; sensor takes precedence                                                                                                                 |
+| `falcon-kac.image.pullSecrets`                        | `falcon-clusterguard.image.pullSecrets`                 | Only used if sensor image not set                                                                                                                                     |
+| `falcon-image-analyzer.enabled`                       | `falcon-clusterguard.imageAnalyzer.enabled`             | `true` unless the source sets `enabled: false`                                                                                                                        |
+| `falcon-image-analyzer.daemonset.enabled`             | `falcon-clusterguard.imageAnalyzer.mode`                | `daemonset` when `true`; otherwise omitted (FCG defaults to `deployment`)                                                                                             |
+| `falcon-image-analyzer.*`                             | `falcon-clusterguard.imageAnalyzer.*`                   | Pod, scheduling, exclusion, registry, proxy, volume, and certificate settings copied verbatim                                                                         |
+| `falcon-image-analyzer.securityContext`               | `falcon-clusterguard.imageAnalyzer.securityContext`     | DaemonSet mode only — the standalone chart ignores it in Deployment mode                                                                                              |
+| `falcon-image-analyzer.crowdstrikeConfig.*`           | `falcon-clusterguard.imageAnalyzer.crowdstrikeConfig.*` | `clientID`, `clientSecret`, `dockerAPIToken`, `agentRegion`, `agentMaxConsumerThreads`, `enableKlogs`; `agentRuntime` and `agentRuntimeSocket` in DaemonSet mode only |
+| `falcon-image-analyzer.crowdstrikeConfig.clusterName` | `falcon-clusterguard.node.clusterName`                  | Only if no node cluster name is set; a conflict prints a warning                                                                                                      |
+| `falcon-image-analyzer.crowdstrikeConfig.cid`         | `falcon-clusterguard.falcon.cid`                        | Only if neither `falcon.cid` nor `global.falcon.cid` is set                                                                                                           |
+| `falcon-image-analyzer.image.pullSecret`              | `falcon-clusterguard.image.pullSecret`                  | Only if sensor and kac set no image pull auth                                                                                                                         |
+| `falcon-image-analyzer.image.registryConfigJSON`      | `falcon-clusterguard.image.registryConfigJSON`          | Only if sensor and kac set no image pull auth                                                                                                                         |
+| `falcon-image-analyzer.openshift.enabled`/`createSCC` | `falcon-clusterguard.openshift.*`                       | Lowest precedence after sensor and kac                                                                                                                                |
+| `falcon-image-analyzer.openshift.sccName`             | `falcon-clusterguard.openshift.iarSCCName`              | Renamed                                                                                                                                                               |
+| `global.*`                                            | `global.*`                                              | Unchanged                                                                                                                                                             |
 
 ### Renames
 
@@ -256,9 +266,13 @@ falcon-clusterguard:
 
 Keys that have no FCG equivalent are dropped with a warning:
 
-| Key                          | Behaviour                                       |
-|------------------------------|-------------------------------------------------|
-| `falcon-sensor.node.backend` | Dropped entirely — FCG auto-selects eBPF/kernel |
+| Key                                                      | Behaviour                                                                                     |
+|----------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `falcon-sensor.node.backend`                             | Dropped entirely — FCG auto-selects eBPF/kernel                                               |
+| `falcon-kac.falconImageAnalyzerNamespace`                | Dropped — the image analyzer runs in the FCG namespace                                        |
+| `falcon-image-analyzer.image.repository`/`tag`/`digest`  | Dropped — the image analyzer runs from the FCG image                                          |
+| `falcon-image-analyzer.secretsStore.*`                   | Dropped — FCG uses one `falcon-clusterguard.secretsStore` for all components                  |
+| `falcon-image-analyzer.crowdstrikeConfig.existingSecret` | Dropped — add `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, `AGENT_CID` to `falconSecret` instead |
 
 ### falcon-sensor output
 
@@ -268,6 +282,14 @@ Keys that have no FCG equivalent are dropped with a warning:
 ### falcon-kac
 
 Fully removed from output. A comment above `falcon-clusterguard` notes the removal.
+
+### falcon-image-analyzer
+
+Values are moved to `falcon-clusterguard.imageAnalyzer.*` (see [Moves](#moves)). The output always
+sets `falcon-image-analyzer.enabled: false`, because `falcon-platform` defaults it to `true` and
+`helm upgrade --reuse-values` would otherwise keep the standalone image analyzer running alongside
+the FCG one. `kac.namespace` and `namespaceOverride` are dropped without a warning, since the
+image analyzer now runs in the FCG namespace.
 
 ## Reading the output
 
@@ -299,7 +321,9 @@ falcon-clusterguard:
 ## After migration
 
 1. **Review the full diff** before applying to a production cluster.
-2. **Confirm `falcon-image-analyzer.kac.namespace`** — the script updates this automatically to match the FCG namespace.
+2. **Confirm image analyzer credentials** — if `falcon-clusterguard.falconSecret` or `secretsStore`
+   is enabled, the image analyzer reads its client ID and secret from there, so
+   `imageAnalyzer.crowdstrikeConfig.clientID`/`clientSecret` must be removed.
 3. **Remove deprecated keys** flagged with `DEPRECATED:` comments.
 
 ## Example
@@ -385,7 +409,10 @@ falcon-clusterguard:
       resourceWatcher:
         enabled: true
 
-# DEPRECATED: falcon-image-analyzer will be bundled into FCG in a future version.
+  imageAnalyzer:
+    enabled: true
+
+# falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*
 falcon-image-analyzer:
-  enabled: true
+  enabled: false
 ```

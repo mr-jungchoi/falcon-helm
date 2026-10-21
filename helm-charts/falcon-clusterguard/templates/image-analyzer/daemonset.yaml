@@ -1,0 +1,15 @@
+{{- if and .Values.imageAnalyzer.enabled (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "falcon-clusterguard.iarFullname" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "falcon-clusterguard.iarSelectorLabels" . | nindent 6 }}
+  template:
+    {{- include "falcon-clusterguard.iarPodTemplate" . | nindent 4 }}
+{{- end }}

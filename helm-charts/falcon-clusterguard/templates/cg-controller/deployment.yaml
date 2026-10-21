@@ -3,52 +3,53 @@
   {{- $validatingWebhookName := printf "validating.%s" (include "falcon-clusterguard.webhookName" .) }}
   {{- $ns := include "falcon-clusterguard.namespace" . }}
   {{- $certValid := (.Values.cluster.certExpiration | int) }}
+  {{- $certManager := .Values.certManager.enabled }}
+  {{- $webhookAltNames := include "falcon-clusterguard.webhookDNSNames" . | fromYamlArray }}
+  {{- $webhookFullName := first $webhookAltNames }}
 
-  {{- /* Webhook TLS: CA + server cert for the ValidatingWebhook HTTPS endpoint */}}
-  {{- $svcName := "webhook" }}
-  {{- $webhookFullName := printf "%s.%s.svc" $svcName $ns }}
-  {{- if .Values.cluster.domainName }}
-    {{- $webhookFullName = printf "%s.%s.svc.%s" $svcName $ns .Values.cluster.domainName }}
-  {{- end }}
-  {{- $webhookAltNames := list
-      (printf "%s" $webhookFullName)
-      (printf "%s.cluster.local" $webhookFullName)
-      (printf "%s.%s" $svcName $ns)
-      (printf "%s" $svcName) }}
-  {{- $webhookCA := genCA (printf "%s ca" $ns) $certValid }}
-  {{- $webhookCert := genSignedCert $webhookFullName nil $webhookAltNames $certValid $webhookCA }}
-  {{- if not .Values.cluster.autoCertificateUpdate }}
-    {{- $tlscrt := (lookup "v1" "Secret" $ns "falcon-cg-controller-tls").data }}
-    {{- if kindIs "map" $tlscrt }}
-      {{- $webhookCert = dict "Cert" (index $tlscrt "tls.crt" | b64dec) "Key" (index $tlscrt "tls.key" | b64dec) }}
-    {{- end }}
-    {{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" "" $validatingWebhookName).webhooks }}
-    {{- if kindIs "slice" $tlsca }}
-      {{- range $i, $wh := $tlsca }}
-        {{- if eq $i 0 }}
-          {{- /* take only the first webhook's bundle */}}
-          {{- $webhookCA = dict "Cert" ($wh.clientConfig.caBundle | b64dec) }}
-        {{- end }}
-      {{- end }}
+  {{- /* Webhook TLS: CA + server cert for the ValidatingWebhook HTTPS endpoint.
+       With certManager.enabled, certificate.yaml issues it and cainjector fills caBundle.
+       With autoCertificateUpdate=false, the existing cert, key, and CA are reused together
+       from the Secret, so they always match; if any is missing the whole set is regenerated. */}}
+  {{- $webhookCA := dict "Cert" "" }}
+  {{- $webhookCert := dict "Cert" "" "Key" "" }}
+  {{- if not $certManager }}
+    {{- $existing := (lookup "v1" "Secret" $ns "falcon-cg-controller-tls").data | default dict }}
+    {{- if and (not .Values.cluster.autoCertificateUpdate) (hasKey $existing "tls.crt") (hasKey $existing "tls.key") (hasKey $existing "ca.crt") }}
+      {{- $webhookCert = dict "Cert" (index $existing "tls.crt" | b64dec) "Key" (index $existing "tls.key" | b64dec) }}
+      {{- $webhookCA = dict "Cert" (index $existing "ca.crt" | b64dec) }}
+    {{- else }}
+      {{- $webhookCA = genCA (printf "%s ca" $ns) $certValid }}
+      {{- $webhookCert = genSignedCert $webhookFullName nil $webhookAltNames $certValid $webhookCA }}
     {{- end }}
   {{- end }}
 
   {{- /* gRPC mTLS: separate CA + server cert (falcon-api-tls) + client cert (falcon-node-sensor-tls).
-       Skipped when certManager.enabled=true — Certificate CRs in certificate.yaml handle this instead. */}}
+       Skipped when certManager.enabled=true — Certificate CRs in certificate.yaml handle this instead.
+       autoCertificateUpdate=false reuses all three Secrets together, or regenerates all three. */}}
   {{- $grpcCA := dict "Cert" "" "Key" "" }}
   {{- $grpcServerCert := dict "Cert" "" "Key" "" }}
   {{- $grpcClientCert := dict "Cert" "" "Key" "" }}
-  {{- if not .Values.cluster.certManager.enabled }}
-    {{- $apiSvcName := "api" }}
-    {{- $apiFullName := printf "%s.%s.svc" $apiSvcName $ns }}
-    {{- $apiAltNames := list
-        (printf "%s" $apiFullName)
-        (printf "%s.cluster.local" $apiFullName)
-        (printf "%s.%s" $apiSvcName $ns)
-        (printf "%s" $apiSvcName) }}
-    {{- $grpcCA = genCA (printf "%s-clusterguard ca" $ns) $certValid }}
-    {{- $grpcServerCert = genSignedCert $apiFullName nil $apiAltNames $certValid $grpcCA }}
-    {{- $grpcClientCert = genSignedCert "falcon-sensor-client" nil (list (printf "URI:spiffe://cluster.local/ns/%s/sa/falcon-sensor" $ns)) $certValid $grpcCA }}
+  {{- if not $certManager }}
+    {{- $existingCA := (lookup "v1" "Secret" $ns "falcon-api-ca").data | default dict }}
+    {{- $existingServer := (lookup "v1" "Secret" $ns "falcon-api-tls").data | default dict }}
+    {{- $existingClient := (lookup "v1" "Secret" $ns "falcon-node-sensor-tls").data | default dict }}
+    {{- if and (not .Values.cluster.autoCertificateUpdate) (hasKey $existingCA "ca.crt") (hasKey $existingServer "tls.crt") (hasKey $existingServer "tls.key") (hasKey $existingClient "tls.crt") (hasKey $existingClient "tls.key") }}
+      {{- $grpcCA = dict "Cert" (index $existingCA "ca.crt" | b64dec) }}
+      {{- $grpcServerCert = dict "Cert" (index $existingServer "tls.crt" | b64dec) "Key" (index $existingServer "tls.key" | b64dec) }}
+      {{- $grpcClientCert = dict "Cert" (index $existingClient "tls.crt" | b64dec) "Key" (index $existingClient "tls.key" | b64dec) }}
+    {{- else }}
+      {{- $apiSvcName := "api" }}
+      {{- $apiFullName := printf "%s.%s.svc" $apiSvcName $ns }}
+      {{- $apiAltNames := list
+          (printf "%s" $apiFullName)
+          (printf "%s.cluster.local" $apiFullName)
+          (printf "%s.%s" $apiSvcName $ns)
+          (printf "%s" $apiSvcName) }}
+      {{- $grpcCA = genCA (printf "%s-clusterguard ca" $ns) $certValid }}
+      {{- $grpcServerCert = genSignedCert $apiFullName nil $apiAltNames $certValid $grpcCA }}
+      {{- $grpcClientCert = genSignedCert "falcon-sensor-client" nil (list (printf "URI:spiffe://cluster.local/ns/%s/sa/falcon-sensor" $ns)) $certValid $grpcCA }}
+    {{- end }}
   {{- end }}
 
   {{- $falconSecretEnabled := include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
@@ -56,6 +57,8 @@
   {{- $csiEnabled := include "falcon-clusterguard.csiEnabled" . | eq "true" }}
   {{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . }}
   {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
+{{- /* With certManager.enabled, cert-manager writes these Secrets from certificate.yaml. */}}
+{{- if not $certManager }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -71,9 +74,8 @@ data:
   tls.key: {{ $webhookCert.Key | b64enc }}
   ca.crt: {{ $webhookCA.Cert | b64enc }}
 
-{{- if not .Values.cluster.certManager.enabled }}
 ---
-# Node sensor client cert — signed by the gRPC CA, separate from the webhook cert.
+{{- /* Node sensor client cert — signed by the gRPC CA, separate from the webhook cert. */}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -87,7 +89,7 @@ data:
   tls.key: {{ $grpcClientCert.Key | b64enc }}
 
 ---
-# gRPC server cert for falcon-watcher — signed by its own CA.
+{{- /* gRPC server cert for falcon-watcher — signed by its own CA. */}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -405,9 +407,9 @@ spec:
             - name: crowdstrike-falcon-vol2
               mountPath: /var/falcon-watcher
       volumes:
-        - name: {{ include "falcon-clusterguard.name" . }}-controller-tls-certs
+        - name: falcon-cg-controller-tls-certs
           secret:
-            secretName: {{ include "falcon-clusterguard.name" . }}-controller-tls
+            secretName: falcon-cg-controller-tls
         - name: falcon-api-tls-certs
           secret:
             secretName: falcon-api-tls
@@ -440,6 +442,11 @@ metadata:
   name: {{ $validatingWebhookName }}
   labels:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+  {{- if $certManager }}
+  annotations:
+    {{- /* cert-manager's cainjector fills both webhooks' caBundle from the Certificate's CA */}}
+    cert-manager.io/inject-ca-from: {{ $ns }}/falcon-cg-controller-tls
+  {{- end }}
 webhooks:
   - name: {{ $validatingWebhookName }}
     admissionReviewVersions:
@@ -467,7 +474,9 @@ webhooks:
           values:
             - disabled
     clientConfig:
+      {{- if not $certManager }}
       caBundle: {{ $webhookCA.Cert | b64enc }}
+      {{- end }}
       {{- if .Values.cluster.domainName }}
       url: https://{{ $webhookFullName }}:443/validate
       {{- else }}
@@ -495,7 +504,9 @@ webhooks:
     admissionReviewVersions:
     - v1
     clientConfig:
+      {{- if not $certManager }}
       caBundle: {{ $webhookCA.Cert | b64enc }}
+      {{- end }}
       {{- if .Values.cluster.domainName }}
       url: https://{{ $webhookFullName }}:443/validate
       {{- else }}

@@ -1,0 +1,15 @@
+{{- if .Values.imageAnalyzer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "falcon-clusterguard.iarAgentService" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 443
+      targetPort: service-port
+  selector:
+    {{- include "falcon-clusterguard.iarSelectorLabels" . | nindent 4 }}
+{{- end }}
