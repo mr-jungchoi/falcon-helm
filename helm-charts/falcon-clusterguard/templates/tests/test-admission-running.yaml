@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: "{{ include "falcon-clusterguard.fullname" . }}-test-admission-running"
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-cg-controller-running"
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
@@ -21,16 +21,16 @@ spec:
         - |
           FAILED=0
 
-          echo "--- Waiting for admission Deployment to be available ---"
+          echo "--- Waiting for clusterguard controller Deployment to be available ---"
           kubectl wait deployment \
             "{{ include "falcon-clusterguard.controllerName" . }}" \
             -n "{{ include "falcon-clusterguard.namespace" . }}" \
             --for=condition=Available \
             --timeout=300s
 
-          echo "--- Checking admission pods are running ---"
+          echo "--- Checking clusterguard controller pods are running ---"
           ALL_PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
-            -l "app={{ include "falcon-clusterguard.name" . }}-admission" \
+            -l "app=falcon-clusterguard" \
             --field-selector=status.phase!=Running \
             -o jsonpath="{.items[*].metadata.name}" 2>&1)
           NON_RUNNING=""
@@ -40,13 +40,13 @@ spec:
             fi
           done
           if [ -n "${NON_RUNNING}" ]; then
-            echo "[FAIL]: Not all admission pods are running: ${NON_RUNNING}"
+            echo "[FAIL]: Not all cluster pods are running: ${NON_RUNNING}"
             FAILED=1
           else
-            echo "[OK]: All admission pods are running"
+            echo "[OK]: All clusterguard controller pods are running"
           fi
 
-          echo "--- Checking admission ServiceAccount ---"
+          echo "--- Checking clusterguard controller ServiceAccount ---"
           SA_NAME="{{ include "falcon-clusterguard.clusterServiceAccountName" . }}"
           if ! kubectl get serviceaccount "${SA_NAME}" -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
             echo "[FAIL]: ServiceAccount '${SA_NAME}' not found"
@@ -100,10 +100,10 @@ spec:
           echo "--- Checking pod annotations and HELM_CHART env ---"
           EXPECTED_CHART="{{ include "falcon-clusterguard.chart" . }}"
           PODS=$(kubectl get pods -n "{{ include "falcon-clusterguard.namespace" . }}" \
-            -l "app={{ include "falcon-clusterguard.name" . }}-admission" \
+            -l "app=falcon-clusterguard" \
             -o json 2>/dev/null | jq -r '.items[] | select(.metadata.annotations["helm.sh/hook"] == null) | .metadata.name')
           if [ -z "${PODS}" ]; then
-            echo "[FAIL]: No admission pods found"
+            echo "[FAIL]: No clusterguard controller pods found"
             FAILED=1
           else
             for POD in ${PODS}; do

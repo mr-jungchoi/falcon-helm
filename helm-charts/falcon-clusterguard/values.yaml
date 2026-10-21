@@ -19,7 +19,6 @@ image:
   pullSecret:
   # registryConfigJSON: base64 of docker config.json; the chart creates the Secret for you.
   # $ cat ~/.docker/config.json | base64 -w 0
-  # This setting conflicts with image.pullSecret.
   registryConfigJSON:
 
   # Overrides the image tag. In general, tags should not be used (including semver tags or `latest`).
@@ -51,9 +50,9 @@ falcon:
 
 # If falcon.cid is not defined, falconSecret.enabled must be true, and FALCONCTL_OPT_CID
 # must be defined in the referenced existing secret.
-# When image-analyzer.enabled is true, the same secret must also contain AGENT_CLIENT_ID,
+# When imageAnalyzer.enabled is true, the same secret must also contain AGENT_CLIENT_ID,
 # AGENT_CLIENT_SECRET, and AGENT_CID. Credentials are not mixed across sources: with
-# falconSecret, image-analyzer.crowdstrikeConfig.clientID/clientSecret must be empty.
+# falconSecret, imageAnalyzer.crowdstrikeConfig.clientID/clientSecret must be empty.
 falconSecret:
   enabled: false
   secretName: ""
@@ -64,10 +63,10 @@ falconSecret:
 #   - Node sensor and clusterguard controller: FALCONCTL_OPT_CID (and optionally
 #     FALCONCTL_OPT_PROVISIONING_TOKEN) are sourced from the secrets store rather than
 #     from falcon.cid or falconSecret.
-#   - Image Analyzer (when image-analyzer.enabled): AGENT_CLIENT_ID, AGENT_CLIENT_SECRET,
+#   - Image Analyzer (when imageAnalyzer.enabled): AGENT_CLIENT_ID, AGENT_CLIENT_SECRET,
 #     and AGENT_CID (unless global.falcon.cid is set).
 # Auth wiring (pod labels, serviceAccount annotations) is provider-specific and left to the
-# user via node/cluster/image-analyzer podLabels and serviceAccount.annotations.
+# user via node/cluster/imageAnalyzer podLabels and serviceAccount.annotations.
 secretsStore:
   # Component-level setting overrides global setting.
   enabled:
@@ -94,6 +93,24 @@ secretsStore:
   # Name of the secrets store secret containing the provisioning token
   # (FALCONCTL_OPT_PROVISIONING_TOKEN). Leave empty to omit.
   provisioningTokenSecretName: ""
+
+# =============================================================================
+# cert-manager integration (applies to every certificate the chart uses)
+# =============================================================================
+# When enabled, cert-manager issues all FCG TLS certificates instead of Helm generating them:
+#   - clusterguard controller admission webhook (caBundle injected by cert-manager's cainjector)
+#   - gRPC mTLS between the clusterguard controller and node sensors
+#   - image analyzer agent service
+# cluster.autoCertificateUpdate and imageAnalyzer.iarAgentService.autoCertificateUpdate are
+# ignored; cert-manager handles renewal. Validity periods still come from cluster.certExpiration
+# and imageAnalyzer.iarAgentService.certExpiration.
+# Requires cert-manager (including cainjector) in the cluster and an issuerRef that can issue
+# certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
+certManager:
+  enabled: false
+  issuerRef: {}
+  #  name: selfsigned-cluster-issuer
+  #  kind: ClusterIssuer
 
 # =============================================================================
 # Node sensor DaemonSet configuration
@@ -247,21 +264,13 @@ cluster:
   dnsPolicy:
 
   # Auto update the TLS certificates every time there is a helm upgrade.
-  # Set to `false` to preserve existing certs across upgrades.
+  # Set to `false` to preserve existing certs across upgrades. Covers the admission webhook cert
+  # and the gRPC mTLS certs; each set is reused only if all of its Secrets still exist, otherwise
+  # the whole set is regenerated together. Ignored when certManager.enabled=true.
   autoCertificateUpdate: true
 
   # Certificate validity duration in number of days
   certExpiration: 3650
-
-  # cert-manager integration for gRPC mTLS certificates.
-  # When enabled, cert-manager Certificate resources are created for the API server
-  # and node sensor client certs instead of using Helm-generated self-signed certs.
-  # Requires cert-manager to be installed in the cluster and an issuerRef to be configured.
-  certManager:
-    enabled: false
-    issuerRef: {}
-    #  name: selfsigned-cluster-issuer
-    #  kind: ClusterIssuer
 
   # For custom DNS configurations when .svc requires a domain for services.
   # For example if service.my-namespace.svc doesn't resolve and the cluster uses
@@ -371,24 +380,33 @@ cluster:
 # =============================================================================
 # Image Analyzer configuration
 # =============================================================================
-# When image-analyzer.enabled is true, a falcon-imageanalyzer Deployment is added to this
+# When imageAnalyzer.enabled is true, a falcon-imageanalyzer Deployment is added to this
 # chart release in the same namespace as the rest of FCG.
-image-analyzer:
+imageAnalyzer:
   enabled: false
+
+  # Workload type for the image analyzer:
+  #   deployment — watcher mode. A single pod discovers running images through the Kubernetes
+  #                API and pulls them from their registries. No host access.
+  #   daemonset  — socket mode. A privileged pod on every node reads images directly from the
+  #                container runtime socket. Requires crowdstrikeConfig.agentRuntime.
+  mode: deployment
 
   serviceAccount:
     name: ""
     annotations: {}
 
-  replicaCount: 1
-
   crowdstrikeConfig:
     enableKlogs: "false"
     clientID: ""
     clientSecret: ""
-    dockerAPIToken: ""
     agentRegion: "autodiscovery"
     agentMaxConsumerThreads: "1"
+    # DaemonSet mode only. Container runtime on the nodes: docker, containerd, crio, or podman.
+    agentRuntime: ""
+    # DaemonSet mode only. Runtime socket, e.g. unix:///run/containerd/containerd.sock.
+    # Defaults to the standard socket for agentRuntime.
+    agentRuntimeSocket: ""
 
   # Namespace exclusions for IAR scanning — comma-separated list
   exclusions:
@@ -405,6 +423,13 @@ image-analyzer:
   podAnnotations: {}
   podLabels: {}
   podSecurityContext: {}
+
+  # DaemonSet mode only. Container security context. Supports privileged, allowPrivilegeEscalation,
+  # runAsUser, and runAsGroup; other keys are ignored. The DaemonSet needs privileged access to the
+  # container runtime socket, so any of these not set here defaults to:
+  #   privileged: true, allowPrivilegeEscalation: true, runAsUser: 0, runAsGroup: 0
+  # Deployment mode always uses a fixed, non-privileged security context.
+  securityContext: {}
 
   resources: {}
 
@@ -436,7 +461,10 @@ image-analyzer:
   # IAR agent service configuration
   iarAgentService:
     httpPort: 8001
+    # Regenerate the IAR TLS certificate on every helm upgrade. Set to `false` to reuse the
+    # existing certificate, key, and CA from the TLS Secret. Ignored when certManager.enabled=true.
     autoCertificateUpdate: true
+    # Certificate validity in days (also used for the cert-manager Certificate duration)
     certExpiration: 3650
     domainName:
 
@@ -496,11 +524,11 @@ openshift:
   # Name of the node sensor SCC. Defaults to "<release-fullname>-node-sensor".
   nodeSCCName: ""
 
-  # Name of the admission SCC. Defaults to "<release-fullname>-admission".
-  admissionSCCName: ""
+  # Name of the clusterguard controller SCC. Defaults to "<release-fullname>-cg-controller".
+  cgControllerSCCName: ""
 
   # Name of the image analyzer SCC. Defaults to "<release-fullname>-iar".
-  iarSccName: ""
+  iarSCCName: ""
 
 # Global values — used when falcon-clusterguard is deployed as a subchart of falcon-platform.
 # These mirror the global values schema of the other falcon-platform subcharts.

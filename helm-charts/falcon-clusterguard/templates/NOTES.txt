@@ -3,6 +3,13 @@ Falcon Cluster Guard has been installed.
 Release:   {{ .Release.Name }}
 Namespace: {{ include "falcon-clusterguard.namespace" . }}
 Version:   {{ .Chart.AppVersion }}
+{{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+Falcon CID: Secrets Store CSI ({{ include "falcon-clusterguard.csiSecretName" . }})
+{{- else if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
+Falcon CID: existing secret ({{ include "falcon-clusterguard.falconSecretName" . }})
+{{- else }}
+Falcon CID: Helm values (falcon.cid)
+{{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -25,14 +32,15 @@ WORKLOADS
 
   Cluster Guard Controller: disabled (cluster.disableClusterGuard is set)
 {{- end }}
-{{- if (index .Values "image-analyzer").enabled }}
+{{- if .Values.imageAnalyzer.enabled }}
+{{- $iarKind := ternary "DaemonSet" "Deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
 
-  Image Analyzer Deployment:
-    kubectl rollout status deployment/{{ include "falcon-clusterguard.iarFullname" . }} \
+  Image Analyzer {{ $iarKind }}:
+    kubectl rollout status {{ lower $iarKind }}/{{ include "falcon-clusterguard.iarFullname" . }} \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
 
-  Image Analyzer: disabled (image-analyzer.enabled=false)
+  Image Analyzer: disabled (imageAnalyzer.enabled=false)
 {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -49,18 +57,42 @@ FALCON CLUSTER GUARD CONTROLLER CONFIGURATION
     Set cluster.admissionControl.enabled=true to enable the validating webhook.
   {{- end }}
 
-  {{- if .Values.cluster.certManager.enabled }}
+  {{- if .Values.certManager.enabled }}
 
-  gRPC mTLS certificates are issued by cert-manager.
+  TLS certificates (admission webhook and gRPC mTLS) are issued by cert-manager.
   {{- else }}
 
   TLS certificates are auto-generated on install.
-  {{- end }}
   {{- if .Values.cluster.autoCertificateUpdate }}
   Auto-rotation is ENABLED — Helm-generated certs refresh on every helm upgrade.
   {{- else }}
   Auto-rotation is DISABLED — Helm-generated certs are preserved across upgrades.
   {{- end }}
+  {{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+{{- if .Values.imageAnalyzer.enabled }}
+
+FALCON IMAGE ANALYZER CONFIGURATION
+  {{- if include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
+  Mode:          socket (DaemonSet)
+  Runtime:       {{ .Values.imageAnalyzer.crowdstrikeConfig.agentRuntime }} ({{ include "falcon-clusterguard.iarAgentRuntimeSocket" . }})
+  {{- else }}
+  Mode:          watcher (Deployment)
+  {{- end }}
+  Agent Service: {{ include "falcon-clusterguard.iarAgentService" . }}.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+  {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+  Credentials:   Secrets Store CSI ({{ include "falcon-clusterguard.iarCsiSecretName" . }})
+  {{- else if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
+  Credentials:   existing secret ({{ include "falcon-clusterguard.falconSecretName" . }})
+  {{- else }}
+  Credentials:   chart-managed secret ({{ include "falcon-clusterguard.iarFullname" . }})
+  {{- end }}
+
+  View Image Analyzer logs:
+    kubectl logs -l app=falcon-image-analyzer \
+      -n {{ include "falcon-clusterguard.namespace" . }} --tail=100
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {{- end }}

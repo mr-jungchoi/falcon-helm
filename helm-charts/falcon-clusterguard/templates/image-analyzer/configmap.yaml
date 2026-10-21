@@ -1,0 +1,42 @@
+{{- $imageAnalyzer := .Values.imageAnalyzer }}
+{{- if $imageAnalyzer.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "falcon-clusterguard.iarFullname" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+  {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+data:
+  FALCON_MODE: "iar"
+  SECRETS_AUTODISCOVER_ENABLED: {{ $imageAnalyzer.privateRegistries.autoDiscoverCredentials | quote }}
+  IAR_AGENT_SERVICE_PORT: {{ $imageAnalyzer.iarAgentService.httpPort | quote }}
+  WATCHER_LIST_PAGESIZE: {{ $imageAnalyzer.watcher.listPageSize | quote }}
+  IS_KUBERNETES: "true"
+  AGENT_HELM_VERSION: {{ .Chart.Version | quote }}
+  LOG_OUTPUT: {{ $imageAnalyzer.log.output | quote }}
+  LOG_VERBOSITY: {{ $imageAnalyzer.log.verbosity | quote }}
+  AGENT_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
+  AGENT_REGISTRY_CREDENTIALS: {{ $imageAnalyzer.privateRegistries.credentials | quote }}
+  AGENT_NAMESPACE_EXCLUSIONS: {{ $imageAnalyzer.exclusions.namespace | quote }}
+  AGENT_REGISTRY_EXCLUSIONS: {{ $imageAnalyzer.exclusions.registry | quote }}
+  AGENT_IMAGE_EXCLUSIONS: {{ $imageAnalyzer.exclusions.imageName | quote }}
+  ENABLE_KLOGS: {{ $imageAnalyzer.crowdstrikeConfig.enableKlogs | quote }}
+  AGENT_RUNMODE: {{ ternary "socket" "watcher" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") | quote }}
+  AGENT_REGION: {{ $imageAnalyzer.crowdstrikeConfig.agentRegion | quote }}
+  AGENT_TEMP_MOUNT_SIZE: {{ include "falcon-clusterguard.iarTempVolSize" . | quote }}
+  {{- if include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
+  AGENT_RUNTIME: {{ $imageAnalyzer.crowdstrikeConfig.agentRuntime | quote }}
+  AGENT_RUNTIME_SOCKET: {{ include "falcon-clusterguard.iarAgentRuntimeSocket" . | quote }}
+  {{- end }}
+  AGENT_MAX_CONSUMER_THREADS: {{ $imageAnalyzer.crowdstrikeConfig.agentMaxConsumerThreads | quote }}
+  {{- if $imageAnalyzer.proxyConfig.HTTP_PROXY }}
+  HTTP_PROXY: {{ $imageAnalyzer.proxyConfig.HTTP_PROXY }}
+  {{- end }}
+  {{- if $imageAnalyzer.proxyConfig.HTTPS_PROXY }}
+  HTTPS_PROXY: {{ $imageAnalyzer.proxyConfig.HTTPS_PROXY }}
+  {{- end }}
+  {{- if $imageAnalyzer.proxyConfig.NO_PROXY }}
+  NO_PROXY: {{ $imageAnalyzer.proxyConfig.NO_PROXY }}
+  {{- end }}
+{{- end }}

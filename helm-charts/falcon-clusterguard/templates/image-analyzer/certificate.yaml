@@ -1,0 +1,23 @@
+{{- if and .Values.imageAnalyzer.enabled .Values.certManager.enabled }}
+{{- /*
+Image Analyzer agent service certificate, issued directly by the configured issuer.
+Written to the same Secret the Helm-generated certificate uses (image-analyzer/tls-secret.yaml),
+so the IAR pod mounts it the same way in either mode.
+*/}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "falcon-clusterguard.iarName" . }}-tls
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+spec:
+  secretName: {{ include "falcon-clusterguard.iarName" . }}-tls
+  issuerRef:
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.imageAnalyzer.iarAgentService.certExpiration 24 }}h"
+  dnsNames:
+    {{- include "falcon-clusterguard.iarDNSNames" . | nindent 4 }}
+  usages:
+    - server auth
+{{- end }}

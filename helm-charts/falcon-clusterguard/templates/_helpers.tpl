@@ -2,7 +2,26 @@
 Expand the name of the chart.
 */}}
 {{- define "falcon-clusterguard.name" -}}
-{{- default "falcon-clusterguard" .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+TODO: Make sure names when migrating are persisted as much as possible. Otherwise highlight the name changes in the output of the migration script
+Create a default fully qualified app name.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name.
+*/}}
+{{- define "falcon-clusterguard.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -30,22 +49,18 @@ Set the webhook name (used in ValidatingWebhookConfiguration)
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
-If release name contains chart name it will be used as a full name.
+DNS names for the admission webhook TLS certificate, as a YAML list (use with fromYamlArray).
+The first entry is the certificate's common name. Shared by the Helm-generated certificate
+(cg-controller/deployment.yaml) and the cert-manager Certificate (cg-controller/certificate.yaml).
 */}}
-{{- define "falcon-clusterguard.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- define "falcon-clusterguard.webhookDNSNames" -}}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+{{- $fullName := printf "webhook.%s.svc" $ns -}}
+{{- if .Values.cluster.domainName -}}
+{{- $fullName = printf "webhook.%s.svc.%s" $ns .Values.cluster.domainName -}}
+{{- end -}}
+{{- list $fullName (printf "%s.cluster.local" $fullName) (printf "webhook.%s" $ns) "webhook" | toYaml -}}
+{{- end -}}
 
 {{/*
 Create chart name and version as used by the chart label.
@@ -121,7 +136,7 @@ ServiceAccount name for the node sensor DaemonSet (privileged; bound to node SCC
 {{- end }}
 
 {{/*
-ServiceAccount name for the admission controller Deployment (restricted; no host access)
+ServiceAccount name for the clusterguard controller Deployment (restricted; no host access)
 */}}
 {{- define "falcon-clusterguard.clusterServiceAccountName" -}}
 {{- default (printf "%s-clusterguard-controller-sa" (include "falcon-clusterguard.fullname" .)) .Values.cluster.serviceAccount.name }}
@@ -195,14 +210,15 @@ Init container args for the node daemonset (falconstore setup + cluster-id confi
 args:
   - '-c'
   - >-
+      set -e;
+      if [ ! -f /opt/CrowdStrike/falcon-daemonset-init ]; then
+      echo "Error: This is not a falcon cluster guard image";
+      exit 1;
+      fi;
       echo "Running /opt/CrowdStrike/falcon-daemonset-init -i";
       /opt/CrowdStrike/falcon-daemonset-init -i;
-      if [ ! -f /opt/CrowdStrike/configure-cluster-id ]; then
-      echo "/opt/CrowdStrike/configure-cluster-id not found. Skipping.";
-      else
       echo "Running /opt/CrowdStrike/configure-cluster-id";
       /opt/CrowdStrike/configure-cluster-id;
-      fi
 {{- end -}}
 
 {{/*
@@ -214,7 +230,7 @@ Fixed name — required by GKE Autopilot WorkloadAllowlist and matches the refer
 {{- end -}}
 
 {{/*
-ConfigMap name for the admission controller Deployment.
+ConfigMap name for the clusterguard controller Deployment.
 */}}
 {{- define "falcon-clusterguard.cgContollerConfigMapName" -}}
 {{- printf "falcon-clusterguard-config" -}}
@@ -351,15 +367,17 @@ false
 Validate high level FCG components are configured properly
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") (not .Values.node.enabled) -}}
-{{- fail "Error: at least one of Node Sensor or Cluster Guard must be enabled." -}}
-{{- end -}}
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.cluster.admissionControl.enabled -}}
-{{- fail "Error: cluster.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." -}}
-{{- end -}}
-{{- if and (not .Values.image.tag) (not .Values.image.digest) -}}
-{{- fail "Error: image.tag or image.digest must be set." -}}
-{{- end -}}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") (not .Values.node.enabled) }}
+    {{ fail "Error: at least one of Node Sensor or Cluster Guard must be enabled." }}
+{{- end }}
+
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.cluster.admissionControl.enabled }}
+    {{ fail "Error: cluster.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." }}
+{{- end }}
+
+{{- if and (not .Values.image.tag) (not .Values.image.digest) }}
+    {{ fail "Error: image.tag or image.digest must be set." }}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -440,6 +458,26 @@ Used by the Secret itself and by every workload that pulls the FCG image.
 {{- end -}}
 
 {{/*
+Validate IAR workload mode settings.
+*/}}
+{{- define "falcon-clusterguard.validateIarMode" -}}
+{{- $imageAnalyzer := .Values.imageAnalyzer }}
+{{- $errors := list -}}
+
+{{- if not (has $imageAnalyzer.mode (list "deployment" "daemonset")) -}}
+    {{- $errors = append $errors (printf "imageAnalyzer.mode must be deployment or daemonset, got %q" (toString $imageAnalyzer.mode)) -}}
+{{- else if eq (toString $imageAnalyzer.mode) "daemonset" -}}
+    {{- if not (has $imageAnalyzer.crowdstrikeConfig.agentRuntime (list "docker" "containerd" "crio" "podman")) -}}
+        {{- $errors = append $errors "imageAnalyzer.crowdstrikeConfig.agentRuntime must be docker, containerd, crio, or podman when imageAnalyzer.mode is daemonset" -}}
+    {{- end -}}
+{{- end -}}
+
+{{- if $errors -}}
+    {{- fail (printf "IAR mode validation failed:\n  - %s" (join "\n  - " $errors)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get the name of the Kubernetes secret created by the CSI driver.
 */}}
 {{- define "falcon-clusterguard.csiSecretName" -}}
@@ -503,13 +541,13 @@ OpenShift SCC name for the node sensor DaemonSet (privileged SCC)
 {{- end -}}
 
 {{/*
-OpenShift SCC name for the admission controller Deployment (hostNetwork SCC)
+OpenShift SCC name for the clusterguard controller Deployment (hostNetwork SCC)
 */}}
 {{- define "falcon-clusterguard.cgControllerSccName" -}}
-{{- if .Values.openshift.admissionSCCName -}}
-{{- .Values.openshift.admissionSCCName -}}
+{{- if .Values.openshift.cgControllerSCCName -}}
+{{- .Values.openshift.cgControllerSCCName -}}
 {{- else -}}
-{{- printf "%s-admission" (include "falcon-clusterguard.fullname" .) -}}
+{{- printf "%s-cg-controller" (include "falcon-clusterguard.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
@@ -530,7 +568,7 @@ OpenShift node createSCC — false if either chart-level or global disables it.
 {{/*
 OpenShift clusterguard controller createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
 */}}
-{{- define "falcon-clusterguard.openshiftAdmissionCreateSCC" -}}
+{{- define "falcon-clusterguard.openshiftCgControllerSCCName" -}}
 {{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}
 {{- end -}}
 

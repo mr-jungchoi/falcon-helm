@@ -573,7 +573,7 @@ The Falcon Platform supports sourcing credentials from external secret stores vi
 For Azure Key Vault, the vault name, tenant ID, and optional workload identity client ID can be configured once under `global.secretsStore` and shared across all components. Per-component values override globals when both are set.
 
 > [!NOTE]
-> When the Secrets Store CSI Driver is enabled for `falcon-sensor` or `falcon-kac`, it is mutually exclusive with `falcon.cid`/`global.falcon.cid` and `falconSecret`. For `falcon-image-analyzer`, it is mutually exclusive with `crowdstrikeConfig.clientID`/`clientSecret` and `existingSecret`, but CID can still be supplied via `crowdstrikeConfig.cid` or `global.falcon.cid` alongside the secrets store — if either is set, `falcon-cid` is not fetched from the secrets store.
+> `falcon-clusterguard` uses one `secretsStore` block for the node sensor, clusterguard controller, and image analyzer. When it is enabled, it is mutually exclusive with `falcon.cid`/`global.falcon.cid` and `falconSecret`, so every FCG component (including the image analyzer) reads the CID from `falcon-cid`. The image analyzer also cannot be combined with `imageAnalyzer.crowdstrikeConfig.clientID`/`clientSecret`. In general, the FCG image analyzer's client ID, client secret, and CID must all come from one source: Helm values, the `falconSecret`/`global.falconSecret` secret (keys `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, `AGENT_CID`), or the secrets store.
 
 #### Prerequisites (all components)
 
@@ -589,15 +589,17 @@ For Azure Key Vault, the vault name, tenant ID, and optional workload identity c
 
 **Azure Key Vault** (fixed secret names):
 
-| Component              | Secret name (Azure)             | Env var mapped                      |
-|:-----------------------|:--------------------------------|:------------------------------------|
-| falcon-sensor          | `falcon-cid`                    | `FALCONCTL_OPT_CID`                 |
+| Component              | Secret name (Azure)                                  | Env var mapped                      |
+|:-----------------------|:-----------------------------------------------------|:------------------------------------|
+| falcon-sensor          | `falcon-cid`                                         | `FALCONCTL_OPT_CID`                 |
 | falcon-sensor          | `falcon-provisioning-token` (optional, configurable) | `FALCONCTL_OPT_PROVISIONING_TOKEN`  |
-| falcon-kac             | `falcon-cid`                    | `FALCONCTL_OPT_CID`                 |
-| falcon-kac             | `falcon-provisioning-token` (optional, configurable) | `FALCONCTL_OPT_PROVISIONING_TOKEN`  |
-| falcon-image-analyzer  | `falcon-client-id`              | `AGENT_CLIENT_ID`                   |
-| falcon-image-analyzer  | `falcon-client-secret`          | `AGENT_CLIENT_SECRET`               |
-| falcon-image-analyzer  | `falcon-cid` (only if `crowdstrikeConfig.cid` / `global.falcon.cid` not set) | `AGENT_CID` |
+| falcon-clusterguard (node sensor, cg-controller) | `falcon-cid`                                          | `FALCONCTL_OPT_CID`                |
+| falcon-clusterguard (node sensor, cg-controller) | `secretsStore.provisioningTokenSecretName` (optional) | `FALCONCTL_OPT_PROVISIONING_TOKEN` |
+| falcon-clusterguard (image analyzer)             | `falcon-client-id`     | `AGENT_CLIENT_ID`             |
+| falcon-clusterguard (image analyzer)             | `falcon-client-secret` | `AGENT_CLIENT_SECRET`         |
+| falcon-clusterguard (image analyzer)             | `falcon-cid`           | `AGENT_CID`                   |
+
+`falcon-clusterguard` creates two SecretProviderClasses in its namespace, `<release-fullname>-csi` for the node sensor and clusterguard controller and `<release-fullname>-iar-csi` for the Image Analyzer, so the Image Analyzer's API client credentials are never mounted by the node sensor. If `global.secretsStore.secretName` is set, FCG uses it for the node sensor/controller secret and `<secretName>-iar` for the Image Analyzer secret.
 
 #### Example configuration
 
@@ -622,27 +624,32 @@ falcon-sensor:
   serviceAccount:
     annotations:
       azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  container:
+    podLabels:
+      azure.workload.identity/use: "true"
+
+falcon-clusterguard:
   node:
-    daemonset:
-      labels:
-        azure.workload.identity/use: "true"
-
-falcon-kac:
-  serviceAccount:
-    annotations:
-      azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  labels:
-    azure.workload.identity/use: "true"
-
-falcon-image-analyzer:
-  serviceAccount:
-    annotations:
-      azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  podLabels:
-    azure.workload.identity/use: "true"
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    podLabels:
+      azure.workload.identity/use: "true"
+  cluster:
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    podLabels:
+      azure.workload.identity/use: "true"
+  imageAnalyzer:          # only when the FCG Image Analyzer is enabled
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    podLabels:
+      azure.workload.identity/use: "true"
 ```
 
-To use a custom provisioning token secret name for `falcon-sensor` or `falcon-kac`, set `secretsStore.provisioningTokenSecretName`.
+To use a custom provisioning token secret name for `falcon-sensor` or `falcon-clusterguard`, set `secretsStore.provisioningTokenSecretName` in that component's section.
 
 Each component can still override `vaultName`, `tenantID`, or `clientID` individually if needed — per-component values take precedence over globals.
 
@@ -757,7 +764,7 @@ of `falcon-platform` that includes FCG, follow the steps below.
 | Node sensor      | `falcon-sensor` subchart, `falcon-sensor.node.*`       | `falcon-clusterguard.node.*` — `falcon-sensor` subchart removed |
 | Container sensor | `falcon-sensor.container.*`                            | **Unchanged** — `falcon-sensor` subchart retained if container mode is needed |
 | KAC              | `falcon-kac` subchart, `falcon-kac.*`                  | `falcon-clusterguard.cluster.*` — `falcon-kac` subchart removed |
-| Image scanning   | `falcon-image-analyzer.*`                              | Deprecated — see `falcon-image-analyzer` subchart docs |
+| Image scanning   | `falcon-image-analyzer` subchart, `falcon-image-analyzer.*` | `falcon-clusterguard.imageAnalyzer.*` — `falcon-image-analyzer` subchart disabled |
 | Container image  | Separate images per component                          | Single unified FCG image              |
 | Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer` | `falcon-system` for FCG               |
 
@@ -778,7 +785,7 @@ pip3 install ruamel.yaml
 
 **Preview the migration (no files written):**
 ```bash
-python3 scripts/migrate-to-fcg.py --input my-values.yaml --dry-run
+python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --dry-run
 ```
 
 Review the warnings printed to stderr — they flag deprecated keys and anything that needs
@@ -786,7 +793,7 @@ manual attention before proceeding.
 
 **Write the migrated file:**
 ```bash
-python3 scripts/migrate-to-fcg.py --input my-values.yaml --output my-values-fcg.yaml
+python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --output my-values-fcg.yaml
 ```
 
 **Diff the result:**
@@ -809,19 +816,26 @@ remove any that are flagged, particularly:
 | `falcon-kac.tlsVersionMinimum` | Remove — not supported in FCG |
 | `falcon-kac.podLabels` | Remove — not supported in FCG clusterguard controller |
 
-### Step 3 — Confirm namespace references
+### Step 3 — Confirm the image analyzer settings
 
-The migration script automatically updates `falcon-image-analyzer.kac.namespace` to match
-the FCG namespace (taken from `falcon-sensor.namespaceOverride`, defaulting to `falcon-system`).
-Confirm the value in the migrated file is correct for your cluster:
+The migration script moves `falcon-image-analyzer.*` values to `falcon-clusterguard.imageAnalyzer.*`
+and disables the standalone subchart:
 
 ```yaml
+falcon-clusterguard:
+  imageAnalyzer:
+    enabled: true
+    crowdstrikeConfig:
+      clientID: "abc123"
+      clientSecret: "secret"
+
 falcon-image-analyzer:
-  kac:
-    namespace: falcon-system   # updated by migration script from old falcon-kac namespace
+  enabled: false   # falcon-platform defaults this to true; keep it false so only the FCG image analyzer runs
 ```
 
-If you use a custom namespace override, verify this matches `falcon-clusterguard.namespaceOverride`.
+The image analyzer now runs in the FCG namespace from the FCG image, so `falcon-image-analyzer.kac.namespace`,
+`namespaceOverride`, and `image.repository`/`tag` are no longer used. Check the script warnings for
+settings that need manual attention, such as `crowdstrikeConfig.existingSecret` or `secretsStore`.
 
 ### Step 4 — Apply the upgrade
 
@@ -928,6 +942,9 @@ falcon-clusterguard:
     crowdstrikeConfig:
       clientID: "abc123"
       clientSecret: "secret"
+
+falcon-image-analyzer:
+  enabled: false
 ```
 
 ### Container sensor + FCG together

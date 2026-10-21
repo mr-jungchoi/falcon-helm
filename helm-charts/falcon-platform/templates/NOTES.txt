@@ -36,6 +36,19 @@ container registry accessible to your Kubernetes deployment.
     {{- end }}
   {{- end }}
 
+  {{- if $fcg.imageAnalyzer.enabled }}
+
+  {{- if eq (toString $fcg.imageAnalyzer.mode) "daemonset" }}
+  ✓ Image Analyzer (DaemonSet)
+    - Mode: socket
+    - Runtime: {{ $fcg.imageAnalyzer.crowdstrikeConfig.agentRuntime }}
+  {{- else }}
+  ✓ Image Analyzer (Deployment)
+    - Mode: watcher
+  {{- end }}
+    - Cluster name: {{ ($fcg.node).clusterName | default "(auto-discovered)" }}
+  {{- end }}
+
 {{- end }}
 
 {{- if (index .Values "falcon-sensor").enabled }}
@@ -108,6 +121,10 @@ Monitor components:
   {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
   Cluster Guard Controller Deployment:
     kubectl rollout status deployment/{{ printf "%s-controller" ($fcg.nameOverride | default "falcon-clusterguard" | trunc 52 | trimSuffix "-") }} -n {{ $ns }}
+  {{- end }}
+  {{- if $fcg.imageAnalyzer.enabled }}
+  Image Analyzer pods:
+    kubectl get pods -l app=falcon-image-analyzer -n {{ $ns }}
   {{- end }}
 {{- end }}
 

@@ -1,0 +1,16 @@
+{{- if .Values.imageAnalyzer.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "falcon-clusterguard.iarFullname" . }}
+  labels:
+  {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "falcon-clusterguard.iarServiceAccountName" . }}
+    namespace: {{ include "falcon-clusterguard.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "falcon-clusterguard.iarFullname" . }}
+{{- end }}

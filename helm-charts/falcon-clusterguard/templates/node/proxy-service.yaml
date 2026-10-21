@@ -9,7 +9,7 @@ metadata:
 spec:
   selector:
     {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 4 }}
-  # Local routing ensures each client pod reaches only the proxy on its own node.
+  {{- /* Local routing ensures each client pod reaches only the proxy on its own node. */}}
   internalTrafficPolicy: Local
   ports:
   - name: proxy

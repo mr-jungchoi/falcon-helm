@@ -1,8 +1,33 @@
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.certManager.enabled }}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.certManager.enabled }}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 
-# Self-signed CA certificate for gRPC mTLS.
-# Both the server cert and client cert are signed by this CA so they share a trust root.
+{{- /* Admission webhook server certificate, issued directly by the configured issuer.
+       The ValidatingWebhookConfiguration's caBundle is filled from this Certificate by
+       cert-manager's cainjector (cert-manager.io/inject-ca-from annotation). */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-cg-controller-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  secretName: falcon-cg-controller-tls
+  secretTemplate:
+    labels:
+      app: falcon-kac
+  issuerRef:
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
+  dnsNames:
+    {{- include "falcon-clusterguard.webhookDNSNames" . | nindent 4 }}
+  usages:
+    - server auth
+
+---
+
+{{- /* Self-signed CA certificate for gRPC mTLS.
+       Both the server cert and client cert are signed by this CA so they share a trust root. */}}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -13,7 +38,7 @@ metadata:
 spec:
   secretName: falcon-api-ca
   issuerRef:
-    {{- toYaml .Values.cluster.certManager.issuerRef | nindent 4 }}
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
   duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
   commonName: falcon-clusterguard-grpc-ca
   isCA: true
@@ -22,8 +47,8 @@ spec:
     - crl sign
 
 ---
-# Namespaced CA Issuer backed by the CA cert above.
-# Both leaf certs reference this issuer so they share the same CA trust root.
+{{- /* Namespaced CA Issuer backed by the CA cert above.
+       Both leaf certs reference this issuer so they share the same CA trust root. */}}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -36,7 +61,7 @@ spec:
     secretName: falcon-api-ca
 
 ---
-# gRPC API server certificate — presented by falcon-watcher to node sensors.
+{{- /* gRPC API server certificate — presented by falcon-watcher to node sensors. */}}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -59,8 +84,8 @@ spec:
     - server auth
 
 ---
-# Node sensor client certificate — presented by falcon-sensor pods to the gRPC server.
-# SPIFFE URI SAN allows the gRPC server to enforce identity-based authorization.
+{{- /* Node sensor client certificate — presented by falcon-sensor pods to the gRPC server.
+       SPIFFE URI SAN allows the gRPC server to enforce identity-based authorization. */}}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
