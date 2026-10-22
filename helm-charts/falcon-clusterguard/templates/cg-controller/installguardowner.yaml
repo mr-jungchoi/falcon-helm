@@ -1,0 +1,15 @@
+{{- /*
+  Owner of the install guard ValidatingWebhookConfiguration that KAC creates at
+  runtime when tamper protection is enabled (CRD in crds/). KAC sets this object
+  as the VWC's owner reference, so the VWC is garbage-collected when the release
+  is uninstalled. KAC looks it up by this fixed name (cluster-scoped, so a name
+  derived from the release would not be found).
+*/}}
+{{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+apiVersion: falcon.crowdstrike.com/v1alpha1
+kind: InstallGuardOwner
+metadata:
+  name: falcon-clusterguard
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+{{- end }}
