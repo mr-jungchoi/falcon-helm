@@ -1,4 +1,10 @@
-{{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
+{{- /*
+  Created whenever ClusterGuard is deployed, regardless of admission control:
+  the install guard webhook (a ValidatingWebhookConfiguration created at
+  runtime by KAC when tamper protection is enabled) also routes through this
+  Service.
+*/}}
+{{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
 apiVersion: v1
 kind: Service
 metadata:
