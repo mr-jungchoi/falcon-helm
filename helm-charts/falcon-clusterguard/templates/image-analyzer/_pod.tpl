@@ -131,10 +131,10 @@ spec:
       {{- end }}
       envFrom:
         - configMapRef:
-            name: {{ include "falcon-clusterguard.iarFullname" . }}
+            name: {{ include "falcon-clusterguard.iarName" . }}
         {{- if include "falcon-clusterguard.iarShouldCreateClientCredsInSecret" . | trim | eq "true" }}
         - secretRef:
-            name: {{ include "falcon-clusterguard.iarFullname" . }}
+            name: {{ include "falcon-clusterguard.iarName" . }}
         {{- end }}
         {{- if and (include "falcon-clusterguard.falconSecretEnabled" . | eq "true") (not (include "falcon-clusterguard.csiEnabled" . | eq "true")) }}
         - secretRef:
@@ -178,7 +178,7 @@ spec:
         driver: secrets-store.csi.k8s.io
         readOnly: true
         volumeAttributes:
-          secretProviderClass: {{ include "falcon-clusterguard.iarFullname" . }}-csi
+          secretProviderClass: {{ include "falcon-clusterguard.iarName" . }}-csi
     {{- end }}
     - name: {{ include "falcon-clusterguard.iarName" . }}-tls-certs
       secret:
