@@ -58,7 +58,16 @@ rules:
     resourceNames:
       - "install-guard.falcon-clusterguard.crowdstrike.com"
     verbs:
+      - update
       - delete
+  - apiGroups:
+      - "falcon.crowdstrike.com"
+    resources:
+      - installguardowners
+    resourceNames:
+      - "falcon-clusterguard"
+    verbs:
+      - get
   - apiGroups:
       - "rbac.authorization.k8s.io"
     resources:
