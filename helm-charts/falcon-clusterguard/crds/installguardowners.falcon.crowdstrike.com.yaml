@@ -1,0 +1,32 @@
+# InstallGuardOwner: a cluster-scoped marker object, owner of the install guard
+# ValidatingWebhookConfiguration that KAC creates at runtime when tamper
+# protection is enabled. The chart creates one instance
+# (templates/cg-controller/installguardowner.yaml); when it is deleted with the
+# release, Kubernetes garbage-collects the install guard VWC, so it does not
+# outlive the chart. It holds no data.
+#
+# In crds/: Helm installs it before the templates and never upgrades or deletes
+# it. Deleting the CRD is not needed for the cleanup: the owner is the instance,
+# which is a regular template object.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: installguardowners.falcon.crowdstrike.com
+spec:
+  group: falcon.crowdstrike.com
+  scope: Cluster
+  names:
+    kind: InstallGuardOwner
+    listKind: InstallGuardOwnerList
+    plural: installguardowners
+    singular: installguardowner
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: >-
+            Owner of the FCG install guard ValidatingWebhookConfiguration created
+            by KAC. Deleting it removes that webhook configuration.
