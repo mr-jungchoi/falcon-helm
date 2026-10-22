@@ -209,10 +209,6 @@ spec:
             - name: falcon-api-ca
               mountPath: /run/secrets/ca
               readOnly: true
-            {{- /* KAC install guard state (key installguard.state: armed, disarmed
-                   or disabled), polled by the sensor. Mounted as a directory, not
-                   subPath: kubelet does not propagate ConfigMap updates to subPath
-                   mounts. The mount path is fixed by the sensor. */}}
             - name: clusterguard-state
               mountPath: /opt/CrowdStrike/clusterguard-state
               readOnly: true
