@@ -5,8 +5,9 @@ metadata:
   name: webhook
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
+    {{- /* `app: falcon-kac` label is necessary for IAR to discover the KAC webhook service */}}
     app: falcon-kac
-    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.cgControllerLabelsWithoutSelector" . | nindent 4 }}
 spec:
   selector:
     {{- include "falcon-clusterguard.cgControllerSelectorLabels" . | nindent 4 }}

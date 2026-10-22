@@ -6,8 +6,8 @@ host volumes, which are only added in DaemonSet mode.
 {{- define "falcon-clusterguard.iarPodTemplate" -}}
 {{- $imageAnalyzer := .Values.imageAnalyzer }}
 {{- $isDaemonset := include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
-{{- $imagePullSecret := include "falcon-clusterguard.pullSecretName" . }}
-{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
+{{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . }}
+{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
 metadata:
   annotations:
     sensor.falcon-system.crowdstrike.com/injection: disabled
@@ -27,11 +27,11 @@ metadata:
 spec:
   {{- if or $imagePullSecret $registryConfigJson }}
   imagePullSecrets:
-    {{- if $registryConfigJson }}
-    - name: {{ include "falcon-clusterguard.pullSecretName" . }}
-    {{- end }}
     {{- if $imagePullSecret }}
     - name: {{ $imagePullSecret }}
+    {{- end }}
+    {{- if $registryConfigJson }}
+    - name: {{ include "falcon-clusterguard.pullSecretName" . }}
     {{- end }}
   {{- end }}
   serviceAccountName: {{ include "falcon-clusterguard.iarServiceAccountName" . }}

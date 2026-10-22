@@ -89,6 +89,9 @@ app.kubernetes.io/component: falcon-clusterguard
 app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
 crowdstrike.com/provider: crowdstrike
 {{- end }}
 
@@ -107,7 +110,6 @@ Node specific selector labels (used by the node sensor workloads)
 {{- define "falcon-clusterguard.nodeSelectorLabels" -}}
 app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-{{- /* TODO: Check with sensor team to see if anything is using the "kernel_sensor" component label, if not change component to fcg-sensor */}}
 app.kubernetes.io/component: kernel_sensor
 crowdstrike.com/provider: crowdstrike
 {{- end }}
@@ -120,16 +122,23 @@ app: falcon-sensor
 {{- end }}
 
 {{/*
-Common CG Controller labels
+CG Controller labels without selector label
 */}}
-{{- define "falcon-clusterguard.cgControllerLabels" -}}
+{{- define "falcon-clusterguard.cgControllerLabelsWithoutSelector" -}}
 helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
-{{ include "falcon-clusterguard.cgControllerSelectorLabels" . }}
 app.kubernetes.io/component: fcg-controller
 app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 crowdstrike.com/provider: crowdstrike
+{{- end }}
+
+{{/*
+Common CG Controller labels
+*/}}
+{{- define "falcon-clusterguard.cgControllerLabels" -}}
+{{ include "falcon-clusterguard.cgControllerSelectorLabels" . }}
+{{ include "falcon-clusterguard.cgControllerLabelsWithoutSelector" . }}
 {{- end }}
 
 {{/*
@@ -469,6 +478,14 @@ Used by the Secret itself and by every workload that pulls the FCG image.
 {{- end -}}
 
 {{/*
+Name of the post-delete hook copy of the image pull Secret used by the node cleanup DaemonSet.
+helm uninstall deletes the main pull Secret before post-delete hooks run, so the cleanup needs its own copy.
+*/}}
+{{- define "falcon-clusterguard.cleanupPullSecretName" -}}
+{{- printf "%s-pull-secret-cleanup" (include "falcon-clusterguard.fullname" .) -}}
+{{- end -}}
+
+{{/*
 Validate IAR workload mode settings.
 */}}
 {{- define "falcon-clusterguard.validateIarMode" -}}
@@ -600,7 +617,10 @@ top-level chart identity rather than this subchart.
 Labels for test pods/resources
 */}}
 {{- define "falcon-clusterguard.testLabels" -}}
-{{ include "falcon-clusterguard.labels" . }}
-helm.sh/hook: test-success
-helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+app.kubernetes.io/component: test
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
 {{- end -}}

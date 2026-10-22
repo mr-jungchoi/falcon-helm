@@ -96,7 +96,6 @@ spec:
           command:
             - /bin/bash
           {{ include "falcon-clusterguard.nodeInitArgs" . | nindent 10 }}
-          {{- /* TODO: Check with Gabe why resources are hardcoded and not configurable */}}
           {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
           resources:
             requests:

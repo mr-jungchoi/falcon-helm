@@ -1,5 +1,5 @@
 {{- if and .Values.node.enabled .Values.node.hooks.postDelete.enabled }}
-  {{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . }}
+  {{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . }}
   {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
 apiVersion: v1
 kind: ServiceAccount
@@ -13,6 +13,25 @@ metadata:
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "0"
     {{- end }}
+
+{{- if $registryConfigJson }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "falcon-clusterguard.cleanupPullSecretName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
+  {{- if not .Values.node.cleanupOnly }}
+  annotations:
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-delete-policy": hook-succeeded
+  {{- end }}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ $registryConfigJson }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -70,16 +89,13 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
-      {{- if and (len $imagePullSecretName) (len $registryConfigJson) }}
-      {{- /* TODO: Move the pullsecret vs configJSON check to validate.yaml */}}
-      {{- fail "image.pullSecret and image.registryConfigJSON cannot be used together." }}
-      {{- else if or (len $imagePullSecretName) (len $registryConfigJson) }}
+      {{- if or $imagePullSecret $registryConfigJson }}
       imagePullSecrets:
-        {{- if len $imagePullSecretName }}
-        - name: {{ $imagePullSecretName }}
+        {{- if $imagePullSecret }}
+        - name: {{ $imagePullSecret }}
         {{- end }}
-        {{- if len $registryConfigJson }}
-        - name: {{ include "falcon-clusterguard.pullSecretName" . }}
+        {{- if $registryConfigJson }}
+        - name: {{ include "falcon-clusterguard.cleanupPullSecretName" . }}
         {{- end }}
       {{- end }}
       {{- with .Values.node.daemonset.tolerations }}

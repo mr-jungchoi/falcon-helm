@@ -1,8 +1,4 @@
 {{- if and .Values.imageAnalyzer.enabled (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "false") }}
-{{- $imageAnalyzer := .Values.imageAnalyzer }}
-{{- $daemonset := include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
-{{- $imagePullSecret := include "falcon-clusterguard.pullSecretName" . }}
-{{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
