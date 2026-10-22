@@ -36,7 +36,6 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  {{- /* TODO: Check if this configmap name can be changed */}}
   name: falcon-kac-meta
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:

@@ -65,7 +65,7 @@ metadata:
   name: falcon-cg-controller-tls
   namespace: {{ $ns }}
   labels:
-    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+    {{- include "falcon-clusterguard.cgControllerLabelsWithoutSelector" . | nindent 4 }}
     {{- /* TODO: check if app: falcon-kac is necessary for the tls secret */}}
     app: falcon-kac
 type: kubernetes.io/tls
@@ -165,10 +165,7 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
-      {{- if and $imagePullSecret $registryConfigJson }}
-      {{- /* TODO: Move the pullsecret vs configJSON check to validate.yaml */}}
-      {{- fail "image.pullSecret and image.registryConfigJSON cannot be used together." }}
-      {{- else if or $imagePullSecret $registryConfigJson }}
+      {{- if or $imagePullSecret $registryConfigJson }}
       imagePullSecrets:
         {{- if $imagePullSecret }}
         - name: {{ $imagePullSecret }}

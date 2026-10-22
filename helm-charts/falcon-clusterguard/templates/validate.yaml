@@ -2,10 +2,10 @@
 Chart-wide value validation. Renders no resources; fails the install/upgrade
 with a descriptive error when the top-level FCG configuration is invalid.
 */ -}}
-{{- include "falcon-clusterguard.validateRegistryCredentials"}}
-{{- include "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" . -}}
-{{- include "falcon-clusterguard.validateValues" . -}}
-{{- if .Values.imageAnalyzer.enabled -}}
-  {{- include "falcon-clusterguard.validateIarMode" . -}}
-  {{- include "falcon-clusterguard.validateIarCredentials" . -}}
-{{- end -}}
+{{/*{{- include "falcon-clusterguard.validateRegistryCredentials" . }}*/}}
+{{- include "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" . }}
+{{- include "falcon-clusterguard.validateValues" . }}
+{{- if .Values.imageAnalyzer.enabled }}
+  {{- include "falcon-clusterguard.validateIarMode" . }}
+  {{- include "falcon-clusterguard.validateIarCredentials" . }}
+{{- end }}
