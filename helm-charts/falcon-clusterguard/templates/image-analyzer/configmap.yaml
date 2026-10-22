@@ -13,7 +13,7 @@ data:
   IAR_AGENT_SERVICE_PORT: {{ $imageAnalyzer.iarAgentService.httpPort | quote }}
   WATCHER_LIST_PAGESIZE: {{ $imageAnalyzer.watcher.listPageSize | quote }}
   IS_KUBERNETES: "true"
-  AGENT_HELM_VERSION: {{ .Chart.Version | quote }}
+  AGENT_HELM_VERSION: "1.1.17"
   LOG_OUTPUT: {{ $imageAnalyzer.log.output | quote }}
   LOG_VERBOSITY: {{ $imageAnalyzer.log.verbosity | quote }}
   AGENT_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
