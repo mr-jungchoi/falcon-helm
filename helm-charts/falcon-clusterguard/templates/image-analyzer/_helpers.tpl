@@ -6,14 +6,7 @@
 IAR-specific name
 */}}
 {{- define "falcon-clusterguard.iarName" -}}
-{{- printf "%s-iar" (include "falcon-clusterguard.name" . | trunc 59 | trimSuffix "-") -}}
-{{- end -}}
-
-{{/*
-IAR-specific fullname
-*/}}
-{{- define "falcon-clusterguard.iarFullname" -}}
-{{- printf "%s-iar" (include "falcon-clusterguard.fullname" .) -}}
+{{ printf "%s-iar" (include "falcon-clusterguard.name" . | trunc 59 | trimSuffix "-") }}
 {{- end -}}
 
 {{/*
@@ -66,7 +59,7 @@ and the cert-manager Certificate (image-analyzer/certificate.yaml).
 IAR service account name
 */}}
 {{- define "falcon-clusterguard.iarServiceAccountName" -}}
-{{- default (include "falcon-clusterguard.iarFullname" .) .Values.imageAnalyzer.serviceAccount.name -}}
+{{- default (include "falcon-clusterguard.iarName" .) .Values.imageAnalyzer.serviceAccount.name -}}
 {{- end -}}
 
 {{/*
@@ -79,7 +72,7 @@ secret (falcon-clusterguard.csiSecretName) in the shared namespace.
 {{- if $csiSecretName -}}
 {{- printf "%s-iar" $csiSecretName -}}
 {{- else -}}
-{{- printf "%s-csi" (include "falcon-clusterguard.iarFullname" .) -}}
+{{- printf "%s-csi" (include "falcon-clusterguard.iarName" .) -}}
 {{- end -}}
 {{- end -}}
 
@@ -205,7 +198,7 @@ OpenShift SCC name for IAR. Uses openshift.iarSCCName if set, otherwise defaults
 {{- if .Values.openshift.iarSCCName -}}
 {{- .Values.openshift.iarSCCName -}}
 {{- else -}}
-{{- include "falcon-clusterguard.iarFullname" . -}}
+{{- include "falcon-clusterguard.iarName" . -}}
 {{- end -}}
 {{- end -}}
 

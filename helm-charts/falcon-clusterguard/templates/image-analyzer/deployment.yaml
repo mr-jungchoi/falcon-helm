@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "falcon-clusterguard.iarFullname" . }}
+  name: {{ include "falcon-clusterguard.iarName" . }}
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}

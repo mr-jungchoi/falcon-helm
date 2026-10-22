@@ -36,7 +36,7 @@ WORKLOADS
 {{- $iarKind := ternary "DaemonSet" "Deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
 
   Image Analyzer {{ $iarKind }}:
-    kubectl rollout status {{ lower $iarKind }}/{{ include "falcon-clusterguard.iarFullname" . }} \
+    kubectl rollout status {{ lower $iarKind }}/{{ include "falcon-clusterguard.iarName" . }} \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
 
@@ -87,7 +87,7 @@ FALCON IMAGE ANALYZER CONFIGURATION
   {{- else if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
   Credentials:   existing secret ({{ include "falcon-clusterguard.falconSecretName" . }})
   {{- else }}
-  Credentials:   chart-managed secret ({{ include "falcon-clusterguard.iarFullname" . }})
+  Credentials:   chart-managed secret ({{ include "falcon-clusterguard.iarName" . }})
   {{- end }}
   {{- if .Values.certManager.enabled }}
   TLS:           issued by cert-manager ({{ include "falcon-clusterguard.iarName" . }}-tls)
