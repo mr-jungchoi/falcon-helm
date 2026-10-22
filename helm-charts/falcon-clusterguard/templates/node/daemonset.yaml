@@ -202,6 +202,13 @@ spec:
             - name: falcon-api-ca
               mountPath: /run/secrets/ca
               readOnly: true
+            # KAC install guard state (key installguard.state: armed, disarmed
+            # or disabled), polled by the sensor. Mounted as a directory, not
+            # subPath: kubelet does not propagate ConfigMap updates to subPath
+            # mounts. The mount path is fixed by the sensor.
+            - name: clusterguard-state
+              mountPath: /opt/CrowdStrike/clusterguard-state
+              readOnly: true
             {{- end }}
             {{- if .Values.node.guardian.proxy.enabled }}
             - name: proxy-tls
@@ -228,6 +235,13 @@ spec:
         - name: falcon-api-ca
           secret:
             secretName: "falcon-api-ca"
+        # KAC's install guard state ConfigMap, written at runtime by the
+        # ClusterGuard controller (KAC) in this namespace. Optional: the sensor
+        # starts, with install guard disabled, before KAC has created it.
+        - name: clusterguard-state
+          configMap:
+            name: falcon-kac-install-guard-state
+            optional: true
         {{- end }}
         {{- if .Values.node.guardian.proxy.enabled }}
         - name: proxy-tls
