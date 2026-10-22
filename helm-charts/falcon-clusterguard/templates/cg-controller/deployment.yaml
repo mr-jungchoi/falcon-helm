@@ -206,6 +206,12 @@ spec:
             - client
             - "-port={{ .Values.cluster.webhookPort }}"
           env:
+            {{- /* TODO: Remove __CS_IAR_NAMESPACE, only needed temporarily for testing */}}
+            - name: __CS_IAR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
             - name: __CS_POD_NAMESPACE
               valueFrom:
                 fieldRef:
