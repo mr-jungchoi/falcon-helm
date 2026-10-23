@@ -105,6 +105,20 @@ Notes:
 
 Impact: one CRD, one cluster-scoped object.
 
+### "KAC Role: Secrets in its namespace"
+
+- `templates/cg-controller/role.yaml`: Secrets `create`, `get`, `update`, `delete`
+  in the ClusterGuard namespace. KAC stores the install guard credential in the
+  Secret `falcon-kac-install-guard`; without `create` it fails with "secrets is
+  forbidden", does not arm, and reports the SetUninstallToken as not applied.
+
+The rule was in the controller Role before the template split (808fa67, "move node
+and cg-controller resources into separate directories") and was dropped there,
+apparently by accident; this restores it unchanged. `create` cannot be restricted by
+`resourceNames`, so the rule is namespace-wide as before.
+
+Impact: RBAC only, namespaced.
+
 No values changes in any commit.
 
 ## Already in fcg-helm-chart (no change needed)
@@ -114,7 +128,8 @@ No values changes in any commit.
   three, so `ca.crt` always matches the served certificate. (The previous branch had
   its own fix for this; dropped.)
 - The webhook TLS Secret is mounted whole at `/run/secrets/tls` in falcon-client.
-- Install guard VWC `create` and `delete` RBAC; Role for Secrets and ConfigMaps.
+- Install guard VWC `create` and `delete` RBAC; Role for ConfigMaps (KAC creates and
+  updates the install guard state ConfigMap).
 
 ## cert-manager (`certManager.enabled=true`)
 
@@ -143,6 +158,7 @@ ClusterGuard disabled:
   ClusterGuard disabled.
 - ClusterRole: `update` and `delete` on the install guard VWC; `get` on
   `installguardowners/falcon-clusterguard`.
+- Role: Secrets `create`, `get`, `update`, `delete`.
 - `InstallGuardOwner` `falcon-clusterguard` rendered, absent with ClusterGuard
   disabled; CRD rendered with `--include-crds`.
 - With cert-manager: `falcon-cg-controller-tls` Certificate and the main VWC
