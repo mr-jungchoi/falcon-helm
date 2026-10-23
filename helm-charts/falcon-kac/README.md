@@ -32,6 +32,11 @@ Kubernetes cluster.
   - [Image Analyzer Integration](#image-analyzer-integration)
   - [Networking](#networking)
   - [Certificate Management](#certificate-management)
+    - [Upgrading with `autoCertificateUpdate: false`](#upgrading-with-autocertificateupdate-false)
+    - [Using cert-manager](#using-cert-manager)
+      - [Creating an issuer](#creating-an-issuer)
+      - [Turning off cert-manager](#turning-off-cert-manager)
+    - [Using Argo CD with Helm-generated certificates](#using-argo-cd-with-helm-generated-certificates)
   - [Deployment Configuration](#deployment-configuration)
   - [Resource Limits](#resource-limits)
   - [OpenShift](#openshift)
@@ -433,12 +438,193 @@ Controls network identity and connectivity for the KAC pod.
 
 ## Certificate Management
 
-Settings for the TLS certificates used by the validating webhook.
+Settings for the TLS certificate used by the validating webhook. The certificate is stored in the
+Secret `<name>-tls` (`falcon-kac-tls` by default) and mounted into the `falcon-client` container.
+It comes from one of two sources:
 
-| Parameter               | Description                                             | Default |
-|:------------------------|:--------------------------------------------------------|:--------|
-| `autoCertificateUpdate` | Automatically rotate certificates on each Helm upgrade  | `true`  |
-| `certExpiration`        | Certificate validity period in days                     | `3650`  |
+- **Helm-generated (default):** Helm creates a CA and a server certificate on every install and,
+  when `autoCertificateUpdate` is `true`, on every upgrade.
+- **cert-manager:** set `certManager.enabled=true` and `certManager.issuerRef`. cert-manager issues
+  the certificate and renews it, and its cainjector fills the webhook `caBundle`.
+
+| Parameter               | Description                                                                                                                                                                                     | Default |
+|:------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `autoCertificateUpdate` | Regenerate the Helm-generated certificate on each Helm upgrade. When `false`, the existing certificate, key, and CA are reused together. Ignored with cert-manager. Has no effect with Argo CD. | `true`  |
+| `certExpiration`        | Certificate validity period in days. Also sets the cert-manager `Certificate` duration.                                                                                                         | `3650`  |
+| `certManager.enabled`   | Use cert-manager to issue the webhook certificate.                                                                                                                                              | `false` |
+| `certManager.issuerRef` | cert-manager issuer for the certificate (`name`, `kind`, `group`). `name` is required when `certManager.enabled`.                                                                               | `{}`    |
+
+### Upgrading with `autoCertificateUpdate: false`
+
+Chart versions before cert-manager support regenerated the CA on every upgrade even when
+`autoCertificateUpdate` was `false`, so the reused certificate no longer matched the webhook `caBundle`.
+This version reuses the certificate, key, and CA together, which keeps an existing mismatch in place.
+If you used `autoCertificateUpdate: false`, run one upgrade with `autoCertificateUpdate: true` (or delete
+the `<name>-tls` Secret first) to generate a matching set, then set it back to `false`.
+
+### Using cert-manager
+
+Requires [cert-manager](https://cert-manager.io/), including its cainjector, and an issuer that can
+issue certificates for in-cluster service names, such as a CA or self-signed `ClusterIssuer`. See
+[Creating an issuer](#creating-an-issuer) for examples. Then set:
+
+```yaml
+certManager:
+  enabled: true
+  issuerRef:
+    name: falcon-ca-issuer
+    kind: ClusterIssuer
+```
+
+A namespaced `Issuer` must be in the KAC namespace. cert-manager renews the certificate after two-thirds
+of `certExpiration` has passed, about 6.7 years with the default of `3650` days.
+
+#### Creating an issuer
+
+KAC loads its certificate at startup and doesn't reload it, so use a CA issuer. Its CA stays the same
+when cert-manager issues a new certificate, so the webhook `caBundle` doesn't change and a running KAC
+pod stays trusted until its certificate expires.
+
+A CA `ClusterIssuer`, bootstrapped from a self-signed issuer. The CA `Certificate` must be in the
+cert-manager namespace (`cert-manager` by default), where a `ClusterIssuer` reads its Secret:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-cluster-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: falcon-root-ca
+  secretName: falcon-root-ca
+  duration: 87600h
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: falcon-ca-issuer
+spec:
+  ca:
+    secretName: falcon-root-ca
+```
+
+```bash
+kubectl apply -f falcon-ca-issuer.yaml
+kubectl wait --for=condition=Ready clusterissuer/falcon-ca-issuer --timeout=2m
+```
+
+A self-signed `ClusterIssuer` alone (`selfsigned-cluster-issuer` above, with
+`certManager.issuerRef.name: selfsigned-cluster-issuer`) also works, but every certificate it issues is
+its own CA. Each new certificate, whether from renewal or from changing `certManager.issuerRef`,
+`certExpiration`, or `domainName`, changes the webhook `caBundle` right away. Until KAC is restarted
+with `kubectl rollout restart deployment/falcon-kac -n falcon-kac`, the API server can't verify the
+webhook, and with `webhook.failurePolicy: Ignore`, admission checks are skipped.
+
+To keep the issuer in the KAC namespace instead, create the same resources as `kind: Issuer` in that
+namespace, with the CA `Certificate` there too, and set `certManager.issuerRef.kind: Issuer`.
+
+#### Turning off cert-manager
+
+cert-manager does not delete the `<name>-tls` Secret when its `Certificate` is deleted, and Helm cannot
+take ownership of a Secret that was not created by the Helm release. Upgrading with
+`certManager.enabled=false` while that Secret exists fails with an error like:
+
+```
+Error: UPGRADE FAILED: Unable to continue with update: Secret "falcon-kac-tls" in namespace "falcon-kac" exists and cannot be imported into the current release: invalid ownership metadata
+```
+
+Delete the `Certificate` first, then the Secret, then upgrade with `certManager.enabled=false`:
+
+```bash
+kubectl delete certificate falcon-kac-tls -n falcon-kac
+kubectl delete secret falcon-kac-tls -n falcon-kac
+helm upgrade falcon-kac crowdstrike/falcon-kac -n falcon-kac -f config-values.yaml --set certManager.enabled=false
+```
+
+- Delete the `Certificate` before the Secret. If the Secret is deleted first, cert-manager issues a new
+  one right away.
+- If cert-manager runs with `--enable-certificate-owner-ref`, deleting the `Certificate` also deletes
+  the Secret, and the second command reports that the Secret is not found.
+- Run the commands together. Running KAC pods keep serving the certificate they already loaded, but a
+  KAC pod that starts before the upgrade can't mount the Secret and stays in `ContainerCreating` until
+  the upgrade creates it.
+- The upgrade creates a Helm-generated certificate and sets the webhook `caBundle` to its CA. With
+  `autoDeploymentUpdate: true` (the default), the upgrade also restarts KAC so it loads the new
+  certificate. With `autoDeploymentUpdate: false`, restart it right after the upgrade with
+  `kubectl rollout restart deployment/falcon-kac -n falcon-kac`; until then, the API server can't verify
+  the webhook, and with `webhook.failurePolicy: Ignore`, admission checks are skipped.
+- When installed through the `falcon-platform` chart, use the `falcon-kac.namespaceOverride` namespace
+  and set `falcon-kac.certManager.enabled=false`.
+
+### Using Argo CD with Helm-generated certificates
+
+Argo CD renders the chart with `helm template` and applies the result; it does not run `helm install`
+or `helm upgrade`. `helm template` can't read the cluster, so with Helm-generated certificates the chart
+creates a new CA and certificate on every render, and `autoCertificateUpdate: false` has no effect
+because the chart can't read the existing Secret. Without the settings below, the application shows
+as `OutOfSync` on every refresh, and every sync replaces the certificate.
+
+Ignore the certificate fields with `ignoreDifferences`, and set `RespectIgnoreDifferences=true` so a sync keeps the certificate
+already in the cluster.
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falcon-kac
+  namespace: argocd
+spec:
+  # source, destination, and project omitted
+  ignoreDifferences:
+    - kind: Secret
+      name: falcon-kac-tls
+      namespace: falcon-kac
+      jsonPointers:
+        - /data
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: validating.falcon-kac.crowdstrike.com
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+  syncPolicy:
+    syncOptions:
+      - RespectIgnoreDifferences=true
+```
+
+Also set `autoDeploymentUpdate: false`. When `true`, the chart adds a random pod annotation on every
+render to restart the pods on `helm upgrade`, so Argo CD sees a change on every refresh and restarts KAC
+on every sync. Configuration changes still restart the pods, through the `checksum/configmap`
+annotation. If the Application also deploys IAR, add its entries too; see the [falcon-image-analyzer
+README](../falcon-image-analyzer/README.md#using-argo-cd-with-helm-generated-certificates).
+
+```yaml
+autoDeploymentUpdate: false
+```
+
+- Ignore the Secret and the webhook `caBundle` together. If only one is kept, a sync pairs a new
+  certificate with the old CA (or the reverse), the API server can't verify the webhook, and with
+  `webhook.failurePolicy: Ignore`, admission checks are skipped.
+- The Secret is `<name>-tls` (`falcon-kac-tls` by default) in the KAC namespace. The
+  ValidatingWebhookConfiguration is always `validating.falcon-kac.crowdstrike.com`. When installing
+  through the `falcon-platform` chart, use the `falcon-kac.namespaceOverride` namespace, set
+  `autoDeploymentUpdate` under `falcon-kac`, and add these entries to the `falcon-platform` Application.
+- The certificate from the first sync is kept and is not renewed; it's valid for `certExpiration` days.
+  To replace it, delete the `<name>-tls` Secret and the ValidatingWebhookConfiguration together, then
+  sync. Deleting only one leaves a certificate and `caBundle` that don't match.
+
+cert-manager doesn't need `ignoreDifferences`: the chart renders the same manifests every time, and
+cert-manager and its cainjector manage the Secret and the webhook `caBundle` outside Argo CD.
 
 ## Deployment Configuration
 
@@ -447,7 +633,7 @@ Controls pod scheduling, labeling, and overall deployment behavior.
 | Parameter                    | Description                                                                                 | Default                       |
 |:-----------------------------|:--------------------------------------------------------------------------------------------|:------------------------------|
 | `replicas`                   | Number of KAC deployment replicas                                                           | `1`                           |
-| `autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`                                   | `true`                        |
+| `autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`. Set to `false` with Argo CD.     | `true`                        |
 | `annotations`                | Annotations applied to the Deployment resource                                              | `{}`                          |
 | `labels`                     | Additional labels applied to the Deployment resource                                        | `{}`                          |
 | `podAnnotations`             | Annotations applied to KAC pods                                                             | `{}`                          |

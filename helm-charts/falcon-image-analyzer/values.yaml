@@ -231,6 +231,18 @@ iarAgentService:
   # Otherwise, keep this blank.
   domainName:
 
+# cert-manager integration for the agent service TLS certificate.
+# When enabled, cert-manager issues the certificate (Secret <name>-tls) instead of Helm generating it.
+# iarAgentService.autoCertificateUpdate is ignored; cert-manager handles renewal. The validity period
+# still comes from iarAgentService.certExpiration, and cert-manager renews after two-thirds of it has
+# passed (about 6.7 years for the default 3650 days). Requires cert-manager in the cluster and an issuerRef
+# that can issue certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
+certManager:
+  enabled: false
+  issuerRef: {}
+  #  name: selfsigned-cluster-issuer
+  #  kind: ClusterIssuer
+
 
 #this is the default namespace list to check for kac
 kac:

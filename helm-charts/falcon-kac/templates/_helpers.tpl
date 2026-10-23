@@ -13,6 +13,28 @@ Set the webhook name
 {{- end }}
 
 {{/*
+Name of the webhook TLS Secret mounted by the KAC pod, created by Helm or by cert-manager
+(certManager.enabled).
+*/}}
+{{- define "falcon-kac.tlsSecretName" -}}
+{{- printf "%s-tls" (include "falcon-kac.name" .) -}}
+{{- end }}
+
+{{/*
+DNS names for the webhook TLS certificate, as a YAML list (use with fromYamlArray).
+The first entry is the certificate's common name. Shared by the Helm-generated certificate
+(deployment_webhook.yaml) and the cert-manager Certificate (certificate.yaml).
+*/}}
+{{- define "falcon-kac.webhookDNSNames" -}}
+{{- $ns := include "falcon-kac.namespace" . -}}
+{{- $fullName := printf "webhook.%s.svc" $ns -}}
+{{- if .Values.domainName -}}
+{{- $fullName = printf "webhook.%s.svc.%s" $ns .Values.domainName -}}
+{{- end -}}
+{{- list $fullName (printf "%s.cluster.local" $fullName) (printf "webhook.%s" $ns) "webhook" | toYaml -}}
+{{- end }}
+
+{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.

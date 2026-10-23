@@ -26,6 +26,10 @@ more.
   - [Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration)
   - [Authentication for Private Registries](#authentication-for-private-registries)
   - [Proxy Usage](#proxy-usage)
+  - [Certificate Management](#certificate-management)
+    - [Creating an issuer](#creating-an-issuer)
+    - [Turning off cert-manager](#turning-off-cert-manager)
+    - [Using Argo CD with Helm-generated certificates](#using-argo-cd-with-helm-generated-certificates)
   - [Pod Eviction Issue](#pod-eviction)
   - [Exclusions](#exclusions)
     - [Registry Exclusion](#registry)
@@ -627,6 +631,165 @@ for e.g. for gitlab registries there exists the
 - and the other ```www.gitlab.com```
 
 - The above is very registry provider specific. One needs to ensure nothing ie being blocked by Proxy
+
+### Certificate Management
+
+The image analyzer serves `iar-agent-service` over HTTPS with a certificate stored in the Secret
+`<name>-tls` (`falcon-image-analyzer-tls` by default). The certificate comes from one of two sources:
+
+- **Helm-generated (default):** Helm creates a CA and a server certificate on every install and,
+  when `iarAgentService.autoCertificateUpdate` is `true`, on every upgrade.
+- **cert-manager:** set `certManager.enabled=true` and `certManager.issuerRef`. cert-manager issues
+  the certificate and renews it.
+
+| Parameter                               | Description                                                                                                                                                                                     | Default |
+|:----------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `iarAgentService.autoCertificateUpdate` | Regenerate the Helm-generated certificate on each Helm upgrade. When `false`, the existing certificate, key, and CA are reused together. Ignored with cert-manager. Has no effect with Argo CD. | `true`  |
+| `iarAgentService.certExpiration`        | Certificate validity period in days. Also sets the cert-manager `Certificate` duration.                                                                                                         | `3650`  |
+| `iarAgentService.domainName`            | Custom DNS domain suffix for the certificate (e.g., `testing.io` if `svc.testing.io` is required)                                                                                               | None    |
+| `certManager.enabled`                   | Use cert-manager to issue the agent service certificate.                                                                                                                                        | `false` |
+| `certManager.issuerRef`                 | cert-manager issuer for the certificate (`name`, `kind`, `group`). `name` is required when `certManager.enabled`.                                                                               | `{}`    |
+
+With cert-manager, use an issuer that can issue certificates for in-cluster service names, such as a
+CA or self-signed `ClusterIssuer`. See [Creating an issuer](#creating-an-issuer) for examples. Then set:
+
+```yaml
+certManager:
+  enabled: true
+  issuerRef:
+    name: falcon-ca-issuer
+    kind: ClusterIssuer
+```
+
+A namespaced `Issuer` must be in the image analyzer namespace. cert-manager renews the certificate after
+two-thirds of `iarAgentService.certExpiration` has passed, about 6.7 years with the default of `3650`
+days. Set a lower `iarAgentService.certExpiration` to renew more often; for example, `90` renews about
+every 60 days.
+
+#### Creating an issuer
+
+A CA `ClusterIssuer`, bootstrapped from a self-signed issuer. Its CA stays the same when cert-manager
+issues a new certificate, and one `ClusterIssuer` can serve both the image analyzer and falcon-kac,
+which needs a CA issuer. The CA `Certificate` must be in the cert-manager namespace (`cert-manager` by
+default), where a `ClusterIssuer` reads its Secret:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-cluster-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: falcon-root-ca
+  secretName: falcon-root-ca
+  duration: 87600h
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: falcon-ca-issuer
+spec:
+  ca:
+    secretName: falcon-root-ca
+```
+
+```bash
+kubectl apply -f falcon-ca-issuer.yaml
+kubectl wait --for=condition=Ready clusterissuer/falcon-ca-issuer --timeout=2m
+```
+
+A self-signed `ClusterIssuer` alone (`selfsigned-cluster-issuer` above, with
+`certManager.issuerRef.name: selfsigned-cluster-issuer`) also works; every certificate it issues is its
+own CA, so the CA changes with each new certificate.
+
+To keep the issuer in the image analyzer namespace instead, create the same resources as `kind: Issuer`
+in that namespace, with the CA `Certificate` there too, and set `certManager.issuerRef.kind: Issuer`.
+
+#### Turning off cert-manager
+
+cert-manager does not delete the `<name>-tls` Secret when its `Certificate` is deleted, and Helm cannot
+take ownership of a Secret that was not created by the Helm release. Upgrading with
+`certManager.enabled=false` while that Secret exists fails with an error like:
+
+```
+Error: UPGRADE FAILED: Unable to continue with update: Secret "falcon-image-analyzer-tls" in namespace "falcon-image-analyzer" exists and cannot be imported into the current release: invalid ownership metadata
+```
+
+Delete the `Certificate` first, then the Secret, then upgrade with `certManager.enabled=false`, and
+restart the image analyzer so it loads the new certificate:
+
+```bash
+kubectl delete certificate falcon-image-analyzer-tls -n falcon-image-analyzer
+kubectl delete secret falcon-image-analyzer-tls -n falcon-image-analyzer
+helm upgrade falcon-image-analyzer crowdstrike/falcon-image-analyzer -n falcon-image-analyzer \
+  -f config-values.yaml --set certManager.enabled=false
+kubectl rollout restart deployment/falcon-image-analyzer -n falcon-image-analyzer
+```
+
+- Delete the `Certificate` before the Secret. If the Secret is deleted first, cert-manager issues a new
+  one right away.
+- If cert-manager runs with `--enable-certificate-owner-ref`, deleting the `Certificate` also deletes
+  the Secret, and the second command reports that the Secret is not found.
+- Run the commands together. Running pods keep serving the certificate they already loaded, but a pod
+  that starts before the upgrade can't mount the Secret and stays in `ContainerCreating` until the
+  upgrade creates it.
+- The upgrade does not restart the image analyzer, so restart it to load the new certificate. When
+  running as a DaemonSet, use `kubectl rollout restart daemonset/falcon-image-analyzer`.
+- When installed through the `falcon-platform` chart, use the `falcon-image-analyzer.namespaceOverride`
+  namespace and set `falcon-image-analyzer.certManager.enabled=false`.
+
+#### Using Argo CD with Helm-generated certificates
+
+Argo CD renders the chart with `helm template` and applies the result; it does not run `helm install`
+or `helm upgrade`. `helm template` can't read the cluster, so with Helm-generated certificates the chart
+creates a new CA and certificate on every render, and `iarAgentService.autoCertificateUpdate: false` has
+no effect because the chart can't read the existing Secret. Without the settings below, the application
+shows as `OutOfSync` on every refresh, and every sync replaces the certificate.
+
+Ignore the Secret's data with `ignoreDifferences`, and set `RespectIgnoreDifferences=true` so a sync keeps the certificate
+already in the cluster.
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: falcon-image-analyzer
+  namespace: argocd
+spec:
+  # source, destination, and project omitted
+  ignoreDifferences:
+    - kind: Secret
+      name: falcon-image-analyzer-tls
+      namespace: falcon-image-analyzer
+      jsonPointers:
+        - /data
+  syncPolicy:
+    syncOptions:
+      - RespectIgnoreDifferences=true
+```
+
+- The Secret is `<name>-tls` (`falcon-image-analyzer-tls` by default) in the image analyzer namespace.
+  When installing through the `falcon-platform` chart, use the `falcon-image-analyzer.namespaceOverride`
+  namespace and add this entry to the `falcon-platform` Application. If the Application also deploys
+  KAC, add its entries too and set `falcon-kac.autoDeploymentUpdate: false`; see the [falcon-kac
+  README](../falcon-kac/README.md#using-argo-cd-with-helm-generated-certificates).
+- The certificate from the first sync is kept and is not renewed; it's valid for
+  `iarAgentService.certExpiration` days. To replace it, delete the `<name>-tls` Secret, sync, and then
+  restart the image analyzer pods so they load the new certificate.
+
+cert-manager doesn't need `ignoreDifferences`: the chart renders the same manifests every time, and
+cert-manager manages the Secret outside Argo CD.
 
 ### Pod Eviction
 If for some reason pod evictions are observed in the Cluster due to exceeding ephemeral storage
