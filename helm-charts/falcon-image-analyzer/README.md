@@ -26,6 +26,7 @@ more.
   - [Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration)
   - [Authentication for Private Registries](#authentication-for-private-registries)
   - [Proxy Usage](#proxy-usage)
+  - [Agent Service TLS Certificate](#agent-service-tls-certificate)
   - [Pod Eviction Issue](#pod-eviction)
   - [Exclusions](#exclusions)
     - [Registry Exclusion](#registry)
@@ -627,6 +628,47 @@ for e.g. for gitlab registries there exists the
 - and the other ```www.gitlab.com```
 
 - The above is very registry provider specific. One needs to ensure nothing ie being blocked by Proxy
+
+### Agent Service TLS Certificate
+
+The image analyzer serves `iar-agent-service` over HTTPS with a certificate stored in the Secret
+`<name>-tls` (`falcon-image-analyzer-tls` by default). The certificate comes from one of three sources:
+
+- **Helm-generated (default):** Helm creates a CA and a server certificate on every install and,
+  when `iarAgentService.autoCertificateUpdate` is `true`, on every upgrade.
+- **cert-manager:** set `certManager.enabled=true` and `certManager.issuerRef`. cert-manager issues
+  the certificate and renews it.
+- **Existing Secret:** set `iarAgentService.existingTLSSecret` to a `kubernetes.io/tls` Secret you create
+  in the image analyzer namespace. The chart mounts it and does not create its own TLS Secret.
+
+| Parameter                               | Description                                                                                                                                                                           | Default |
+|:----------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `iarAgentService.autoCertificateUpdate` | Regenerate the Helm-generated certificate on each Helm upgrade. When `false`, the existing certificate, key, and CA are reused together. Ignored with cert-manager or `existingTLSSecret`. | `true`  |
+| `iarAgentService.certExpiration`        | Certificate validity period in days. Also sets the cert-manager `Certificate` duration. Ignored with `existingTLSSecret`.                                                               | `3650`  |
+| `iarAgentService.domainName`            | Custom DNS domain suffix for the certificate (e.g., `testing.io` if `svc.testing.io` is required)                                                                                      | None    |
+| `iarAgentService.existingTLSSecret`     | Name of an existing `kubernetes.io/tls` Secret to use as the agent service certificate. Cannot be used with `certManager.enabled`.                                                     | `""`    |
+| `certManager.enabled`                   | Use cert-manager to issue the agent service certificate. Cannot be used with `iarAgentService.existingTLSSecret`.                                                                     | `false` |
+| `certManager.issuerRef`                 | cert-manager issuer for the certificate (`name`, `kind`, `group`). `name` is required when `certManager.enabled`.                                                                     | `{}`    |
+
+With cert-manager, use an issuer that can issue certificates for in-cluster service names, such as a
+self-signed or CA `ClusterIssuer`:
+
+```yaml
+certManager:
+  enabled: true
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+```
+
+With an existing Secret, the certificate must be valid for `iar-agent-service.<namespace>.svc`
+(`iar-agent-service.<namespace>.svc.<domainName>` when `iarAgentService.domainName` is set):
+
+```bash
+kubectl create secret tls falcon-iar-tls -n falcon-image-analyzer --cert=tls.crt --key=tls.key
+helm install falcon-image-analyzer crowdstrike/falcon-image-analyzer -n falcon-image-analyzer \
+  -f config-values.yaml --set iarAgentService.existingTLSSecret=falcon-iar-tls
+```
 
 ### Pod Eviction
 If for some reason pod evictions are observed in the Cluster due to exceeding ephemeral storage

@@ -1,0 +1,26 @@
+{{- if .Values.certManager.enabled }}
+{{- /* Webhook server certificate, issued directly by the configured issuer. cert-manager writes
+       tls.crt, tls.key, and ca.crt to the Secret the KAC pod mounts, and its cainjector fills the
+       ValidatingWebhookConfiguration's caBundle (cert-manager.io/inject-ca-from annotation). */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "falcon-kac.tlsSecretName" . }}
+  namespace: {{ include "falcon-kac.namespace" . }}
+  labels:
+    {{- include "falcon-kac.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "falcon-kac.tlsSecretName" . }}
+  secretTemplate:
+    labels:
+      {{- include "falcon-kac.labels" . | nindent 6 }}
+  issuerRef:
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.certExpiration 24 }}h"
+  dnsNames:
+    {{- include "falcon-kac.webhookDNSNames" . | nindent 4 }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+{{- end }}

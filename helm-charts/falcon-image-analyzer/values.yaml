@@ -231,6 +231,24 @@ iarAgentService:
   # Otherwise, keep this blank.
   domainName:
 
+  # Name of an existing kubernetes.io/tls Secret, created outside this chart, to use as the agent
+  # service TLS certificate. The chart then does not create the TLS Secret and mounts this one instead.
+  # The certificate must be valid for iar-agent-service.<namespace>.svc.
+  # autoCertificateUpdate and certExpiration are ignored. Cannot be used with certManager.enabled.
+  existingTLSSecret: ""
+
+# cert-manager integration for the agent service TLS certificate.
+# When enabled, cert-manager issues the certificate (Secret <name>-tls) instead of Helm generating it.
+# iarAgentService.autoCertificateUpdate is ignored; cert-manager handles renewal. The validity period
+# still comes from iarAgentService.certExpiration. Requires cert-manager in the cluster and an issuerRef
+# that can issue certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
+# Cannot be used with iarAgentService.existingTLSSecret.
+certManager:
+  enabled: false
+  issuerRef: {}
+  #  name: selfsigned-cluster-issuer
+  #  kind: ClusterIssuer
+
 
 #this is the default namespace list to check for kac
 kac:

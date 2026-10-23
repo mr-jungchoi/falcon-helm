@@ -1,44 +1,54 @@
 {{ include "validateValues" . }}
-{{- $name := (printf "%s" (include "falcon-kac.name" .)) -}}
-{{- $fullName := (printf "%s.%s.svc" $name (include "falcon-kac.namespace" .)) -}}
-{{- $webhookName := (printf "webhook") -}}
-{{- $webhookFullName := (printf "%s.%s.svc" $webhookName (include "falcon-kac.namespace" .)) -}}
-{{- if .Values.domainName }}
-{{- $fullName = (printf "%s.%s.svc.%s" $name (include "falcon-kac.namespace" .) .Values.domainName) -}}
-{{- $webhookFullName = (printf "%s.%s.svc.%s" $webhookName (include "falcon-kac.namespace" .) .Values.domainName) -}}
-{{- end }}
+{{- $kacNS := include "falcon-kac.namespace" . -}}
 {{- $myns := list }}
 {{- if .Values.webhook.disableNamespaces }}
 {{- $myns = split "," .Values.webhook.disableNamespaces }}
 {{- end }}
-{{- $certValid := (.Values.certExpiration | int) -}}
-{{- $altNames := list ( printf "%s" $webhookFullName ) ( printf "%s.cluster.local" $webhookFullName ) ( printf "%s.%s" $webhookName (include "falcon-kac.namespace" .)) ( printf "%s" $webhookName ) -}}
-{{- $ca := genCA ( printf "%s ca" (include "falcon-kac.namespace" .) ) $certValid -}}
-{{- $cert := genSignedCert $webhookFullName nil $altNames $certValid $ca -}}
-{{- if not .Values.autoCertificateUpdate }}
-{{- $tlscrt := (lookup "v1" "Secret" (include "falcon-kac.namespace" .) (printf "%s-tls" (include "falcon-kac.name" .))).data -}}
-{{- if kindIs "map" $tlscrt }}
-{{- $cert = dict "Cert" (index $tlscrt "tls.crt" | b64dec ) "Key" (index $tlscrt "tls.key" | b64dec ) -}}
+{{- $certManager := .Values.certManager.enabled -}}
+{{- $altNames := include "falcon-kac.webhookDNSNames" . | fromYamlArray -}}
+{{- $webhookFullName := first $altNames -}}
+
+{{- /* Webhook TLS has three sources:
+       - certManager.enabled: certificate.yaml issues <name>-tls, and cainjector fills the caBundle.
+       - existingTLSSecret: a Secret created outside the chart. The caBundle is its ca.crt, or
+         existingTLSSecretCABundle when the Secret can't be read (helm template, dry runs) or has no ca.crt.
+       - otherwise Helm generates <name>-tls. With autoCertificateUpdate=false, the cert, key, and CA
+         are reused together from the existing Secret so they keep matching; if any is missing, the
+         whole set is regenerated. All values below are base64-encoded. */}}
+{{- $tlsCert := "" }}
+{{- $tlsKey := "" }}
+{{- $caCert := "" }}
+{{- if .Values.existingTLSSecret }}
+  {{- $existing := (lookup "v1" "Secret" $kacNS .Values.existingTLSSecret).data | default dict }}
+  {{- $caCert = .Values.existingTLSSecretCABundle | default (index $existing "ca.crt") | default "" }}
+  {{- if and .Values.admissionControl.enabled (not $caCert) }}
+    {{- fail (printf "Cannot determine the webhook caBundle for existingTLSSecret %q: the Secret has no ca.crt or can't be read (helm template and dry runs can't read Secrets). Set existingTLSSecretCABundle to the base64-encoded PEM CA bundle that signed the certificate." .Values.existingTLSSecret) }}
+  {{- end }}
+{{- else if not $certManager }}
+  {{- $existing := (lookup "v1" "Secret" $kacNS (include "falcon-kac.tlsSecretName" .)).data | default dict }}
+  {{- if and (not .Values.autoCertificateUpdate) (hasKey $existing "tls.crt") (hasKey $existing "tls.key") (hasKey $existing "ca.crt") }}
+    {{- $tlsCert = index $existing "tls.crt" }}
+    {{- $tlsKey = index $existing "tls.key" }}
+    {{- $caCert = index $existing "ca.crt" }}
+  {{- else }}
+    {{- $certValid := (.Values.certExpiration | int) }}
+    {{- $ca := genCA (printf "%s ca" $kacNS) $certValid }}
+    {{- $cert := genSignedCert $webhookFullName nil $altNames $certValid $ca }}
+    {{- $tlsCert = $cert.Cert | b64enc }}
+    {{- $tlsKey = $cert.Key | b64enc }}
+    {{- $caCert = $ca.Cert | b64enc }}
+  {{- end }}
 {{- end }}
-{{- $tlsca := (lookup "admissionregistration.k8s.io/v1" "ValidatingWebhookConfiguration" (include "falcon-kac.namespace" .) $name).webhooks -}}
-{{- if kindIs "slice" $tlsca }}
-{{- range $index, $wca := $tlsca -}}
-{{- $ca = dict "Cert" ($wca.clientConfig.caBundle | b64dec) }}
-{{- end }}
-{{- end }}
-{{- end }}
-{{- $tlsCert := $cert.Cert | b64enc }}
-{{- $tlsKey := $cert.Key | b64enc }}
-{{- $caCert := $ca.Cert | b64enc -}}
 {{- $falconSecretEnabled := include "falcon-kac.falconSecretEnabled" . | eq "true" }}
 {{- $falconSecretName := include "falcon-kac.falconSecretName" . }}
 {{- $imagePullSecret := include "falcon-kac.imagePullSecret" . }}
 {{- $registryConfigJson := include "falcon-kac.registryConfigJson" . }}
+{{- if and (not $certManager) (not .Values.existingTLSSecret) }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "falcon-kac.name" . }}-tls
-  namespace: {{ include "falcon-kac.namespace" . }}
+  name: {{ include "falcon-kac.tlsSecretName" . }}
+  namespace: {{ $kacNS }}
   labels:
     {{- include "falcon-kac.labels" . | nindent 4 }}
 type: kubernetes.io/tls
@@ -46,6 +56,7 @@ data:
   tls.crt: {{ $tlsCert }}
   tls.key: {{ $tlsKey }}
   ca.crt: {{ $caCert }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -396,7 +407,7 @@ spec:
       volumes:
       - name: {{ include "falcon-kac.name" . }}-tls-certs
         secret:
-          secretName: {{ include "falcon-kac.name" . }}-tls
+          secretName: {{ include "falcon-kac.tlsSecretName" . }}
       - name: crowdstrike-falcon-vol0
         emptyDir:
           sizeLimit: 256Mi
@@ -422,12 +433,19 @@ metadata:
   name: validating.{{ include "falcon-kac.webhookName" . }}
   labels:
     {{- include "falcon-kac.labels" . | nindent 4 }}
+  {{- if $certManager }}
+  annotations:
+    {{- /* cert-manager's cainjector fills both webhooks' caBundle from the Certificate's CA */}}
+    cert-manager.io/inject-ca-from: {{ $kacNS }}/{{ include "falcon-kac.tlsSecretName" . }}
+  {{- end }}
 webhooks:
 - admissionReviewVersions:
   - v1
   clientConfig:
+    {{- if not $certManager }}
     caBundle: {{ $caCert }}
-    {{- if .Values.domainName -}}
+    {{- end }}
+    {{- if .Values.domainName }}
     url: https://{{ $webhookFullName }}:443/validate
     {{- else }}
     service:
@@ -475,8 +493,10 @@ webhooks:
 - admissionReviewVersions:
   - v1
   clientConfig:
+    {{- if not $certManager }}
     caBundle: {{ $caCert }}
-    {{- if .Values.domainName -}}
+    {{- end }}
+    {{- if .Values.domainName }}
     url: https://{{ $webhookFullName }}:443/validate
     {{- else }}
     service:

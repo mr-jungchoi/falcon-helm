@@ -58,6 +58,30 @@ iar agent service  definition
 {{- end }}
 
 {{/*
+Name of the agent service TLS Secret mounted by the image analyzer pod: iarAgentService.existingTLSSecret
+when set (created outside the chart), otherwise <name>-tls, which Helm or cert-manager
+(certManager.enabled) creates.
+*/}}
+{{- define "falcon-image-analyzer.tlsSecretName" -}}
+{{- .Values.iarAgentService.existingTLSSecret | default (printf "%s-tls" (include "falcon-image-analyzer.name" .)) -}}
+{{- end }}
+
+{{/*
+DNS names for the agent service TLS certificate, as a YAML list (use with fromYamlArray).
+The first entry is the certificate's common name. Shared by the Helm-generated certificate
+(tls-secret.yaml) and the cert-manager Certificate (certificate.yaml).
+*/}}
+{{- define "falcon-image-analyzer.iarDNSNames" -}}
+{{- $ns := include "falcon-image-analyzer.namespace" . -}}
+{{- $svcName := include "falcon-image-analyzer.iarAgentService" . -}}
+{{- $fullSvcName := printf "%s.%s.svc" $svcName $ns -}}
+{{- if .Values.iarAgentService.domainName -}}
+{{- $fullSvcName = printf "%s.%s.svc.%s" $svcName $ns .Values.iarAgentService.domainName -}}
+{{- end -}}
+{{- list $fullSvcName (printf "%s.cluster.local" $fullSvcName) (printf "%s.%s" $fullSvcName $ns) | toYaml -}}
+{{- end }}
+
+{{/*
 tmp-volume volume size definition
 */}}
 {{- define "falcon-image-analyzer.tempvolsize" -}}

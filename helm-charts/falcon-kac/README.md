@@ -32,6 +32,8 @@ Kubernetes cluster.
   - [Image Analyzer Integration](#image-analyzer-integration)
   - [Networking](#networking)
   - [Certificate Management](#certificate-management)
+    - [Using cert-manager](#using-cert-manager)
+    - [Using an existing TLS Secret](#using-an-existing-tls-secret)
   - [Deployment Configuration](#deployment-configuration)
   - [Resource Limits](#resource-limits)
   - [OpenShift](#openshift)
@@ -433,12 +435,59 @@ Controls network identity and connectivity for the KAC pod.
 
 ## Certificate Management
 
-Settings for the TLS certificates used by the validating webhook.
+Settings for the TLS certificate used by the validating webhook. The certificate is stored in the
+Secret `<name>-tls` (`falcon-kac-tls` by default) and mounted into the `falcon-client` container.
+It comes from one of three sources:
 
-| Parameter               | Description                                             | Default |
-|:------------------------|:--------------------------------------------------------|:--------|
-| `autoCertificateUpdate` | Automatically rotate certificates on each Helm upgrade  | `true`  |
-| `certExpiration`        | Certificate validity period in days                     | `3650`  |
+- **Helm-generated (default):** Helm creates a CA and a server certificate on every install and,
+  when `autoCertificateUpdate` is `true`, on every upgrade.
+- **cert-manager:** set `certManager.enabled=true` and `certManager.issuerRef`. cert-manager issues
+  the certificate and renews it, and its cainjector fills the webhook `caBundle`.
+- **Existing Secret:** set `existingTLSSecret` to a `kubernetes.io/tls` Secret you create in the KAC
+  namespace. The chart mounts it and does not create its own TLS Secret.
+
+| Parameter                   | Description                                                                                                                                                                          | Default |
+|:----------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `autoCertificateUpdate`     | Regenerate the Helm-generated certificate on each Helm upgrade. When `false`, the existing certificate, key, and CA are reused together. Ignored with cert-manager or `existingTLSSecret`. | `true`  |
+| `certExpiration`            | Certificate validity period in days. Also sets the cert-manager `Certificate` duration. Ignored with `existingTLSSecret`.                                                              | `3650`  |
+| `certManager.enabled`       | Use cert-manager to issue the webhook certificate. Cannot be used with `existingTLSSecret`.                                                                                           | `false` |
+| `certManager.issuerRef`     | cert-manager issuer for the certificate (`name`, `kind`, `group`). `name` is required when `certManager.enabled`.                                                                     | `{}`    |
+| `existingTLSSecret`         | Name of an existing `kubernetes.io/tls` Secret to use as the webhook certificate.                                                                                                     | `""`    |
+| `existingTLSSecretCABundle` | Base64-encoded PEM CA bundle that signed the `existingTLSSecret` certificate. Overrides the Secret's `ca.crt` as the webhook `caBundle`.                                               | `""`    |
+
+### Using cert-manager
+
+Requires [cert-manager](https://cert-manager.io/), including its cainjector, and an issuer that can
+issue certificates for in-cluster service names, such as a self-signed or CA `ClusterIssuer`:
+
+```yaml
+certManager:
+  enabled: true
+  issuerRef:
+    name: selfsigned-cluster-issuer
+    kind: ClusterIssuer
+```
+
+### Using an existing TLS Secret
+
+The certificate must be valid for the webhook service names: `webhook.<namespace>.svc`,
+`webhook.<namespace>.svc.cluster.local`, `webhook.<namespace>`, and `webhook` (with `domainName` set,
+`webhook.<namespace>.svc.<domainName>` replaces `webhook.<namespace>.svc`).
+
+```bash
+kubectl create secret tls falcon-kac-webhook-tls -n falcon-kac --cert=tls.crt --key=tls.key
+```
+
+When `admissionControl.enabled` is `true`, the webhook `caBundle` must be the CA that signed the
+certificate. The chart reads it from the Secret's `ca.crt` key at install time. `kubectl create secret tls`
+does not add `ca.crt`, and `helm template` and dry runs can't read Secrets, so in those cases set
+`existingTLSSecretCABundle`:
+
+```bash
+helm install falcon-kac crowdstrike/falcon-kac -n falcon-kac \
+  --set existingTLSSecret=falcon-kac-webhook-tls \
+  --set existingTLSSecretCABundle="$(base64 < ca.crt | tr -d '\n')"
+```
 
 ## Deployment Configuration
 

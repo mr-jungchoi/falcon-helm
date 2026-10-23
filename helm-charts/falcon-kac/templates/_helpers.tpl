@@ -13,6 +13,28 @@ Set the webhook name
 {{- end }}
 
 {{/*
+Name of the webhook TLS Secret mounted by the KAC pod: existingTLSSecret when set (created outside
+the chart), otherwise <name>-tls, which Helm or cert-manager (certManager.enabled) creates.
+*/}}
+{{- define "falcon-kac.tlsSecretName" -}}
+{{- .Values.existingTLSSecret | default (printf "%s-tls" (include "falcon-kac.name" .)) -}}
+{{- end }}
+
+{{/*
+DNS names for the webhook TLS certificate, as a YAML list (use with fromYamlArray).
+The first entry is the certificate's common name. Shared by the Helm-generated certificate
+(deployment_webhook.yaml) and the cert-manager Certificate (certificate.yaml).
+*/}}
+{{- define "falcon-kac.webhookDNSNames" -}}
+{{- $ns := include "falcon-kac.namespace" . -}}
+{{- $fullName := printf "webhook.%s.svc" $ns -}}
+{{- if .Values.domainName -}}
+{{- $fullName = printf "webhook.%s.svc.%s" $ns .Values.domainName -}}
+{{- end -}}
+{{- list $fullName (printf "%s.cluster.local" $fullName) (printf "webhook.%s" $ns) "webhook" | toYaml -}}
+{{- end }}
+
+{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
@@ -138,6 +160,9 @@ __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{- define "validateValues" }}
   {{- if and (eq (include "admissionControlEnabled" .) "false") (eq (include "visibilityEnabled" .) "false") }}
     {{- fail "Error: .Values.admissionControl.enabled, .Values.clusterVisibility.resourceSnapshots.enabled, .Values.clusterVisibility.resourceWatcher.enabled cannot all be false." }}
+  {{- end }}
+  {{- if and .Values.certManager.enabled .Values.existingTLSSecret }}
+    {{- fail "Error: certManager.enabled and existingTLSSecret cannot be used together. Use one source for the webhook TLS certificate." }}
   {{- end }}
 {{- end }}
 

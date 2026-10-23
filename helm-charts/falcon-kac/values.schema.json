@@ -69,6 +69,45 @@
             "default": "3650",
             "minimum": 0
         },
+        "certManager": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "issuerRef": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "group": {"type": "string"}
+                    }
+                }
+            },
+            "$comment": "issuerRef.name is required when cert-manager is enabled.",
+            "if": {
+                "required": ["enabled"],
+                "properties": {"enabled": {"const": true}}
+            },
+            "then": {
+                "required": ["issuerRef"],
+                "properties": {
+                    "issuerRef": {
+                        "required": ["name"],
+                        "properties": {"name": {"type": "string", "minLength": 1}}
+                    }
+                }
+            }
+        },
+        "existingTLSSecret": {
+            "type": ["null", "string"],
+            "description": "Existing kubernetes.io/tls Secret to use as the webhook TLS certificate instead of a chart-created one"
+        },
+        "existingTLSSecretCABundle": {
+            "type": ["null", "string"],
+            "description": "Base64-encoded PEM CA bundle for the webhook caBundle when using existingTLSSecret"
+        },
         "tlsVersionMinimum": {
             "type": [
                 "null",

@@ -1,0 +1,29 @@
+{{- if and (or .Values.deployment.enabled .Values.daemonset.enabled) .Values.certManager.enabled }}
+{{- if .Values.iarAgentService.existingTLSSecret }}
+  {{- fail "certManager.enabled and iarAgentService.existingTLSSecret cannot be used together. Use one source for the agent service TLS certificate." }}
+{{- end }}
+{{- /* Agent service TLS certificate, issued directly by the configured issuer. cert-manager writes
+       tls.crt, tls.key, and ca.crt (when the issuer's CA is known) to the Secret the image analyzer
+       pod mounts, and renews it before it expires. */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "falcon-image-analyzer.tlsSecretName" . }}
+  namespace: {{ include "falcon-image-analyzer.namespace" . }}
+  labels:
+    {{- include "falcon-image-analyzer.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "falcon-image-analyzer.tlsSecretName" . }}
+  secretTemplate:
+    labels:
+      {{- include "falcon-image-analyzer.labels" . | nindent 6 }}
+  issuerRef:
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.iarAgentService.certExpiration 24 }}h"
+  dnsNames:
+    {{- include "falcon-image-analyzer.iarDNSNames" . | nindent 4 }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+{{- end }}

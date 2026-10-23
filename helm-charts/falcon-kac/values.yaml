@@ -44,6 +44,31 @@ certExpiration: 3650
 # Otherwise, keep this blank.
 domainName:
 
+# cert-manager integration for the webhook TLS certificate.
+# When enabled, cert-manager issues the webhook certificate (Secret <name>-tls) instead of Helm
+# generating it, and cert-manager's cainjector fills the ValidatingWebhookConfiguration caBundle.
+# autoCertificateUpdate is ignored; cert-manager handles renewal. The validity period still comes
+# from certExpiration. Requires cert-manager (including cainjector) in the cluster and an issuerRef
+# that can issue certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
+# Cannot be used with existingTLSSecret.
+certManager:
+  enabled: false
+  issuerRef: {}
+  #  name: selfsigned-cluster-issuer
+  #  kind: ClusterIssuer
+
+# Name of an existing kubernetes.io/tls Secret, created outside this chart, to use as the webhook
+# TLS certificate. The chart then does not create the TLS Secret and mounts this one instead.
+# The certificate must be valid for webhook.<namespace>.svc (and the other webhook service names).
+# When admissionControl.enabled, the webhook caBundle is read from the Secret's ca.crt at install
+# time; set existingTLSSecretCABundle if the Secret has no ca.crt or you render with helm template.
+# autoCertificateUpdate and certExpiration are ignored. Cannot be used with certManager.enabled.
+existingTLSSecret: ""
+
+# Base64-encoded PEM CA bundle that signed the existingTLSSecret certificate. Used as the webhook
+# caBundle instead of the Secret's ca.crt. Only used with existingTLSSecret.
+existingTLSSecretCABundle: ""
+
 serviceAccount:
   name: falcon-kac-sa
   annotations: {}
