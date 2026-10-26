@@ -1,4 +1,8 @@
 {{- if .Values.testing.enabled -}}
+{{- /*
+Helm orders hooks by weight, then by resource name (not kind). The negative
+weight ensures the test ServiceAccount and RBAC exist before any test Pod.
+*/ -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -8,6 +12,7 @@ metadata:
     {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": test-success
+    "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -18,6 +23,7 @@ metadata:
     {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": test-success
+    "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 rules:
 - apiGroups: [""]
@@ -26,6 +32,9 @@ rules:
 - apiGroups: [apps]
   resources: [deployments, daemonsets]
   verbs: [get, list, watch]
+- apiGroups: [discovery.k8s.io]
+  resources: [endpointslices]
+  verbs: [get, list]
 - apiGroups: [rbac.authorization.k8s.io]
   resources: [clusterroles, clusterrolebindings, roles, rolebindings]
   verbs: [get, list]
@@ -45,6 +54,11 @@ rules:
   resources: [secretproviderclasses]
   verbs: [get, list]
 {{- end }}
+{{- if .Values.certManager.enabled }}
+- apiGroups: [cert-manager.io]
+  resources: [certificates]
+  verbs: [get, list, watch]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -54,6 +68,7 @@ metadata:
     {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": test-success
+    "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 subjects:
 - kind: ServiceAccount
