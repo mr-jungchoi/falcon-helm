@@ -427,7 +427,8 @@ the same way.
 | Secret                              | Used by                                               | Purpose                                                 | Created by           |
 |:------------------------------------|:------------------------------------------------------|:--------------------------------------------------------|:---------------------|
 | `falcon-cg-controller-tls`          | Clusterguard controller; admission webhook `caBundle` | Admission webhook server certificate                    | Helm or cert-manager |
-| `falcon-api-ca`                     | Clusterguard controller, node sensor                  | CA for gRPC mTLS between them                           | Helm or cert-manager |
+| `falcon-api-ca`                     | Clusterguard controller, node sensor                  | CA certificate for gRPC mTLS between them               | Helm                 |
+| `falcon-grpc-ca`                    | cert-manager only (not mounted by any pod)            | gRPC mTLS CA certificate and private key                | cert-manager         |
 | `falcon-api-tls`                    | Clusterguard controller                               | gRPC API server certificate                             | Helm or cert-manager |
 | `falcon-node-sensor-tls`            | Node sensor                                           | gRPC client certificate                                 | Helm or cert-manager |
 | `<release-fullname>-iar-tls`        | Image Analyzer (when `imageAnalyzer.enabled=true`)    | Image Analyzer agent service certificate                | Helm or cert-manager |
@@ -463,12 +464,18 @@ regenerated together so certificates always match their CA:
 ### Using cert-manager
 
 With `certManager.enabled=true`, the chart creates a cert-manager `Certificate` for each Secret in
-[Certificates Used by FCG](#certificates-used-by-fcg) except the Guardian proxy CA bundle, which
-you always provide:
+[Certificates Used by FCG](#certificates-used-by-fcg) that cert-manager can create. It doesn't create
+`falcon-api-ca`, which only Helm uses, or the Guardian proxy CA bundle, which you always provide:
 
 - The admission webhook and Image Analyzer certificates are issued directly by `issuerRef`.
-- The gRPC certificates come from a chart-managed CA (`falcon-grpc-ca`, issued by `issuerRef`) so
-  the controller and node sensor share one trust root.
+- The gRPC certificates come from a chart-managed CA so the controller and node sensor share one
+  trust root. The chart creates a self-signed `ClusterIssuer` (`<release-fullname>-grpc-selfsigned`)
+  that issues this CA (`falcon-grpc-ca`), and a namespaced CA `Issuer` (`falcon-grpc-ca-issuer`)
+  that signs `falcon-api-tls` and `falcon-node-sensor-tls` with it. The gRPC CA never uses
+  `issuerRef`, so it is never a subordinate of your organization's CA.
+- The `falcon-grpc-ca` Secret holds the CA private key and is not mounted by any pod. The
+  controller and node sensor read the CA certificate from the `ca.crt` key that cert-manager writes
+  into their own certificate Secrets (`falcon-api-tls` and `falcon-node-sensor-tls`).
 - The `ValidatingWebhookConfiguration` gets its `caBundle` from cert-manager's cainjector
   (`cert-manager.io/inject-ca-from`).
 

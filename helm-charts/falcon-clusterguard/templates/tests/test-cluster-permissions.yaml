@@ -56,7 +56,7 @@ rules:
 {{- end }}
 {{- if .Values.certManager.enabled }}
 - apiGroups: [cert-manager.io]
-  resources: [certificates]
+  resources: [certificates, clusterissuers]
   verbs: [get, list, watch]
 {{- end }}
 ---

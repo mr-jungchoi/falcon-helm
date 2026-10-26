@@ -62,7 +62,13 @@ spec:
           check_pods "API_SERVICE_NAME" "{.spec.containers[?(@.name==\"falcon-node-sensor\")].env[?(@.name==\"API_SERVICE_NAME\")].value}" \
             "{{ include "falcon-clusterguard.apiServiceName" . }}"
           check_pods "client certificate volume" "{.spec.volumes[?(@.name==\"falcon-node-sensor-tls-certs\")].secret.secretName}" "falcon-node-sensor-tls"
+          {{- if .Values.certManager.enabled }}
+          {{- /* The node must take only ca.crt from its leaf Secret, never the CA keypair Secret. */}}
+          check_pods "gRPC CA volume" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.secretName}" "falcon-node-sensor-tls"
+          check_pods "gRPC CA volume items" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.items[*].key}" "ca.crt"
+          {{- else }}
           check_pods "gRPC CA volume" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.secretName}" "falcon-api-ca"
+          {{- end }}
           {{- end }}
           {{- end }}
 

@@ -106,6 +106,8 @@ secretsStore:
 # and imageAnalyzer.iarAgentService.certExpiration.
 # Requires cert-manager (including cainjector) in the cluster and an issuerRef that can issue
 # certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
+# issuerRef issues the admission webhook and image analyzer certificates. The gRPC mTLS CA is
+# always issued by a self-signed ClusterIssuer that the chart creates.
 certManager:
   enabled: false
   issuerRef: {}

@@ -227,7 +227,17 @@ spec:
             secretName: "falcon-node-sensor-tls"
         - name: falcon-api-ca
           secret:
+            {{- if .Values.certManager.enabled }}
+            {{- /* The cert-manager CA Secret (falcon-grpc-ca) holds the CA private key, so take only
+                 the CA certificate that cert-manager copies into the leaf Secret. Nodes never
+                 reference the CA Secret, so kubelet credentials on a node cannot read its key. */}}
+            secretName: "falcon-node-sensor-tls"
+            items:
+              - key: ca.crt
+                path: ca.crt
+            {{- else }}
             secretName: "falcon-api-ca"
+            {{- end }}
         {{- end }}
         {{- if .Values.node.guardian.proxy.enabled }}
         - name: proxy-tls

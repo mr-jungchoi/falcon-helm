@@ -23,7 +23,7 @@ spec:
         - |
           {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
           DEPLOY_NAME="{{ include "falcon-clusterguard.controllerName" . }}"
-          CM_NAME="{{ include "falcon-clusterguard.cgContollerConfigMapName" . }}"
+          CM_NAME="{{ include "falcon-clusterguard.cgControllerConfigMapName" . }}"
 
           echo "--- Checking clusterguard controller Deployment ---"
           check_exists deployment "${DEPLOY_NAME}"

@@ -53,7 +53,7 @@ spec:
           {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.hostNetwork }}
 
           echo "--- Clusterguard controller (hostNetwork) ---"
-          {{- if include "falcon-clusterguard.openshiftCgControllerSCCName" . | eq "true" }}
+          {{- if include "falcon-clusterguard.openshiftCgControllerCreateSCC" . | eq "true" }}
           check_scc_user "{{ include "falcon-clusterguard.cgControllerSccName" . }}" "{{ include "falcon-clusterguard.clusterServiceAccountName" . }}"
           {{- end }}
           check_rollout deployment "{{ include "falcon-clusterguard.controllerName" . }}"

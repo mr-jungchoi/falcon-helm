@@ -1,4 +1,4 @@
-{{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftCgControllerSCCName" . | eq "true") }}
+{{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftCgControllerCreateSCC" . | eq "true") }}
 {{- /* SCC for the admission controller Deployment — only needed when admission.hostNetwork=true.*/}}
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
