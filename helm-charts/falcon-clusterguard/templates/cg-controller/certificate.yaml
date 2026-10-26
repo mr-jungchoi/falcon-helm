@@ -1,5 +1,6 @@
 {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.certManager.enabled }}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
+{{- $grpcSelfSignedIssuer := include "falcon-clusterguard.grpcSelfSignedIssuerName" . -}}
 
 {{- /* Admission webhook server certificate, issued directly by the configured issuer.
        The ValidatingWebhookConfiguration's caBundle is filled from this Certificate by
@@ -26,8 +27,24 @@ spec:
 
 ---
 
+{{- /* Chart-owned self-signed issuer for the gRPC CA. The gRPC CA is a private trust root
+       between the controller and node sensors only, so it is never issued by the user's
+       issuerRef: that issuer may be an enterprise CA, and the gRPC CA key would then be a
+       subordinate CA of it. */}}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $grpcSelfSignedIssuer }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+
+---
 {{- /* Self-signed CA certificate for gRPC mTLS.
-       Both the server cert and client cert are signed by this CA so they share a trust root. */}}
+       Both the server cert and client cert are signed by this CA so they share a trust root.
+       Its Secret holds the CA private key, so no pod mounts it; pods read the CA certificate
+       from the ca.crt that cert-manager writes into each leaf Secret instead. */}}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -36,9 +53,11 @@ metadata:
   labels:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
-  secretName: falcon-api-ca
+  secretName: falcon-grpc-ca
   issuerRef:
-    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+    name: {{ $grpcSelfSignedIssuer }}
+    kind: ClusterIssuer
+    group: cert-manager.io
   duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
   commonName: falcon-clusterguard-grpc-ca
   isCA: true
@@ -58,7 +77,7 @@ metadata:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   ca:
-    secretName: falcon-api-ca
+    secretName: falcon-grpc-ca
 
 ---
 {{- /* gRPC API server certificate — presented by falcon-watcher to node sensors. */}}

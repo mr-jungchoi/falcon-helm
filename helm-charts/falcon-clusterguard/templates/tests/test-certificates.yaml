@@ -38,6 +38,15 @@ spec:
 
           echo "--- Checking cert-manager Certificates ---"
           {{- if $clusterGuard }}
+          {{- $grpcSelfSignedIssuer := include "falcon-clusterguard.grpcSelfSignedIssuerName" . }}
+          if kubectl wait clusterissuer "{{ $grpcSelfSignedIssuer }}" --for=condition=Ready --timeout=120s > /dev/null 2>&1; then
+            ok "ClusterIssuer '{{ $grpcSelfSignedIssuer }}' is Ready"
+          else
+            fail "ClusterIssuer '{{ $grpcSelfSignedIssuer }}' is not Ready"
+          fi
+          check_equal "Certificate 'falcon-grpc-ca' issuer" \
+            "$(kubectl get certificate falcon-grpc-ca -n "${NS}" -o jsonpath='{.spec.issuerRef.kind}/{.spec.issuerRef.name}' 2>&1)" \
+            "ClusterIssuer/{{ $grpcSelfSignedIssuer }}"
           for CERT in falcon-cg-controller-tls falcon-grpc-ca falcon-api-tls falcon-node-sensor-tls; do
             check_certificate "${CERT}"
           done
@@ -50,12 +59,20 @@ spec:
           echo "--- Checking TLS Secrets ---"
           {{- if $clusterGuard }}
           {{- /* cert-manager only writes ca.crt when the issuer's CA is known, so the webhook Secret
-                 is only required to have it when Helm generates the certificates. The gRPC CA Secret
-                 always has ca.crt: Helm writes it, and cert-manager sets it on the self-signed CA. */}}
+                 is only required to have it when Helm generates the certificates. For gRPC, Helm
+                 writes the CA certificate to falcon-api-ca; cert-manager keeps the CA keypair in
+                 falcon-grpc-ca and copies the CA certificate into each leaf Secret's ca.crt, which
+                 the controller and node sensor mount instead. */}}
           check_secret_keys falcon-cg-controller-tls tls.crt tls.key{{ if not $certManager }} ca.crt{{ end }}
+          {{- if $certManager }}
+          check_secret_keys falcon-grpc-ca tls.crt tls.key ca.crt
+          check_secret_keys falcon-api-tls tls.crt tls.key ca.crt
+          check_secret_keys falcon-node-sensor-tls tls.crt tls.key ca.crt
+          {{- else }}
           check_secret_keys falcon-api-ca ca.crt
           check_secret_keys falcon-api-tls tls.crt tls.key
           check_secret_keys falcon-node-sensor-tls tls.crt tls.key
+          {{- end }}
           {{- end }}
           {{- if .Values.imageAnalyzer.enabled }}
           check_secret_keys "{{ $iarTLS }}" tls.crt tls.key{{ if not $certManager }} ca.crt{{ end }}

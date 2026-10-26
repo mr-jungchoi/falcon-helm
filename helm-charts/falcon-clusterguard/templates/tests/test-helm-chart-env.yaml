@@ -46,7 +46,7 @@ spec:
         {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
 
         echo "--- Checking HELM_CHART for the clusterguard controller ---"
-        check_configmap_env "{{ include "falcon-clusterguard.cgContollerConfigMapName" . }}" \
+        check_configmap_env "{{ include "falcon-clusterguard.cgControllerConfigMapName" . }}" \
           deployment "{{ include "falcon-clusterguard.controllerName" . }}" falcon-client falcon-watcher falcon-ac
         {{- end }}
 

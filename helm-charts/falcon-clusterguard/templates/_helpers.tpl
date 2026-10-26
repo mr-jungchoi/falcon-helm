@@ -74,6 +74,14 @@ The first entry is the certificate's common name. Shared by the Helm-generated c
 {{- end -}}
 
 {{/*
+Name of the chart-owned self-signed ClusterIssuer that issues the gRPC mTLS CA when
+certManager.enabled=true (cg-controller/certificate.yaml).
+*/}}
+{{- define "falcon-clusterguard.grpcSelfSignedIssuerName" -}}
+{{- printf "%s-grpc-selfsigned" (include "falcon-clusterguard.fullname" .) -}}
+{{- end -}}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "falcon-clusterguard.chart" -}}
@@ -252,7 +260,7 @@ Fixed name — required by GKE Autopilot WorkloadAllowlist and matches the refer
 {{/*
 ConfigMap name for the clusterguard controller Deployment.
 */}}
-{{- define "falcon-clusterguard.cgContollerConfigMapName" -}}
+{{- define "falcon-clusterguard.cgControllerConfigMapName" -}}
 {{- printf "falcon-clusterguard-config" -}}
 {{- end -}}
 
@@ -363,21 +371,6 @@ Admission control enabled? True if both cluster AND admissionControl are enabled
 {{- define "falcon-clusterguard.admissionControlEnabled" -}}
 {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.admissionControl.enabled -}}
 true
-{{- else -}}
-false
-{{- end -}}
-{{- end -}}
-
-{{/*
-Visibility enabled? True if either snapshots or watcher is enabled.
-*/}}
-{{- define "falcon-clusterguard.visibilityEnabled" -}}
-{{- if .Values.cluster.visibility -}}
-{{- if or .Values.cluster.visibility.resourceSnapshots.enabled .Values.cluster.visibility.resourceWatcher.enabled -}}
-true
-{{- else -}}
-false
-{{- end -}}
 {{- else -}}
 false
 {{- end -}}
@@ -596,7 +589,7 @@ OpenShift node createSCC — false if either chart-level or global disables it.
 {{/*
 OpenShift clusterguard controller createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
 */}}
-{{- define "falcon-clusterguard.openshiftCgControllerSCCName" -}}
+{{- define "falcon-clusterguard.openshiftCgControllerCreateSCC" -}}
 {{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}
 {{- end -}}
 

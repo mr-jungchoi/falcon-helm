@@ -416,11 +416,6 @@
                         }
                     }
                 },
-                "replicas": {
-                    "type": "integer",
-                    "default": 1,
-                    "minimum": 1
-                },
                 "resourceQuota": {
                     "type": "object",
                     "properties": {
@@ -584,7 +579,6 @@
                         }
                     }
                 },
-                "replicaCount": {"type": "integer", "minimum": 1, "default": 1},
                 "crowdstrikeConfig": {
                     "type": "object",
                     "properties": {
