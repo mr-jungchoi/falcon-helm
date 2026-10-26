@@ -107,15 +107,17 @@ Impact: one CRD, one cluster-scoped object.
 
 ### "KAC Role: Secrets in its namespace"
 
-- `templates/cg-controller/role.yaml`: Secrets `create`, `get`, `update`, `delete`
-  in the ClusterGuard namespace. KAC stores the install guard credential in the
-  Secret `falcon-fcg-install-guard`; without `create` it fails with "secrets is
-  forbidden", does not arm, and reports the SetUninstallToken as not applied.
+- `templates/cg-controller/role.yaml`: Secrets `create` in the ClusterGuard
+  namespace, and `update`, `delete` of the Secret `falcon-fcg-install-guard` only
+  (`resourceNames`). KAC stores the install guard credential in that Secret; without
+  `create` it fails with "secrets is forbidden", does not arm, and reports the
+  SetUninstallToken as not applied. `get` comes from the controller ClusterRole
+  (secrets get/list/watch).
 
 The rule was in the controller Role before the template split (808fa67, "move node
 and cg-controller resources into separate directories") and was dropped there,
-apparently by accident; this restores it unchanged. `create` cannot be restricted by
-`resourceNames`, so the rule is namespace-wide as before.
+apparently by accident; this restores it, narrowed (review of the sensor PR).
+`create` cannot be restricted by `resourceNames`, so that verb stays namespace-wide.
 
 Impact: RBAC only, namespaced.
 
