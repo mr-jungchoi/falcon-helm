@@ -48,14 +48,14 @@ port 443 -> `webhook-port`, which the controller pod always exposes).
 
 KAC publishes the install guard state for node sensors as key `installguard.state`
 (`armed`, `disarmed` or `disabled`; missing means `disabled`) of its own ConfigMap
-`falcon-kac-install-guard-state`, written at runtime in the ClusterGuard namespace.
+`falcon-fcg-install-guard-state`, written at runtime in the ClusterGuard namespace.
 While armed, KAC's install guard webhook denies updates of this ConfigMap by anyone
 but KAC's service account. The node sensor (CSPG-102140) polls
 `/opt/CrowdStrike/clusterguard-state/installguard.state` and accepts the uninstall
 token only once KAC has armed install guard.
 
 - `templates/node/daemonset.yaml`: `falcon-sensor` container mounts volume
-  `clusterguard-state` (ConfigMap `falcon-kac-install-guard-state`, `optional: true`)
+  `clusterguard-state` (ConfigMap `falcon-fcg-install-guard-state`, `optional: true`)
   at `/opt/CrowdStrike/clusterguard-state`, read-only, when ClusterGuard is deployed
   (same condition as the TLS/CA mounts).
   - Directory mount, not `subPath`: kubelet does not propagate ConfigMap updates to
@@ -109,7 +109,7 @@ Impact: one CRD, one cluster-scoped object.
 
 - `templates/cg-controller/role.yaml`: Secrets `create`, `get`, `update`, `delete`
   in the ClusterGuard namespace. KAC stores the install guard credential in the
-  Secret `falcon-kac-install-guard`; without `create` it fails with "secrets is
+  Secret `falcon-fcg-install-guard`; without `create` it fails with "secrets is
   forbidden", does not arm, and reports the SetUninstallToken as not applied.
 
 The rule was in the controller Role before the template split (808fa67, "move node

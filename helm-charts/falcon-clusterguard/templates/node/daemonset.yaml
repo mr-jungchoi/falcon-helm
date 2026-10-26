@@ -240,7 +240,7 @@ spec:
         # starts, with install guard disabled, before KAC has created it.
         - name: clusterguard-state
           configMap:
-            name: falcon-kac-install-guard-state
+            name: falcon-fcg-install-guard-state
             optional: true
         {{- end }}
         {{- if .Values.node.guardian.proxy.enabled }}
