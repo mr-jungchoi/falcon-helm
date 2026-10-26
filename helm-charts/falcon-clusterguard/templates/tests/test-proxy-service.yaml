@@ -1,4 +1,4 @@
-{{- if and .Values.testing.enabled .Values.node.enabled .Values.node.guardian.proxy.enabled -}}
+{{- if and .Values.testing.enabled .Values.node.enabled (not .Values.node.cleanupOnly) .Values.node.guardian.proxy.enabled -}}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -19,52 +19,21 @@ spec:
         - /bin/sh
         - -c
         - |
-          FAILED=0
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
 
-          echo "--- Checking falcon-proxy Service exists ---"
-          if ! kubectl get service falcon-proxy \
-              -n "{{ include "falcon-clusterguard.namespace" . }}" > /dev/null 2>&1; then
-            echo "[FAIL]: Service 'falcon-proxy' not found"
-            FAILED=1
-          else
-            echo "[OK]: Service 'falcon-proxy' exists"
-          fi
+          echo "--- Checking falcon-proxy Service ---"
+          check_exists service falcon-proxy
+          check_equal "falcon-proxy internalTrafficPolicy" \
+            "$(kubectl get service falcon-proxy -n "${NS}" -o jsonpath='{.spec.internalTrafficPolicy}' 2>&1)" "Local"
+          check_endpoints falcon-proxy
 
-          echo "--- Checking internalTrafficPolicy is Local ---"
-          POLICY=$(kubectl get service falcon-proxy \
-            -n "{{ include "falcon-clusterguard.namespace" . }}" \
-            -o jsonpath="{.spec.internalTrafficPolicy}" 2>&1)
-          if [ "${POLICY}" != "Local" ]; then
-            echo "[FAIL]: internalTrafficPolicy is '${POLICY}', expected 'Local'"
-            FAILED=1
-          else
-            echo "[OK]: internalTrafficPolicy=Local"
-          fi
+          echo "--- Checking proxy port on node sensor pods ---"
+          check_rollout daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
+          check_pods_running "node sensor" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.nodeSelectorLabels" .) }}"
+          check_pods "proxy containerPort" \
+            "{.spec.containers[?(@.name==\"falcon-node-sensor\")].ports[?(@.name==\"proxy\")].containerPort}" "{{ .Values.node.guardian.proxy.port }}"
 
-          echo "--- Checking proxy port on DaemonSet pods ---"
-          PODS=$(kubectl get pods \
-            -n "{{ include "falcon-clusterguard.namespace" . }}" \
-            -l "app={{ include "falcon-clusterguard.name" . }}-node" \
-            -o jsonpath="{.items[*].metadata.name}" 2>&1)
-          if [ -z "${PODS}" ]; then
-            echo "[FAIL]: No node sensor pods found to check proxy port"
-            FAILED=1
-          else
-            for POD in ${PODS}; do
-              PORT=$(kubectl get pod "${POD}" \
-                -n "{{ include "falcon-clusterguard.namespace" . }}" \
-                -o jsonpath="{.spec.containers[?(@.name==\"falcon-sensor\")].ports[?(@.name==\"proxy\")].containerPort}" 2>&1)
-              if [ "${PORT}" != "{{ .Values.node.guardian.proxy.port }}" ]; then
-                echo "[FAIL]: Pod '${POD}' proxy port is '${PORT}', expected '{{ .Values.node.guardian.proxy.port }}'"
-                FAILED=1
-              else
-                echo "[OK]: Pod '${POD}' proxy port={{ .Values.node.guardian.proxy.port }}"
-              fi
-            done
-          fi
-
-          if [ "${FAILED}" -eq 1 ]; then exit 1; fi
-          exit 0
+          finish
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

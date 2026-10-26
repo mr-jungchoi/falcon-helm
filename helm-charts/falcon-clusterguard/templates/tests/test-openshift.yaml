@@ -1,0 +1,87 @@
+{{- if and .Values.testing.enabled (include "falcon-clusterguard.openshiftEnabled" . | eq "true") -}}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-openshift"
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+
+          # check_scc_user <SCC> <ServiceAccount>: the chart-created SCC exists and grants the ServiceAccount.
+          check_scc_user() {
+            check_exists scc "$1"
+            USERS=$(kubectl get scc "$1" -o jsonpath='{.users}' 2>&1)
+            if echo "${USERS}" | grep -q "system:serviceaccount:${NS}:$2\""; then
+              ok "SCC '$1' grants ServiceAccount '$2'"
+            else
+              fail "SCC '$1' does not grant ServiceAccount '$2': ${USERS}"
+            fi
+          }
+
+          # check_scc_pods <description> <label selector> <SCC>: OpenShift admitted the pods under the SCC.
+          check_scc_pods() {
+            check_pods_running "$1" "$2"
+            check_pods "openshift.io/scc annotation" "{.metadata.annotations.openshift\.io/scc}" "$3"
+          }
+
+          {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+
+          echo "--- Node sensor ---"
+          {{- if include "falcon-clusterguard.openshiftNodeCreateSCC" . | eq "true" }}
+          check_scc_user "{{ include "falcon-clusterguard.nodeSccName" . }}" "{{ include "falcon-clusterguard.nodeServiceAccountName" . }}"
+          {{- end }}
+          check_rollout daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
+          check_scc_pods "node sensor" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.nodeSelectorLabels" .) }}" \
+            "{{ include "falcon-clusterguard.nodeSccName" . }}"
+          {{- end }}
+
+          {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.hostNetwork }}
+
+          echo "--- Clusterguard controller (hostNetwork) ---"
+          {{- if include "falcon-clusterguard.openshiftCgControllerSCCName" . | eq "true" }}
+          check_scc_user "{{ include "falcon-clusterguard.cgControllerSccName" . }}" "{{ include "falcon-clusterguard.clusterServiceAccountName" . }}"
+          {{- end }}
+          check_rollout deployment "{{ include "falcon-clusterguard.controllerName" . }}"
+          check_scc_pods "clusterguard controller" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.cgControllerSelectorLabels" .) }}" \
+            "{{ include "falcon-clusterguard.cgControllerSccName" . }}"
+          {{- end }}
+
+          {{- if .Values.imageAnalyzer.enabled }}
+
+          echo "--- Image analyzer ---"
+          {{- if include "falcon-clusterguard.openshiftIARCreateSCC" . | eq "true" }}
+          check_scc_user "{{ include "falcon-clusterguard.iarSCCName" . }}" "{{ include "falcon-clusterguard.iarServiceAccountName" . }}"
+          {{- end }}
+          check_rollout {{ ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }} "{{ include "falcon-clusterguard.iarName" . }}"
+          check_scc_pods "image analyzer" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.iarSelectorLabels" .) }}" \
+            "{{ include "falcon-clusterguard.iarSCCName" . }}"
+          {{- end }}
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

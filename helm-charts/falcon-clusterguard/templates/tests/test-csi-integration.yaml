@@ -1,6 +1,5 @@
 {{- if and .Values.testing.enabled (include "falcon-clusterguard.csiEnabled" . | eq "true") -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
-{{- $imageAnalyzer := .Values.imageAnalyzer -}}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -112,20 +111,20 @@ spec:
         SECRET="{{ include "falcon-clusterguard.csiSecretName" . }}"
         check_spc "${SPC}" "${SECRET}"
         {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
-        check_workload daemonset {{ include "falcon-clusterguard.nodeDaemonsetName" . }} "${SPC}" falcon-sensor FALCONCTL_OPT_CID "${SECRET}"
+        check_workload daemonset {{ include "falcon-clusterguard.nodeDaemonsetName" . }} "${SPC}" falcon-node-sensor FALCONCTL_OPT_CID "${SECRET}"
         {{- end }}
         {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
-        check_workload deployment {{ include "falcon-clusterguard.controllerName" . }}"${SPC}" falcon-client FALCONCTL_OPT_CID "${SECRET}"
+        check_workload deployment {{ include "falcon-clusterguard.controllerName" . }} "${SPC}" falcon-client FALCONCTL_OPT_CID "${SECRET}"
         {{- end }}
         check_secret "${SECRET}" FALCONCTL_OPT_CID{{ if .Values.secretsStore.provisioningTokenSecretName }} FALCONCTL_OPT_PROVISIONING_TOKEN{{ end }}
 
         {{- if .Values.imageAnalyzer.enabled }}
 
         # Image Analyzer
-        IAR_SPC="{{ include "falcon-clusterguard.iarFullname" . }}-csi"
+        IAR_SPC="{{ include "falcon-clusterguard.iarName" . }}-csi"
         IAR_SECRET="{{ include "falcon-clusterguard.iarCsiSecretName" . }}"
         check_spc "${IAR_SPC}" "${IAR_SECRET}"
-        check_workload {{ ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }} "{{ include "falcon-clusterguard.iarFullname" . }}" "${IAR_SPC}" "{{ include "falcon-clusterguard.iarName" . }}" AGENT_CLIENT_ID "${IAR_SECRET}"
+        check_workload {{ ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }} "{{ include "falcon-clusterguard.iarName" . }}" "${IAR_SPC}" "{{ include "falcon-clusterguard.iarName" . }}" AGENT_CLIENT_ID "${IAR_SECRET}"
         check_secret "${IAR_SECRET}" AGENT_CLIENT_ID AGENT_CLIENT_SECRET AGENT_CID
         {{- end }}
 

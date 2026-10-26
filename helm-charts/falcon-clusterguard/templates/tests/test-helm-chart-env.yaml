@@ -19,43 +19,51 @@ spec:
       - /bin/sh
       - -c
       - |
-        FAILED=0
+        {{- include "falcon-clusterguard.testShellFunctions" . | nindent 8 }}
         EXPECTED_CHART="{{ include "falcon-clusterguard.helmChart" . }}"
 
-        echo "--- Checking HELM_CHART in node sensor ConfigMap ---"
-        NODE_CM="{{ include "falcon-clusterguard.nodeConfigMapName" . }}"
-        VALUE=$(kubectl get configmap "${NODE_CM}" \
-          -n "{{ include "falcon-clusterguard.namespace" . }}" \
-          -o jsonpath='{.data.HELM_CHART}' 2>&1)
-        if [ -z "${VALUE}" ]; then
-          echo "[FAIL]: ConfigMap '${NODE_CM}' missing HELM_CHART key"
-          FAILED=1
-        elif [ "${VALUE}" != "${EXPECTED_CHART}" ]; then
-          echo "[FAIL]: ConfigMap '${NODE_CM}' HELM_CHART='${VALUE}', expected '${EXPECTED_CHART}'"
-          FAILED=1
-        else
-          echo "[OK]: ConfigMap '${NODE_CM}' HELM_CHART='${VALUE}'"
-        fi
+        # check_configmap_env <ConfigMap> <kind> <name> <containers...>
+        # The ConfigMap has HELM_CHART and every listed container loads the ConfigMap via envFrom.
+        check_configmap_env() {
+          CM="$1"; KIND="$2"; NAME="$3"; shift 3
+          check_equal "ConfigMap '${CM}' HELM_CHART" \
+            "$(kubectl get configmap "${CM}" -n "${NS}" -o jsonpath='{.data.HELM_CHART}' 2>&1)" "${EXPECTED_CHART}"
+          for CONTAINER in "$@"; do
+            check_equal "${KIND} '${NAME}' container '${CONTAINER}' envFrom ConfigMap" \
+              "$(kubectl get "${KIND}" "${NAME}" -n "${NS}" \
+                -o jsonpath="{.spec.template.spec.containers[?(@.name==\"${CONTAINER}\")].envFrom[?(@.configMapRef.name==\"${CM}\")].configMapRef.name}" 2>&1)" \
+              "${CM}"
+          done
+        }
 
-        {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
-        echo "--- Checking HELM_CHART in clusterguard controller ConfigMap ---"
-        CG_CM="{{ include "falcon-clusterguard.cgContollerConfigMapName" . }}"
-        VALUE=$(kubectl get configmap "${CG_CM}" \
-          -n "{{ include "falcon-clusterguard.namespace" . }}" \
-          -o jsonpath='{.data.HELM_CHART}' 2>&1)
-        if [ -z "${VALUE}" ]; then
-          echo "[FAIL]: ConfigMap '${CG_CM}' missing HELM_CHART key"
-          FAILED=1
-        elif [ "${VALUE}" != "${EXPECTED_CHART}" ]; then
-          echo "[FAIL]: ConfigMap '${CG_CM}' HELM_CHART='${VALUE}', expected '${EXPECTED_CHART}'"
-          FAILED=1
-        else
-          echo "[OK]: ConfigMap '${CG_CM}' HELM_CHART='${VALUE}'"
-        fi
+        {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+
+        echo "--- Checking HELM_CHART for the node sensor ---"
+        check_configmap_env "{{ include "falcon-clusterguard.nodeConfigMapName" . }}" \
+          daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}" falcon-node-sensor
         {{- end }}
 
-        if [ "${FAILED}" -eq 1 ]; then exit 1; fi
-        exit 0
+        {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+
+        echo "--- Checking HELM_CHART for the clusterguard controller ---"
+        check_configmap_env "{{ include "falcon-clusterguard.cgContollerConfigMapName" . }}" \
+          deployment "{{ include "falcon-clusterguard.controllerName" . }}" falcon-client falcon-watcher falcon-ac
+        {{- end }}
+
+        {{- if .Values.imageAnalyzer.enabled }}
+        {{- $iarKind := ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
+
+        echo "--- Checking HELM_CHART for the image analyzer ---"
+        # IAR reads HELM_CHART from its pod's helm.sh/chart label through a fieldRef.
+        check_rollout {{ $iarKind }} "{{ include "falcon-clusterguard.iarName" . }}"
+        check_pods_running "image analyzer" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.iarSelectorLabels" .) }}"
+        check_pods "HELM_CHART fieldRef" \
+          "{.spec.containers[?(@.name==\"{{ include "falcon-clusterguard.iarName" . }}\")].env[?(@.name==\"HELM_CHART\")].valueFrom.fieldRef.fieldPath}" \
+          "metadata.labels['helm.sh/chart']"
+        check_pods "helm.sh/chart label" "{.metadata.labels.helm\.sh/chart}" "{{ include "falcon-clusterguard.chart" . }}"
+        {{- end }}
+
+        finish
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

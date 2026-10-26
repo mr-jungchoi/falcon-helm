@@ -1,0 +1,102 @@
+{{- if and .Values.testing.enabled .Values.imageAnalyzer.enabled -}}
+{{- $imageAnalyzer := .Values.imageAnalyzer -}}
+{{- $iarFullname := include "falcon-clusterguard.iarName" . -}}
+{{- $isDaemonset := include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" -}}
+{{- $kind := ternary "daemonset" "deployment" $isDaemonset -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-iar-running"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+          IAR_NAME="{{ $iarFullname }}"
+          CONTAINER="{{ include "falcon-clusterguard.iarName" . }}"
+
+          echo "--- Checking image analyzer {{ $kind }} ---"
+          check_exists {{ $kind }} "${IAR_NAME}"
+          check_absent {{ ternary "deployment" "daemonset" $isDaemonset }} "${IAR_NAME}"
+          check_rollout {{ $kind }} "${IAR_NAME}"
+          check_pods_running "image analyzer" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.iarSelectorLabels" .) }}"
+
+          echo "--- Checking supporting resources ---"
+          check_exists configmap "${IAR_NAME}"
+          check_exists serviceaccount "{{ include "falcon-clusterguard.iarServiceAccountName" . }}"
+          check_exists clusterrole "${IAR_NAME}"
+          check_exists clusterrolebinding "${IAR_NAME}"
+
+          echo "--- Checking iar-agent-service ---"
+          check_exists service "{{ include "falcon-clusterguard.iarAgentService" . }}"
+          check_endpoints "{{ include "falcon-clusterguard.iarAgentService" . }}"
+
+          echo "--- Checking pod annotations ---"
+          check_pods "injection annotation" "{.metadata.annotations.sensor\.falcon-system\.crowdstrike\.com/injection}" "disabled"
+          check_pods_set "checksum/config annotation" "{.metadata.annotations.checksum/config}"
+          {{- if $imageAnalyzer.hostNetwork }}
+          check_pods "hostNetwork" "{.spec.hostNetwork}" "true"
+          check_pods "dnsPolicy" "{.spec.dnsPolicy}" "{{ $imageAnalyzer.dnsPolicy | default "ClusterFirstWithHostNet" }}"
+          {{- end }}
+
+          echo "--- Checking run mode ---"
+          iar_config() { kubectl get configmap "${IAR_NAME}" -n "${NS}" -o jsonpath="{.data.$1}" 2>&1; }
+          check_equal "AGENT_RUNMODE" "$(iar_config AGENT_RUNMODE)" "{{ ternary "socket" "watcher" $isDaemonset }}"
+          check_pods "container args" "{.spec.containers[?(@.name==\"${CONTAINER}\")].args[1]}" "{{ ternary "socket" "watcher" $isDaemonset }}"
+          {{- if $isDaemonset }}
+          {{- $socket := include "falcon-clusterguard.iarAgentRuntimeSocket" . }}
+          check_equal "AGENT_RUNTIME" "$(iar_config AGENT_RUNTIME)" "{{ $imageAnalyzer.crowdstrikeConfig.agentRuntime }}"
+          check_equal "AGENT_RUNTIME_SOCKET" "$(iar_config AGENT_RUNTIME_SOCKET)" "{{ $socket }}"
+          check_pods "runtime socket hostPath" "{.spec.volumes[?(@.name==\"var-run\")].hostPath.path}" "{{ $socket | trimPrefix "unix://" }}"
+          check_pods "runtime socket mount" \
+            "{.spec.containers[?(@.name==\"${CONTAINER}\")].volumeMounts[?(@.name==\"var-run\")].mountPath}" "{{ $socket | trimPrefix "unix://" }}"
+          {{- end }}
+
+          echo "--- Checking credentials ---"
+          {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+          for VAR in AGENT_CLIENT_ID AGENT_CLIENT_SECRET AGENT_CID; do
+            check_pods "${VAR} secretKeyRef" \
+              "{.spec.containers[?(@.name==\"${CONTAINER}\")].env[?(@.name==\"${VAR}\")].valueFrom.secretKeyRef.name}" \
+              "{{ include "falcon-clusterguard.iarCsiSecretName" . }}"
+          done
+          {{- else if include "falcon-clusterguard.iarShouldCreateClientCredsInSecret" . | eq "true" }}
+          check_secret_keys "${IAR_NAME}" AGENT_CLIENT_ID AGENT_CLIENT_SECRET AGENT_CID
+          check_pods "envFrom Secret" \
+            "{.spec.containers[?(@.name==\"${CONTAINER}\")].envFrom[?(@.secretRef.name==\"${IAR_NAME}\")].secretRef.name}" "${IAR_NAME}"
+          {{- else }}
+          echo "Credentials come from falconSecret; see the test-existing-secret test"
+          {{- end }}
+
+          {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
+
+          echo "--- Checking KAC webhook Service discovery ---"
+          # IAR finds the admission controller through a Service labeled app=falcon-kac in its own namespace.
+          check_equal "Service with label app=falcon-kac" \
+            "$(kubectl get services -n "${NS}" -l app=falcon-kac -o jsonpath='{.items[*].metadata.name}' 2>&1)" "webhook"
+          {{- end }}
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

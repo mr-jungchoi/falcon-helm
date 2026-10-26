@@ -1,0 +1,113 @@
+{{- $clusterGuard := eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" -}}
+{{- if and .Values.testing.enabled (or $clusterGuard .Values.imageAnalyzer.enabled) -}}
+{{- $certManager := .Values.certManager.enabled -}}
+{{- $iarTLS := printf "%s-tls" (include "falcon-clusterguard.iarName" .) -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-certificates"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+
+          {{- if $certManager }}
+
+          # check_certificate <Certificate>: cert-manager issued it.
+          check_certificate() {
+            if kubectl wait certificate "$1" -n "${NS}" --for=condition=Ready --timeout=120s > /dev/null 2>&1; then
+              ok "Certificate '$1' is Ready"
+            else
+              fail "Certificate '$1' is not Ready"
+              kubectl get certificate "$1" -n "${NS}" -o jsonpath='{.status.conditions}'; echo
+            fi
+          }
+
+          echo "--- Checking cert-manager Certificates ---"
+          {{- if $clusterGuard }}
+          for CERT in falcon-cg-controller-tls falcon-grpc-ca falcon-api-tls falcon-node-sensor-tls; do
+            check_certificate "${CERT}"
+          done
+          {{- end }}
+          {{- if .Values.imageAnalyzer.enabled }}
+          check_certificate "{{ $iarTLS }}"
+          {{- end }}
+          {{- end }}
+
+          echo "--- Checking TLS Secrets ---"
+          {{- if $clusterGuard }}
+          {{- /* cert-manager only writes ca.crt when the issuer's CA is known, so the webhook Secret
+                 is only required to have it when Helm generates the certificates. The gRPC CA Secret
+                 always has ca.crt: Helm writes it, and cert-manager sets it on the self-signed CA. */}}
+          check_secret_keys falcon-cg-controller-tls tls.crt tls.key{{ if not $certManager }} ca.crt{{ end }}
+          check_secret_keys falcon-api-ca ca.crt
+          check_secret_keys falcon-api-tls tls.crt tls.key
+          check_secret_keys falcon-node-sensor-tls tls.crt tls.key
+          {{- end }}
+          {{- if .Values.imageAnalyzer.enabled }}
+          check_secret_keys "{{ $iarTLS }}" tls.crt tls.key{{ if not $certManager }} ca.crt{{ end }}
+          {{- end }}
+
+          {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
+          {{- $webhookConfig := printf "validating.%s" (include "falcon-clusterguard.webhookName" .) }}
+
+          echo "--- Checking the webhook trusts the webhook certificate ---"
+          WEBHOOK_CONFIG="{{ $webhookConfig }}"
+          {{- if $certManager }}
+          check_equal "ValidatingWebhookConfiguration inject-ca-from annotation" \
+            "$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.metadata.annotations.cert-manager\.io/inject-ca-from}' 2>&1)" \
+            "${NS}/falcon-cg-controller-tls"
+          # cainjector fills caBundle shortly after the Certificate is Ready.
+          for RETRY in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            CA_BUNDLES=$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.webhooks[*].clientConfig.caBundle}' 2>/dev/null)
+            [ "$(echo ${CA_BUNDLES} | wc -w)" -eq 2 ] && break
+            sleep 5
+          done
+          {{- else }}
+          # The Secret's ca.crt and the webhook caBundle must come from the same certificate set; a
+          # mismatch means the CA and server certificate were not reused or regenerated together.
+          CA_BUNDLES=$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.webhooks[*].clientConfig.caBundle}' 2>&1)
+          {{- end }}
+          SECRET_CA=$(kubectl get secret falcon-cg-controller-tls -n "${NS}" -o jsonpath='{.data.ca\.crt}' 2>&1)
+          check_equal "number of webhooks with a caBundle" "$(echo ${CA_BUNDLES} | wc -w | tr -d ' ')" "2"
+          for CA_BUNDLE in ${CA_BUNDLES}; do
+            {{- if $certManager }}
+            if [ -z "${SECRET_CA}" ]; then
+              check_set "webhook caBundle" "${CA_BUNDLE}"
+              continue
+            fi
+            {{- end }}
+            if [ "${CA_BUNDLE}" = "${SECRET_CA}" ]; then
+              ok "webhook caBundle matches ca.crt in Secret 'falcon-cg-controller-tls'"
+            else
+              fail "webhook caBundle does not match ca.crt in Secret 'falcon-cg-controller-tls'"
+            fi
+          done
+          {{- end }}
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}
