@@ -23,7 +23,13 @@ rules:
       - secrets
     verbs:
       - create
-      - get
+  - apiGroups:
+    - ""
+    resources:
+      - secrets
+    resourceNames:
+      - falcon-fcg-install-guard
+    verbs:
       - update
       - delete
   - apiGroups:
