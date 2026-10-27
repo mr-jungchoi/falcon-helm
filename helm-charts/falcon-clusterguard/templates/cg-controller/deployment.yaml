@@ -146,6 +146,8 @@ spec:
     metadata:
       labels:
         {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 8 }}
+        # KAC protects its pods by this label while install guard is armed.
+        crowdstrike.com/install-guard-target: kac
         {{- range $key, $value := .Values.cluster.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
