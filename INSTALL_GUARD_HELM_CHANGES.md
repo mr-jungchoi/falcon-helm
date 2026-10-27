@@ -121,6 +121,24 @@ apparently by accident; this restores it, narrowed (review of the sensor PR).
 
 Impact: RBAC only, namespaced.
 
+### "install guard target label"
+
+- `templates/node/daemonset.yaml`: label `crowdstrike.com/install-guard-target: node-sensor`
+  on the node sensor DaemonSet and its pod template.
+- `templates/cg-controller/deployment.yaml`: label `crowdstrike.com/install-guard-target: kac`
+  on the controller pod template.
+
+KAC selects what it protects by this label (VWC objectSelector): the node sensor
+DaemonSet (no DELETE, label kept), its pods (no DELETE, no spec change, no
+`kubectl debug` / resize) and the KAC pods (no spec change, no `kubectl debug` /
+resize; still deletable). The previous selection by DaemonSet name and `app:
+falcon-sensor` missed the DaemonSet with `nameOverride` and also matched the
+post-delete node-cleanup DaemonSet, which does not get the label. The KAC pods had
+no common label across installers. The operator needs the same labels.
+
+Impact: labels only. Adding them to the templates rolls the DaemonSet and the
+controller once on upgrade.
+
 No values changes in any commit.
 
 ## Already in fcg-helm-chart (no change needed)
