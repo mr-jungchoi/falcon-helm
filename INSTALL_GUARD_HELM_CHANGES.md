@@ -139,6 +139,17 @@ no common label across installers. The operator needs the same labels.
 Impact: labels only. Adding them to the templates rolls the DaemonSet and the
 controller once on upgrade.
 
+### "README: install guard workload labels"
+
+- `README.md`: section "Uninstall Protection: Workload Labels" (labels, what is
+  denied while armed, upgrade/uninstall only after disabling or with a
+  maintenance token), for customers deploying from their own manifests.
+- Not changed, needs an owner: "Sensor Uninstall and Maintenance Protection"
+  still says DaemonSet deployments (7.34+) ignore the policy, which no longer
+  holds for FCG with CSPG-102140.
+
+Impact: docs only.
+
 No values changes in any commit.
 
 ## Already in fcg-helm-chart (no change needed)
