@@ -843,9 +843,8 @@ Some settings move outside `imageAnalyzer` because FCG shares them across compon
 | `gcp.enabled` | `gke.enabled` |
 | `openshift.sccName` | `openshift.iarSCCName` |
 
-`kac.namespace` and `namespaceOverride` are no longer used. The script also writes
-`falcon-image-analyzer.enabled: false`; because `falcon-platform` no longer includes the
-`falcon-image-analyzer` subchart, this has no effect. See
+`kac.namespace` and `namespaceOverride` are no longer used. The output has no
+`falcon-image-analyzer` block, because `falcon-platform` no longer includes that subchart. See
 [`scripts/README.md`](../../scripts/README.md) for the full list of image analyzer mappings.
 
 ### Step 4 — Apply the upgrade
