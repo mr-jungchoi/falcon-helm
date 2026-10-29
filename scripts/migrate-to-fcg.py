@@ -352,6 +352,18 @@ def migrate(values: dict, warnings: list,
 
     fcg["image"] = fcg_image
 
+    # The node sensor was not deployed before migration if there are no falcon-sensor values
+    # at all, or if falcon-sensor.enabled (falcon-platform) or falcon-sensor.node.enabled is
+    # false. FCG defaults node.enabled to true, so it must be disabled explicitly.
+    if not sensor:
+        node_disabled_reason = "no falcon-sensor values were provided"
+    elif sensor.get("enabled") is False:
+        node_disabled_reason = "falcon-sensor.enabled is false"
+    elif sensor_node.get("enabled") is False:
+        node_disabled_reason = "falcon-sensor.node.enabled is false"
+    else:
+        node_disabled_reason = None
+
     if sensor_node:
         node = CommentedMap()
 
@@ -384,10 +396,22 @@ def migrate(values: dict, warnings: list,
         node["serviceAccount"] = sensor_sa
 
         fcg["node"] = node
-    else:
+    elif not node_disabled_reason:
         warnings.append(
             "falcon-sensor.node block not found — falcon-clusterguard.node not populated. "
             "Add node configuration manually."
+        )
+
+    if node_disabled_reason:
+        if "node" not in fcg:
+            fcg["node"] = CommentedMap()
+        if "enabled" in fcg["node"]:
+            fcg["node"]["enabled"] = False
+        else:
+            fcg["node"].insert(0, "enabled", False)
+        warnings.append(
+            f"falcon-clusterguard.node.enabled set to false because {node_disabled_reason}. "
+            "Set it to true to deploy the FCG node sensor."
         )
 
     # ---- falcon-kac → falcon-clusterguard.cluster -------------------------
@@ -573,26 +597,16 @@ def migrate(values: dict, warnings: list,
         )
     # else: falcon-sensor omitted entirely — falcon-platform defaults handle it
 
-    # Comments prepended to falcon-clusterguard noting both removals.
+    # Comments prepended to falcon-clusterguard noting the replaced charts.
     sensor_node_deprecated_note = "falcon-sensor.node is deprecated — replaced by falcon-clusterguard.node.*\n"
-    kac_deprecated_note = "falcon-kac is deprecated — replaced by falcon-clusterguard.cluster.*\n\n"
+    kac_deprecated_note = "falcon-kac is deprecated — replaced by falcon-clusterguard.cluster.*\n"
+    iar_deprecated_note = "falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*\n\n"
 
     # falcon-clusterguard: the new chart
     out["falcon-clusterguard"] = fcg
     out.yaml_set_comment_before_after_key(
         "falcon-clusterguard",
-        before=sensor_node_deprecated_note + kac_deprecated_note,
-    )
-
-    # falcon-image-analyzer: replaced by falcon-clusterguard.imageAnalyzer.*. falcon-platform
-    # defaults falcon-image-analyzer.enabled=true, so disable it explicitly — otherwise both
-    # image analyzers run, and --reuse-values would keep the old enabled value.
-    iar_out = CommentedMap()
-    iar_out["enabled"] = False
-    out["falcon-image-analyzer"] = iar_out
-    out.yaml_set_comment_before_after_key(
-        "falcon-image-analyzer",
-        before="\nfalcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*",
+        before=sensor_node_deprecated_note + kac_deprecated_note + iar_deprecated_note,
     )
 
     return out

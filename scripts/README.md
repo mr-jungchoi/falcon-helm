@@ -288,11 +288,11 @@ Fully removed from output. A comment above `falcon-clusterguard` notes the remov
 
 ### falcon-image-analyzer
 
-Values are moved to `falcon-clusterguard.imageAnalyzer.*` (see [Moves](#moves)). The output always
-sets `falcon-image-analyzer.enabled: false`, because `falcon-platform` defaults it to `true` and
-`helm upgrade --reuse-values` would otherwise keep the standalone image analyzer running alongside
-the FCG one. `kac.namespace` and `namespaceOverride` are dropped without a warning, since the
-image analyzer now runs in the FCG namespace.
+Values are moved to `falcon-clusterguard.imageAnalyzer.*` (see [Moves](#moves)). The output has no
+`falcon-image-analyzer` block, because `falcon-platform` no longer includes the image analyzer
+subchart; a comment above `falcon-clusterguard` notes the move. `kac.namespace` and
+`namespaceOverride` are dropped without a warning, since the image analyzer now runs in the FCG
+namespace.
 
 ## Reading the output
 
@@ -316,7 +316,8 @@ MIGRATION WARNINGS — review these before applying:
 
 ```yaml
 # falcon-sensor.node is deprecated — replaced by falcon-clusterguard.node.*
-# falcon-kac removed as a subchart dependency — replaced by falcon-clusterguard.cluster.*
+# falcon-kac is deprecated — replaced by falcon-clusterguard.cluster.*
+# falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*
 
 falcon-clusterguard:
 ```
@@ -378,7 +379,8 @@ global:
     cid: YOUR-CID-HERE
 
 # falcon-sensor.node is deprecated — replaced by falcon-clusterguard.node.*
-# falcon-kac removed as a subchart dependency — replaced by falcon-clusterguard.cluster.*
+# falcon-kac is deprecated — replaced by falcon-clusterguard.cluster.*
+# falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*
 
 falcon-clusterguard:
   enabled: true
@@ -414,8 +416,4 @@ falcon-clusterguard:
 
   imageAnalyzer:
     enabled: true
-
-# falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*
-falcon-image-analyzer:
-  enabled: false
 ```
