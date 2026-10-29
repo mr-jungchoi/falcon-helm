@@ -29,6 +29,7 @@ built around a single container image.
 - [Node Sensor Configuration](#node-sensor-configuration)
   - [Deployment Considerations](#deployment-considerations)
   - [Sensor Uninstall and Maintenance Protection](#sensor-uninstall-and-maintenance-protection)
+  - [Uninstall Protection: Workload Labels](#uninstall-protection-workload-labels)
   - [Pod Security Standards](#pod-security-standards)
   - [Node Configuration](#node-configuration)
   - [Guardian Local Proxy](#guardian-local-proxy)
@@ -506,6 +507,19 @@ To ensure a successful deployment:
 
 - **Falcon Node sensor for Linux with sensor version 7.33 and earlier:** We do not recommend enabling the **Uninstall and maintenance protection** policy setting for DaemonSet deployments. This setting can cause operational issues that require manual intervention.
 - **Falcon Node sensor for Linux with sensor version 7.34 and later:** DaemonSet deployments do not support the **Uninstall and maintenance protection** policy setting and automatically ignore it.
+
+### Uninstall Protection: Workload Labels
+
+When uninstall protection is enabled in the Falcon console, the ClusterGuard controller protects the Falcon workloads in its namespace against deletion and modification. It selects them by the label `crowdstrike.com/install-guard-target`:
+
+| Workload | Label value | Where |
+|---|---|---|
+| Node sensor DaemonSet | `node-sensor` | DaemonSet metadata and pod template |
+| ClusterGuard controller Deployment | `kac` | pod template |
+
+This chart sets both labels. If you deploy from your own manifests or patch the rendered templates, keep both labels: a workload without its label is not protected. Do not add the labels to other workloads.
+
+While protection is active, changes to these workloads (image, command, environment, volumes, scheduling, labels, update strategy, reduced resources) and their deletion are denied. `kubectl rollout restart`, resource increases and scaling the controller to a non-zero replica count are allowed. To upgrade or uninstall the chart, disable uninstall protection or use a maintenance token first.
 
 ### Pod Security Standards
 

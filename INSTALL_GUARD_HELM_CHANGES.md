@@ -48,14 +48,14 @@ port 443 -> `webhook-port`, which the controller pod always exposes).
 
 KAC publishes the install guard state for node sensors as key `installguard.state`
 (`armed`, `disarmed` or `disabled`; missing means `disabled`) of its own ConfigMap
-`falcon-kac-install-guard-state`, written at runtime in the ClusterGuard namespace.
+`falcon-fcg-install-guard-state`, written at runtime in the ClusterGuard namespace.
 While armed, KAC's install guard webhook denies updates of this ConfigMap by anyone
 but KAC's service account. The node sensor (CSPG-102140) polls
 `/opt/CrowdStrike/clusterguard-state/installguard.state` and accepts the uninstall
 token only once KAC has armed install guard.
 
 - `templates/node/daemonset.yaml`: `falcon-sensor` container mounts volume
-  `clusterguard-state` (ConfigMap `falcon-kac-install-guard-state`, `optional: true`)
+  `clusterguard-state` (ConfigMap `falcon-fcg-install-guard-state`, `optional: true`)
   at `/opt/CrowdStrike/clusterguard-state`, read-only, when ClusterGuard is deployed
   (same condition as the TLS/CA mounts).
   - Directory mount, not `subPath`: kubelet does not propagate ConfigMap updates to
@@ -107,17 +107,48 @@ Impact: one CRD, one cluster-scoped object.
 
 ### "KAC Role: Secrets in its namespace"
 
-- `templates/cg-controller/role.yaml`: Secrets `create`, `get`, `update`, `delete`
-  in the ClusterGuard namespace. KAC stores the install guard credential in the
-  Secret `falcon-kac-install-guard`; without `create` it fails with "secrets is
-  forbidden", does not arm, and reports the SetUninstallToken as not applied.
+- `templates/cg-controller/role.yaml`: Secrets `create` in the ClusterGuard
+  namespace, and `update`, `delete` of the Secret `falcon-fcg-install-guard` only
+  (`resourceNames`). KAC stores the install guard credential in that Secret; without
+  `create` it fails with "secrets is forbidden", does not arm, and reports the
+  SetUninstallToken as not applied. `get` comes from the controller ClusterRole
+  (secrets get/list/watch).
 
 The rule was in the controller Role before the template split (808fa67, "move node
 and cg-controller resources into separate directories") and was dropped there,
-apparently by accident; this restores it unchanged. `create` cannot be restricted by
-`resourceNames`, so the rule is namespace-wide as before.
+apparently by accident; this restores it, narrowed (review of the sensor PR).
+`create` cannot be restricted by `resourceNames`, so that verb stays namespace-wide.
 
 Impact: RBAC only, namespaced.
+
+### "install guard target label"
+
+- `templates/node/daemonset.yaml`: label `crowdstrike.com/install-guard-target: node-sensor`
+  on the node sensor DaemonSet and its pod template.
+- `templates/cg-controller/deployment.yaml`: label `crowdstrike.com/install-guard-target: kac`
+  on the controller pod template.
+
+KAC selects what it protects by this label (VWC objectSelector): the node sensor
+DaemonSet (no DELETE, label kept), its pods (no DELETE, no spec change, no
+`kubectl debug` / resize) and the KAC pods (no spec change, no `kubectl debug` /
+resize; still deletable). The previous selection by DaemonSet name and `app:
+falcon-sensor` missed the DaemonSet with `nameOverride` and also matched the
+post-delete node-cleanup DaemonSet, which does not get the label. The KAC pods had
+no common label across installers. The operator needs the same labels.
+
+Impact: labels only. Adding them to the templates rolls the DaemonSet and the
+controller once on upgrade.
+
+### "README: install guard workload labels"
+
+- `README.md`: section "Uninstall Protection: Workload Labels" (labels, what is
+  denied while armed, upgrade/uninstall only after disabling or with a
+  maintenance token), for customers deploying from their own manifests.
+- Not changed, needs an owner: "Sensor Uninstall and Maintenance Protection"
+  still says DaemonSet deployments (7.34+) ignore the policy, which no longer
+  holds for FCG with CSPG-102140.
+
+Impact: docs only.
 
 No values changes in any commit.
 

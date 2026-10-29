@@ -8,6 +8,9 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     app: "falcon-sensor"
+    {{- /* KAC protects the node sensor DaemonSet and its pods by this label while
+           install guard is armed (not on the node-cleanup DaemonSet). */}}
+    crowdstrike.com/install-guard-target: node-sensor
     {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
     {{- range $key, $value := .Values.node.daemonset.labels }}
     {{ $key }}: {{ $value | quote }}
@@ -41,6 +44,7 @@ spec:
         {{- end }}
       labels:
         {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 8 }}
+        crowdstrike.com/install-guard-target: node-sensor
         {{- include "falcon-clusterguard.nodeLabels" . | nindent 8 }}
         {{- include "falcon-clusterguard.workloadDeployAllowlistLabel" . | nindent 8 }}
         {{- range $key, $value := .Values.node.daemonset.labels }}
@@ -250,7 +254,7 @@ spec:
                starts, with install guard disabled, before KAC has created it. */}}
         - name: clusterguard-state
           configMap:
-            name: falcon-kac-install-guard-state
+            name: falcon-fcg-install-guard-state
             optional: true
         {{- end }}
         {{- if .Values.node.guardian.proxy.enabled }}
