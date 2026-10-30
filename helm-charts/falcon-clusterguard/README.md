@@ -508,11 +508,12 @@ When uninstall protection is enabled in the Falcon console, the ClusterGuard con
 | Workload | Label value | Where |
 |---|---|---|
 | Node sensor DaemonSet | `node-sensor` | DaemonSet metadata and pod template |
-| ClusterGuard controller Deployment | `kac` | pod template |
+| ClusterGuard controller Deployment | `fcg-controller` | pod template |
 
 This chart sets both labels. If you deploy from your own manifests or patch the rendered templates, keep both labels: a workload without its label is not protected. Do not add the labels to other workloads.
 
 While protection is active, changes to these workloads (image, command, environment, volumes, scheduling, labels, update strategy, reduced resources) and their deletion are denied. `kubectl rollout restart`, resource increases and scaling the controller to a non-zero replica count are allowed. To upgrade or uninstall the chart, disable uninstall protection or use a maintenance token first.
+
 
 ### Pod Security Standards
 
