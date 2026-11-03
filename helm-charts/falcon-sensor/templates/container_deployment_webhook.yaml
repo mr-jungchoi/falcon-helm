@@ -101,6 +101,9 @@ spec:
       {{- if .Values.container.hostNetwork }}
       hostNetwork: true
       {{- end }}
+      {{- with .Values.container.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:

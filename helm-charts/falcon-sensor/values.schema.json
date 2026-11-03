@@ -388,6 +388,14 @@
                     "type": "boolean",
                     "default": "false"
                 },
+                "runtimeClassName": {
+                    "type": [
+                        "null",
+                        "string"
+                    ],
+                    "default": "",
+                    "maxLength": 253
+                },
                 "autoCertificateUpdate": {
                     "type": "boolean",
                     "default": "true"

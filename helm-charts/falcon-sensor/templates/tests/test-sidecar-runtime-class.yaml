@@ -1,0 +1,96 @@
+{{- if and .Values.testing.enabled .Values.container.enabled .Values.container.runtimeClassName }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-sensor.fullname" . }}-test-sidecar-runtime-class"
+  namespace: {{ include "falcon-sensor.namespace" . }}
+  labels:
+    {{- include "falcon-sensor.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+      - /bin/sh
+      - -c
+      - |
+        FAILED=0
+        NAMESPACE="{{ include "falcon-sensor.namespace" . }}"
+        DEPLOY_NAME="{{ include "falcon-sensor.name" . }}-injector"
+        EXPECTED_RUNTIME_CLASS="{{ .Values.container.runtimeClassName }}"
+
+        echo "--- Checking RuntimeClass exists ---"
+        if ! kubectl get runtimeclass "${EXPECTED_RUNTIME_CLASS}" > /dev/null 2>&1; then
+            echo "[FAIL]: RuntimeClass '${EXPECTED_RUNTIME_CLASS}' not found. Injector pods cannot be admitted until it is created."
+            exit 1
+        fi
+        echo "[OK]: RuntimeClass '${EXPECTED_RUNTIME_CLASS}' exists"
+
+        echo "--- Checking injector Deployment runtimeClassName ---"
+        DEPLOY_RUNTIME_CLASS=$(kubectl get deployment "${DEPLOY_NAME}" \
+          -n "${NAMESPACE}" \
+          -o jsonpath='{.spec.template.spec.runtimeClassName}' 2>&1)
+        if [ "${DEPLOY_RUNTIME_CLASS}" != "${EXPECTED_RUNTIME_CLASS}" ]; then
+            echo "[FAIL]: Deployment '${DEPLOY_NAME}' runtimeClassName is '${DEPLOY_RUNTIME_CLASS}', expected '${EXPECTED_RUNTIME_CLASS}'"
+            FAILED=1
+        else
+            echo "[OK]: Deployment '${DEPLOY_NAME}' runtimeClassName='${DEPLOY_RUNTIME_CLASS}'"
+        fi
+
+        echo "--- Waiting for injector Deployment to become available ---"
+        if ! kubectl wait deployment "${DEPLOY_NAME}" \
+          -n "${NAMESPACE}" \
+          --for=condition=Available \
+          --timeout=300s; then
+            echo "[FAIL]: Deployment '${DEPLOY_NAME}' did not become available with RuntimeClass '${EXPECTED_RUNTIME_CLASS}'"
+            FAILED=1
+        fi
+
+        echo "--- Checking injector pods are running with RuntimeClass ---"
+        # Snapshot all injector pods in a single call and skip terminating pods,
+        # e.g. those left over from the previous ReplicaSet during an upgrade rollout.
+        PODS=$(kubectl get pods -n "${NAMESPACE}" \
+          -l "crowdstrike.com/component=crowdstrike-falcon-injector" \
+          -o custom-columns='NAME:.metadata.name,RUNTIME_CLASS:.spec.runtimeClassName,PHASE:.status.phase,DELETING:.metadata.deletionTimestamp' \
+          --no-headers 2>&1 | awk '$4 == "<none>" { print $1, $2, $3 }')
+        if [ -z "${PODS}" ]; then
+            echo "[FAIL]: No injector pods found"
+            FAILED=1
+        else
+            set -- ${PODS}
+            while [ "$#" -ge 3 ]; do
+                POD="$1"
+                POD_RUNTIME_CLASS="$2"
+                POD_STATUS="$3"
+                shift 3
+                if [ "${POD_RUNTIME_CLASS}" != "${EXPECTED_RUNTIME_CLASS}" ]; then
+                    echo "[FAIL]: Pod '${POD}' runtimeClassName is '${POD_RUNTIME_CLASS}', expected '${EXPECTED_RUNTIME_CLASS}'"
+                    FAILED=1
+                elif [ "${POD_STATUS}" != "Running" ]; then
+                    echo "[FAIL]: Pod '${POD}' is in '${POD_STATUS}' state, expected 'Running'"
+                    FAILED=1
+                else
+                    echo "[OK]: Pod '${POD}' is running with RuntimeClass '${POD_RUNTIME_CLASS}'"
+                fi
+            done
+        fi
+
+        if [ "${FAILED}" -eq 1 ]; then
+            exit 1
+        fi
+        exit 0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+  serviceAccountName: {{ include "falcon-sensor.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end }}

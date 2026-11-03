@@ -173,6 +173,10 @@ container:
   # Enable using hostNetwork for the injector pod
   hostNetwork: false
 
+  # RuntimeClass to use for the injector pod, e.g. for Kata Containers.
+  # The RuntimeClass must already exist in the cluster.
+  runtimeClassName: ""
+
   # Disable injection for all Namespaces
   disableNSInjection: false
 

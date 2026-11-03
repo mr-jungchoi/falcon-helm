@@ -1,0 +1,7 @@
+falcon:
+  cid: 1234567890ABCDEF1234567890ABCDEF-12
+node:
+  enabled: false
+container:
+  enabled: true
+  runtimeClassName: kata-clh

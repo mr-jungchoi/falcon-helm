@@ -78,6 +78,14 @@ rules:
   - get
   - list
 {{- end }}
+{{- if and .Values.container.enabled .Values.container.runtimeClassName }}
+- apiGroups:
+  - node.k8s.io
+  resources:
+  - runtimeclasses
+  verbs:
+  - get
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
