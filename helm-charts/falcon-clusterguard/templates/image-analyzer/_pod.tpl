@@ -21,6 +21,7 @@ metadata:
     checksum/secret: {{ include (print $.Template.BasePath "/image-analyzer/secret.yaml") . | sha256sum }}
   labels:
     {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+    crowdstrike.com/install-guard-target: iar
     {{- with $imageAnalyzer.podLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
