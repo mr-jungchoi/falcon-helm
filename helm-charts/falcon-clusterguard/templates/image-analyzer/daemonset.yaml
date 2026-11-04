@@ -6,6 +6,9 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.iarLabels" . | nindent 4 }}
+    # KAC protects the IAR workload and its pods by this label while install
+    # guard is armed.
+    crowdstrike.com/install-guard-target: iar
 spec:
   selector:
     matchLabels:

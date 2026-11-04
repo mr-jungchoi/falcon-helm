@@ -509,10 +509,11 @@ When uninstall protection is enabled in the Falcon console, the ClusterGuard con
 |---|---|---|
 | Node sensor DaemonSet | `node-sensor` | DaemonSet metadata and pod template |
 | ClusterGuard controller Deployment | `fcg-controller` | pod template |
+| Image Analyzer (IAR) Deployment or DaemonSet | `iar` | workload metadata and pod template |
 
-This chart sets both labels. If you deploy from your own manifests or patch the rendered templates, keep both labels: a workload without its label is not protected. Do not add the labels to other workloads.
+This chart sets these labels. If you deploy from your own manifests or patch the rendered templates, keep the labels: a workload without its label is not protected. Do not add the labels to other workloads. The Image Analyzer is protected only when it runs in the ClusterGuard namespace.
 
-While protection is active, changes to these workloads (image, command, environment, volumes, scheduling, labels, update strategy, reduced resources) and their deletion are denied. `kubectl rollout restart`, resource increases and scaling the controller to a non-zero replica count are allowed. To upgrade or uninstall the chart, disable uninstall protection or use a maintenance token first.
+While protection is active, changes to these workloads (image, command, environment, volumes, scheduling, labels, update strategy, reduced resources) and their deletion are denied. `kubectl rollout restart`, resource increases and scaling the controller or the Image Analyzer Deployment to a non-zero replica count are allowed. Controller and Image Analyzer pods can still be deleted (their Deployment or DaemonSet replaces them). To upgrade or uninstall the chart, or to switch the Image Analyzer between Deployment and DaemonSet mode, disable uninstall protection or use a maintenance token first.
 
 
 ### Pod Security Standards

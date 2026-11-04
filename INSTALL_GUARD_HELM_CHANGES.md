@@ -125,7 +125,7 @@ Impact: RBAC only, namespaced.
 
 - `templates/node/daemonset.yaml`: label `crowdstrike.com/install-guard-target: node-sensor`
   on the node sensor DaemonSet and its pod template.
-- `templates/cg-controller/deployment.yaml`: label `crowdstrike.com/install-guard-target: kac`
+- `templates/cg-controller/deployment.yaml`: label `crowdstrike.com/install-guard-target: fcg-controller`
   on the controller pod template.
 
 KAC selects what it protects by this label (VWC objectSelector): the node sensor
@@ -149,6 +149,33 @@ controller once on upgrade.
   holds for FCG with CSPG-102140.
 
 Impact: docs only.
+
+### "install guard target label on the Image Analyzer" (CSPG-113018)
+
+Sensor-side change: k8sclient install guard IAR protection (CSPG-113018).
+
+- `templates/image-analyzer/deployment.yaml` and `daemonset.yaml`: label
+  `crowdstrike.com/install-guard-target: iar` on the workload metadata.
+- `templates/image-analyzer/_pod.tpl`: the same label on the pod template (shared
+  by both modes).
+- Not added to the `iarLabels` helper: it is also used on the IAR Service, Secret,
+  ConfigMap, ServiceAccount and RBAC objects, which must not carry it. Not in the
+  selector labels (immutable).
+- `README.md`: IAR row in "Uninstall Protection: Workload Labels"; IAR pods stay
+  deletable; switching the IAR mode needs protection disabled first.
+
+KAC protects, while armed and only in the ClusterGuard namespace:
+- IAR Deployment (default mode): no DELETE, no scale to zero, no spec change
+  (as the controller).
+- IAR DaemonSet (`imageAnalyzer.mode: daemonset`): no DELETE, label kept, no
+  spec change (as the node sensor DaemonSet).
+- IAR pods (both modes): no spec change, no `kubectl debug` / resize, label kept;
+  still deletable and evictable.
+- IAR Secret / ConfigMap updates stay allowed (certificate rotation).
+
+Impact: labels only. Rolls the IAR workload once on upgrade. While protection is
+armed, a helm upgrade that changes the IAR spec, or switches the IAR mode (deletes
+one workload, creates the other), is denied, as for the controller and node sensor.
 
 No values changes in any commit.
 
@@ -194,3 +221,6 @@ ClusterGuard disabled:
   disabled; CRD rendered with `--include-crds`.
 - With cert-manager: `falcon-cg-controller-tls` Certificate and the main VWC
   `inject-ca-from` annotation; install guard objects unchanged.
+- With `imageAnalyzer.enabled=true`, `imageAnalyzer.mode` `deployment` and
+  `daemonset`: label `iar` on the IAR workload metadata and pod template, on no
+  other object.
