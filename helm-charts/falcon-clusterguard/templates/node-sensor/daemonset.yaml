@@ -162,6 +162,12 @@ spec:
                 - NET_ADMIN
             {{- end }}
           {{- include "falcon-clusterguard.daemonsetResources" . | nindent 10 }}
+          {{- if .Values.nodeSensor.guardian.proxy.enabled }}
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.nodeSensor.guardian.proxy.port }}
+              protocol: TCP
+          {{- end }}
           env:
             - name: POD_NODE_NAME
               valueFrom:
@@ -197,6 +203,11 @@ spec:
               mountPath: /run/secrets/ca
               readOnly: true
             {{- end }}
+            {{- if .Values.nodeSensor.guardian.proxy.enabled }}
+            - name: proxy-tls
+              mountPath: /opt/CrowdStrike/certs
+              readOnly: true
+            {{- end }}
             {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
             - name: csi-secrets
               mountPath: /mnt/secrets-store
@@ -227,6 +238,13 @@ spec:
             {{- else }}
             secretName: "falcon-api-ca"
             {{- end }}
+        {{- end }}
+        {{- if .Values.nodeSensor.guardian.proxy.enabled }}
+        - name: proxy-tls
+          secret:
+            secretName: {{ .Values.nodeSensor.guardian.proxy.tlsSecretName }}
+            optional: true
+            defaultMode: 0400
         {{- end }}
         {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
         - name: csi-secrets

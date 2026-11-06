@@ -31,6 +31,8 @@ built around a single container image.
   - [Sensor Uninstall and Maintenance Protection](#sensor-uninstall-and-maintenance-protection)
   - [Pod Security Standards](#pod-security-standards)
   - [Node Configuration](#node-configuration)
+  - [Guardian Local Proxy](#guardian-local-proxy)
+    - [Verifying upstream endpoints (TLS)](#verifying-upstream-endpoints-tls)
     - [Custom DNS for the node sensor](#custom-dns-for-the-node-sensor)
   - [GKE Autopilot Configuration](#gke-autopilot-configuration)
 - [Cluster Guard Controller Configuration](#cluster-guard-controller-configuration)
@@ -464,6 +466,7 @@ the same way.
 | `falcon-api-tls`                          | Clusterguard controller                                     | gRPC API server certificate                             | Helm or cert-manager |
 | `falcon-node-sensor-tls`                  | Node sensor                                                 | gRPC client certificate                                 | Helm or cert-manager |
 | `<release-fullname>-iar-tls`              | Image Analyzer (when `imageAnalyzer.enabled=true`)          | Image Analyzer agent service certificate                | Helm or cert-manager |
+| `nodeSensor.guardian.proxy.tlsSecretName` | Node sensor (when `nodeSensor.guardian.proxy.enabled=true`) | Optional CA bundle for verifying upstream TLS endpoints | You (optional)       |
 
 ### Certificate Parameters
 
@@ -496,7 +499,7 @@ regenerated together so certificates always match their CA:
 
 With `certManager.enabled=true`, the chart creates a cert-manager `Certificate` for each Secret in
 [Certificates Used by FCG](#certificates-used-by-fcg) that cert-manager can create. It doesn't create
-`falcon-api-ca`, which only Helm uses:
+`falcon-api-ca`, which only Helm uses, or the Guardian proxy CA bundle, which you always provide:
 
 - The admission webhook and Image Analyzer certificates are issued directly by `issuerRef`.
 - The gRPC certificates come from a chart-managed CA so the controller and node sensor share one
@@ -580,9 +583,62 @@ The following table lists the configurable parameters for the FCG node sensor Da
 | `nodeSensor.terminationGracePeriod`        | Seconds to wait for node sensor pods to stop gracefully                                                                      | `60`                                             |
 | `nodeSensor.hooks.postDelete.enabled`      | Run a cleanup DaemonSet during `helm uninstall` to remove `/opt/CrowdStrike` from all nodes                                  | `true`                                           |
 | `nodeSensor.cleanupOnly`                   | Run the cleanup DaemonSet only (skip the main sensor DaemonSet). Requires `nodeSensor.hooks.postDelete.enabled: true`.       | `false`                                          |
-| `nodeSensor.dnsConfig`                     | `dnsConfig` fields appended to the node sensor pod spec                                                                      | `{}`                                             |
 
 GKE and GKE Autopilot settings (`gke.*`) are in [Cloud Provider Configuration](#cloud-provider-configuration).
+
+
+### Guardian Local Proxy
+
+| Parameter                                 | Description                                                                                         | Default            |
+|:------------------------------------------|:----------------------------------------------------------------------------------------------------|:-------------------|
+| `nodeSensor.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                                           | `false`            |
+| `nodeSensor.guardian.proxy.port`          | Container port for the proxy (40000–49512). Required when `nodeSensor.guardian.proxy.enabled=true`. | None               |
+| `nodeSensor.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification.                    | `falcon-proxy-tls` |
+| `nodeSensor.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                                             | `{}`               |
+
+When `nodeSensor.guardian.proxy.enabled: true`, FCG:
+
+1. Exposes a named `proxy` port (`nodeSensor.guardian.proxy.port`, required) on the sensor container.
+2. Creates a `falcon-proxy` Service with `internalTrafficPolicy: Local` so traffic is
+   always routed to the proxy pod on the **same node** — no cross-node hops.
+
+```yaml
+nodeSensor:
+  guardian:
+    proxy:
+      enabled: true
+      port: 48080
+```
+
+```bash
+helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
+  -n falcon-system \
+  --set nodeSensor.guardian.proxy.enabled=true \
+  --set nodeSensor.guardian.proxy.port=48080
+```
+
+#### Verifying upstream endpoints (TLS)
+
+If the proxy needs to verify TLS certificates for upstream endpoints, create a Secret
+containing the CA bundle and reference it via `nodeSensor.guardian.proxy.tlsSecretName`:
+
+```bash
+kubectl create secret generic falcon-proxy-tls \
+  -n falcon-system \
+  --from-file=ca.crt=/path/to/ca.crt
+```
+
+```yaml
+nodeSensor:
+  guardian:
+    proxy:
+      enabled: true
+      port: 48080
+      tlsSecretName: falcon-proxy-tls
+```
+
+The Secret is declared `optional: true`, so the pod will start even if the Secret does not
+exist — the proxy simply runs without a custom CA bundle.
 
 #### Custom DNS for the node sensor
 
@@ -1064,7 +1120,7 @@ Templates are grouped by component under `templates/`:
 | Directory                   | Contents                                                                                                     |
 |:----------------------------|:-------------------------------------------------------------------------------------------------------------|
 | `templates/shared/`         | Resources used by more than one component (image pull Secret, ResourceQuota) and chart-wide validation       |
-| `templates/node-sensor`           | Node sensor DaemonSet, ConfigMap, RBAC, SCC, PriorityClass, and post-delete cleanup                          |
+| `templates/node-sensor`           | Node sensor DaemonSet, ConfigMap, RBAC, SCC, PriorityClass, Guardian proxy Service, and post-delete cleanup  |
 | `templates/cg-controller/`  | Cluster Guard controller Deployment, webhook configuration, ConfigMap, RBAC, SCC, Services, and certificates |
 | `templates/image-analyzer/` | Image Analyzer Deployment or DaemonSet and supporting resources, plus `_helpers.tpl` and `_pod.tpl`          |
 | `templates/tests/`          | `helm test` hooks                                                                                            |

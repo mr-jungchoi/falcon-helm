@@ -347,6 +347,38 @@
                     "type": "boolean",
                     "default": false
                 },
+                "guardian": {
+                    "type": "object",
+                    "properties": {
+                        "proxy": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": false
+                                },
+                                "port": {
+                                    "type": ["null", "integer"],
+                                    "minimum": 40000,
+                                    "maximum": 49512,
+                                    "description": "Container port for the Guardian Local Proxy. Required when enabled is true."
+                                },
+                                "tlsSecretName": {
+                                    "type": "string",
+                                    "default": "falcon-proxy-tls"
+                                }
+                            },
+                            "if": {
+                                "required": ["enabled"],
+                                "properties": {"enabled": {"const": true}}
+                            },
+                            "then": {
+                                "required": ["port"],
+                                "properties": {"port": {"type": "integer"}}
+                            }
+                        }
+                    }
+                },
                 "dnsConfig": {
                     "type": "object",
                     "properties": {

@@ -131,7 +131,7 @@ crowdstrike.com/provider: crowdstrike
 {{- end }}
 
 {{/*
-Node sensor app label applied to node sensor resources.
+Node sensor pod label used by the Guardian proxy Service selector.
 */}}
 {{- define "falcon-clusterguard.falconSensorAppLabel" -}}
 app: falcon-sensor
