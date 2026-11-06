@@ -72,19 +72,26 @@ use the migration script to generate a new values file:
 
 ```bash
 # From individual chart values files
-python3 scripts/migrate-to-fcg.py \
+python3 scripts/migration/migrate-to-fcg.py \
   --sensor-values my-sensor-values.yaml \
   --kac-values my-kac-values.yaml \
-  --iar-values my-iar-values.yaml
+  --iar-values my-iar-values.yaml \
+  --fcg-image-repo <fcg-repo> \
+  --fcg-image-tag <fcg-tag>
 
 # From a falcon-platform umbrella values file
-python3 scripts/migrate-to-fcg.py --platform-values my-platform-values.yaml
+python3 scripts/migration/migrate-to-fcg.py --platform-values my-platform-values.yaml --fcg-image-repo <fcg-repo> --fcg-image-tag <fcg-tag>
 
 # Interactive guided wizard
-python3 scripts/migrate-to-fcg.py --interactive
+python3 scripts/migration/migrate-to-fcg.py --interactive
 ```
 
-See `scripts/README.md` for full documentation.
+> [!NOTE]
+> The script has no default FCG image repository, tag, or digest yet. Pass `--fcg-image-repo`
+> and `--fcg-image-tag` (or `--fcg-image-digest`), or enter them when the script prompts.
+> Default values will be added once FCG is generally available.
+
+See `scripts/migration/README.md` for full documentation.
 
 Key differences from non-fcg charts:
 

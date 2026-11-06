@@ -786,15 +786,20 @@ pip3 install ruamel.yaml
 
 **Preview the migration (no files written):**
 ```bash
-python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --dry-run
+python3 scripts/migration/migrate-to-fcg.py --platform-values my-values.yaml --fcg-image-repo <fcg-repo> --fcg-image-tag <fcg-tag> --dry-run
 ```
+
+> [!NOTE]
+> The script has no default FCG image repository, tag, or digest yet. Pass `--fcg-image-repo`
+> and `--fcg-image-tag` (or `--fcg-image-digest`), or enter them when the script prompts.
+> Default values will be added once FCG is generally available.
 
 Review the warnings printed to stderr — they flag deprecated keys and anything that needs
 manual attention before proceeding.
 
 **Write the migrated file:**
 ```bash
-python3 scripts/migrate-to-fcg.py --platform-values my-values.yaml --output my-values-fcg.yaml
+python3 scripts/migration/migrate-to-fcg.py --platform-values my-values.yaml --fcg-image-repo <fcg-repo> --fcg-image-tag <fcg-tag> --output my-values-fcg.yaml
 ```
 
 **Diff the result:**
@@ -803,17 +808,19 @@ diff my-values.yaml my-values-fcg.yaml
 ```
 
 > [!NOTE]
-> See [`scripts/README.md`](../../scripts/README.md) for full script documentation, including
+> See [`scripts/migration/README.md`](../../scripts/migration/README.md) for full script documentation, including
 > all key mappings, renamed resource keys, and how deprecated keys are annotated in the output.
 
 ### Step 2 — Check for deprecated keys
 
-The migrated file annotates deprecated keys with inline `# DEPRECATED:` comments, and the
-script prints warnings for keys it drops. Review and remove any that are flagged, particularly:
+The script drops keys that have no FCG equivalent and prints a warning for each one. Comments in
+your values file move with their keys; comments that couldn't be placed, because their key was
+dropped or its value changed, are listed in a warning. Review the warnings, particularly for:
 
 | Deprecated key | Action |
 |----------------|--------|
 | `falcon-sensor.node.backend` | Removed automatically — FCG auto-selects eBPF/kernel |
+| `falcon-sensor.node.image.digest`, `falcon-kac.image.digest` | Removed with a warning — the digest belongs to the old image; set `falcon-clusterguard.image.digest` to the FCG image digest if you pin by digest |
 | `falcon-image-analyzer.image.repository` / `tag` / `digest` | Removed automatically — the image analyzer runs from the FCG image |
 | `falcon-image-analyzer.crowdstrikeConfig.existingSecret` | Removed with a warning — add `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET`, and `AGENT_CID` to `falcon-clusterguard.falconSecret` instead |
 | `falcon-image-analyzer.secretsStore.*` | Removed with a warning — configure `falcon-clusterguard.secretsStore`, which covers every FCG component |
@@ -845,7 +852,7 @@ Some settings move outside `imageAnalyzer` because FCG shares them across compon
 
 `kac.namespace` and `namespaceOverride` are no longer used. The output has no
 `falcon-image-analyzer` block, because `falcon-platform` no longer includes that subchart. See
-[`scripts/README.md`](../../scripts/README.md) for the full list of image analyzer mappings.
+[`scripts/migration/README.md`](../../scripts/migration/README.md) for the full list of image analyzer mappings.
 
 ### Step 4 — Apply the upgrade
 

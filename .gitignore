@@ -17,3 +17,6 @@ bin
 # Unified helm chart
 charts/
 *.tgz
+
+# Python bytecode (scripts/migration/tests)
+__pycache__/
