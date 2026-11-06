@@ -36,7 +36,7 @@ spec:
           done
         }
 
-        {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+        {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
 
         echo "--- Checking HELM_CHART for the node sensor ---"
         check_configmap_env "{{ include "falcon-clusterguard.nodeConfigMapName" . }}" \

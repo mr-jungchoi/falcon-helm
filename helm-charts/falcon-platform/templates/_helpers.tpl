@@ -54,7 +54,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* Returns "true" when the clusterguard controller Deployment is disabled via the acknowledgement string */}}
 {{- define "falcon-platform.clusterGuardDisabled" -}}
 {{- $fcg := index .Values "falcon-clusterguard" -}}
-{{- if eq (($fcg.cluster).disableClusterGuard | default "") "I understand this disables K8s metadata and degrades node sensor visibility" -}}
+{{- if eq (($fcg.clusterguardController).disableClusterGuardController | default "") "I understand this disables K8s metadata collection and degrades node sensor visibility" -}}
 true
 {{- else -}}
 false

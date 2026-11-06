@@ -1,4 +1,4 @@
-{{- if and .Values.testing.enabled .Values.node.enabled (not .Values.node.cleanupOnly) .Values.node.guardian.proxy.enabled -}}
+{{- if and .Values.testing.enabled .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) .Values.nodeSensor.guardian.proxy.enabled -}}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -31,7 +31,7 @@ spec:
           check_rollout daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
           check_pods_running "node sensor" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.nodeSelectorLabels" .) }}"
           check_pods "proxy containerPort" \
-            "{.spec.containers[?(@.name==\"falcon-node-sensor\")].ports[?(@.name==\"proxy\")].containerPort}" "{{ .Values.node.guardian.proxy.port }}"
+            "{.spec.containers[?(@.name==\"falcon-node-sensor\")].ports[?(@.name==\"proxy\")].containerPort}" "{{ .Values.nodeSensor.guardian.proxy.port }}"
 
           finish
       securityContext:

@@ -14,14 +14,14 @@ Falcon CID: Helm values (falcon.cid)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 WORKLOADS
-{{- if and .Values.node.enabled .Values.node.cleanupOnly }}
-  Node Sensor: cleanup only (node.cleanupOnly=true). The sensor DaemonSet is not deployed.
-{{- else if .Values.node.enabled }}
+{{- if and .Values.nodeSensor.enabled .Values.nodeSensor.cleanupOnly }}
+  Node Sensor: cleanup only (nodeSensor.cleanupOnly=true). The sensor DaemonSet is not deployed.
+{{- else if .Values.nodeSensor.enabled }}
   Node Sensor DaemonSet:
     kubectl rollout status daemonset/{{ include "falcon-clusterguard.nodeDaemonsetName" . }} \
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
-  Node Sensor: disabled (node.enabled=false)
+  Node Sensor: disabled (nodeSensor.enabled=false)
 {{- end }}
 {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
 
@@ -30,7 +30,7 @@ WORKLOADS
       -n {{ include "falcon-clusterguard.namespace" . }}
 {{- else }}
 
-  Cluster Guard Controller: disabled (cluster.disableClusterGuard is set)
+  Cluster Guard Controller: disabled (clusterguardController.disableClusterGuardController is set)
 {{- end }}
 {{- if .Values.imageAnalyzer.enabled }}
 {{- $iarKind := ternary "DaemonSet" "Deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
@@ -49,12 +49,12 @@ WORKLOADS
 FALCON CLUSTER GUARD CONTROLLER CONFIGURATION
   Metadata Service: api.{{ include "falcon-clusterguard.namespace" . }}.svc:443
   {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
-  Admission control: ENABLED (failurePolicy: {{ .Values.cluster.webhook.failurePolicy }})
+  Admission control: ENABLED (failurePolicy: {{ .Values.clusterguardController.webhook.failurePolicy }})
   ValidatingWebhookConfiguration: validating.{{ include "falcon-clusterguard.webhookName" . }}
   Webhook Service:  webhook.{{ include "falcon-clusterguard.namespace" . }}.svc:443
   {{- else }}
   Admission control: DISABLED (visibility-only mode).
-    Set cluster.admissionControl.enabled=true to enable the validating webhook.
+    Set clusterguardController.admissionControl.enabled=true to enable the validating webhook.
   {{- end }}
 
   {{- if .Values.certManager.enabled }}
@@ -63,7 +63,7 @@ FALCON CLUSTER GUARD CONTROLLER CONFIGURATION
   {{- else }}
 
   TLS certificates are auto-generated on install.
-  {{- if .Values.cluster.autoCertificateUpdate }}
+  {{- if .Values.clusterguardController.autoCertificateUpdate }}
   Auto-rotation is ENABLED — Helm-generated certs refresh on every helm upgrade.
   {{- else }}
   Auto-rotation is DISABLED — Helm-generated certs are preserved across upgrades.

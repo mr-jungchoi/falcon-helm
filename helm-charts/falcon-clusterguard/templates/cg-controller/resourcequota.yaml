@@ -8,7 +8,7 @@ metadata:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 spec:
   hard:
-    pods: {{ .Values.cluster.resourceQuota.pods }}
+    pods: {{ .Values.clusterguardController.resourceQuota.pods }}
   scopeSelector:
     matchExpressions:
       - operator: In

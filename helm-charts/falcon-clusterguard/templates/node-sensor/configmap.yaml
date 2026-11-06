@@ -1,4 +1,4 @@
-{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+{{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
 {{- $falconSecretKeys := list "cid" "provisioning_token" -}}
 
 apiVersion: v1
@@ -27,7 +27,7 @@ data:
   {{- end }}
   {{- end }}
 
-  {{- if .Values.node.clusterName }}
-  FALCON_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
+  {{- if .Values.nodeSensor.clusterName }}
+  FALCON_CLUSTER_NAME: {{ .Values.nodeSensor.clusterName | quote }}
   {{- end }}
 {{- end }}

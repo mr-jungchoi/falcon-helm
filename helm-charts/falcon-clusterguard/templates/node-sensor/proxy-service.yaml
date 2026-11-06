@@ -1,4 +1,4 @@
-{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) .Values.node.guardian.proxy.enabled }}
+{{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) .Values.nodeSensor.guardian.proxy.enabled }}
 apiVersion: v1
 kind: Service
 metadata:

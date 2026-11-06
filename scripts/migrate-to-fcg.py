@@ -33,7 +33,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from copy import deepcopy
 
 try:
@@ -170,11 +169,11 @@ def apply_overrides(migrated: dict, admission_control_override, image_analyzer_o
     if admission_control_override is not None:
         fcg = migrated.get("falcon-clusterguard")
         if fcg is not None:
-            if "cluster" not in fcg or not isinstance(fcg.get("cluster"), dict):
-                fcg["cluster"] = CommentedMap()
-            if "admissionControl" not in fcg["cluster"] or not isinstance(fcg["cluster"].get("admissionControl"), dict):
-                fcg["cluster"]["admissionControl"] = CommentedMap()
-            fcg["cluster"]["admissionControl"]["enabled"] = admission_control_override
+            if "clusterguardController" not in fcg or not isinstance(fcg.get("clusterguardController"), dict):
+                fcg["clusterguardController"] = CommentedMap()
+            if "admissionControl" not in fcg["clusterguardController"] or not isinstance(fcg["clusterguardController"].get("admissionControl"), dict):
+                fcg["clusterguardController"]["admissionControl"] = CommentedMap()
+            fcg["clusterguardController"]["admissionControl"]["enabled"] = admission_control_override
 
     if image_analyzer_override is not None:
         fcg = migrated.get("falcon-clusterguard")
@@ -221,17 +220,17 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
             strip_comments(val)
             ia[k] = val
 
-    # crowdstrikeConfig.clusterName → node.clusterName (shared by all FCG components)
+    # crowdstrikeConfig.clusterName → nodeSensor.clusterName (shared by all FCG components)
     iar_cluster_name = cs_config.get("clusterName")
     if iar_cluster_name:
-        if "node" not in fcg:
-            fcg["node"] = CommentedMap()
-        if not fcg["node"].get("clusterName"):
-            fcg["node"]["clusterName"] = iar_cluster_name
-        elif fcg["node"]["clusterName"] != iar_cluster_name:
+        if "nodeSensor" not in fcg:
+            fcg["nodeSensor"] = CommentedMap()
+        if not fcg["nodeSensor"].get("clusterName"):
+            fcg["nodeSensor"]["clusterName"] = iar_cluster_name
+        elif fcg["nodeSensor"]["clusterName"] != iar_cluster_name:
             warnings.append(
                 f"falcon-image-analyzer.crowdstrikeConfig.clusterName='{iar_cluster_name}' conflicts with "
-                f"falcon-clusterguard.node.clusterName='{fcg['node']['clusterName']}'. "
+                f"falcon-clusterguard.nodeSensor.clusterName='{fcg['nodeSensor']['clusterName']}'. "
                 "The node value has been kept. Review manually."
             )
 
@@ -266,7 +265,7 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
     # FCG has none, since FCG rejects pullSecret and registryConfigJSON together.
     iar_image = iar.get("image") or {}
     fcg_image = fcg["image"]
-    if not any(fcg_image.get(f) for f in ("pullSecret", "pullSecrets", "registryConfigJSON")):
+    if not any(fcg_image.get(f) for f in ("pullSecret", "registryConfigJSON")):
         for field in ("pullSecret", "registryConfigJSON"):
             if iar_image.get(field):
                 fcg_image[field] = iar_image[field]
@@ -295,10 +294,10 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
     if "azure" in iar:
         azure = deepcopy(iar["azure"])
         strip_comments(azure)
-        insert_before(fcg, "azure", azure, before="node")
+        insert_before(fcg, "azure", azure, before="nodeSensor")
     if get_nested(iar, "gcp", "enabled"):
         if "gke" not in fcg:
-            insert_before(fcg, "gke", CommentedMap(), before="node")
+            insert_before(fcg, "gke", CommentedMap(), before="nodeSensor")
         if "enabled" not in fcg["gke"]:
             fcg["gke"].insert(0, "enabled", True)
         else:
@@ -327,7 +326,7 @@ def migrate(values: dict, warnings: list,
     fcg = CommentedMap()
     fcg["enabled"] = True
 
-    # ---- falcon-sensor → falcon-clusterguard.node -------------------------
+    # ---- falcon-sensor → falcon-clusterguard.nodeSensor ---------------------
 
     sensor = values.get("falcon-sensor", {}) or {}
     sensor_node = sensor.get("node", {}) or {}
@@ -344,17 +343,19 @@ def migrate(values: dict, warnings: list,
 
     sensor_image = get_nested(sensor, "node", "image") or {}
     kac_image = get_nested(values.get("falcon-kac") or {}, "image") or {}
-    # Prefer sensor value; fall back to kac for shared image auth fields
-    for field in ("pullSecrets", "registryConfigJSON", "digest", "pullPolicy"):
+    # Prefer sensor value; fall back to kac for shared image auth fields.
+    # Both source charts name the pull secret pullSecrets; FCG names it pullSecret.
+    for field, fcg_field in (("pullSecrets", "pullSecret"), ("registryConfigJSON", "registryConfigJSON"),
+                             ("digest", "digest"), ("pullPolicy", "pullPolicy")):
         val = sensor_image.get(field) or kac_image.get(field)
         if val:
-            fcg_image[field] = val
+            fcg_image[fcg_field] = val
 
     fcg["image"] = fcg_image
 
     # The node sensor was not deployed before migration if there are no falcon-sensor values
     # at all, or if falcon-sensor.enabled (falcon-platform) or falcon-sensor.node.enabled is
-    # false. FCG defaults node.enabled to true, so it must be disabled explicitly.
+    # false. FCG defaults nodeSensor.enabled to true, so it must be disabled explicitly.
     if not sensor:
         node_disabled_reason = "no falcon-sensor values were provided"
     elif sensor.get("enabled") is False:
@@ -376,7 +377,8 @@ def migrate(values: dict, warnings: list,
                 node[k] = deepcopy(sensor_node[k])
 
         # node.gke.* (autopilot, allowlist versions) moves to the FCG top level, shared with
-        # the image analyzer. Assigned before fcg["node"] so it sits ahead of node in the output.
+        # the image analyzer. Assigned before fcg["nodeSensor"] so it sits ahead of nodeSensor
+        # in the output.
         if "gke" in sensor_node:
             gke = deepcopy(sensor_node["gke"])
             strip_comments(gke)
@@ -388,45 +390,45 @@ def migrate(values: dict, warnings: list,
                 "falcon-sensor.node.backend is deprecated in FCG and has been omitted."
             )
 
-        # serviceAccount lives at falcon-sensor top level, maps to node.serviceAccount.
+        # serviceAccount lives at falcon-sensor top level, maps to nodeSensor.serviceAccount.
         # Carry the old name forward explicitly to avoid breaking external RBAC.
         sensor_sa = deepcopy(sensor.get("serviceAccount") or {})
         if not sensor_sa.get("name"):
             sensor_sa["name"] = "crowdstrike-falcon-sa"
         node["serviceAccount"] = sensor_sa
 
-        fcg["node"] = node
+        fcg["nodeSensor"] = node
     elif not node_disabled_reason:
         warnings.append(
-            "falcon-sensor.node block not found — falcon-clusterguard.node not populated. "
+            "falcon-sensor.node block not found — falcon-clusterguard.nodeSensor not populated. "
             "Add node configuration manually."
         )
 
     if node_disabled_reason:
-        if "node" not in fcg:
-            fcg["node"] = CommentedMap()
-        if "enabled" in fcg["node"]:
-            fcg["node"]["enabled"] = False
+        if "nodeSensor" not in fcg:
+            fcg["nodeSensor"] = CommentedMap()
+        if "enabled" in fcg["nodeSensor"]:
+            fcg["nodeSensor"]["enabled"] = False
         else:
-            fcg["node"].insert(0, "enabled", False)
+            fcg["nodeSensor"].insert(0, "enabled", False)
         warnings.append(
-            f"falcon-clusterguard.node.enabled set to false because {node_disabled_reason}. "
+            f"falcon-clusterguard.nodeSensor.enabled set to false because {node_disabled_reason}. "
             "Set it to true to deploy the FCG node sensor."
         )
 
-    # ---- falcon-kac → falcon-clusterguard.cluster -------------------------
+    # ---- falcon-kac → falcon-clusterguard.clusterguardController ----------
 
     kac = values.get("falcon-kac", {}) or {}
 
     if kac:
         cluster = CommentedMap()
 
-        # Direct moves — key name unchanged, parent moves to cluster.*
+        # Direct moves — key name unchanged, parent moves to clusterguardController.*
         direct_cluster_keys = [
             "webhookPort", "watcherPort", "autoCertificateUpdate", "certExpiration",
             "domainName", "hostNetwork", "dnsPolicy", "tolerations", "affinity",
             "annotations", "labels", "podAnnotations", "podLabels",
-            "autoDeploymentUpdate", "replicas", "tlsVersionMinimum",
+            "autoDeploymentUpdate", "tlsVersionMinimum",
         ]
         for k in direct_cluster_keys:
             if k in kac:
@@ -434,7 +436,7 @@ def migrate(values: dict, warnings: list,
 
         # falcon-kac.enabled is no longer mapped — cluster sensor is always enabled in FCG.
 
-        # falcon-kac.admissionControl.enabled → cluster.admissionControl.enabled
+        # falcon-kac.admissionControl.enabled → clusterguardController.admissionControl.enabled
         # Controls the ValidatingWebhookConfiguration + webhook Service.
         # Old default: true. New default: false. Always write explicitly to preserve behavior.
         kac_ac = kac.get("admissionControl", {}) or {}
@@ -465,30 +467,30 @@ def migrate(values: dict, warnings: list,
         if resources:
             cluster["resources"] = resources
 
-        # serviceAccount → cluster.serviceAccount.
+        # serviceAccount → clusterguardController.serviceAccount.
         # Carry the old name forward explicitly to avoid breaking external RBAC.
         kac_sa = deepcopy(kac.get("serviceAccount") or {})
         if not kac_sa.get("name"):
             kac_sa["name"] = "falcon-kac-sa"
         cluster["serviceAccount"] = kac_sa
 
-        fcg["cluster"] = cluster
-        fcg.yaml_set_comment_before_after_key("cluster", before="\n")
+        fcg["clusterguardController"] = cluster
+        fcg.yaml_set_comment_before_after_key("clusterguardController", before="\n")
 
-        # clusterName at kac top level → node.clusterName
+        # clusterName at kac top level → nodeSensor.clusterName
         if "clusterName" in kac and kac["clusterName"]:
-            if "node" not in fcg:
-                fcg["node"] = CommentedMap()
-            if "clusterName" not in fcg["node"]:
-                fcg["node"]["clusterName"] = kac["clusterName"]
+            if "nodeSensor" not in fcg:
+                fcg["nodeSensor"] = CommentedMap()
+            if "clusterName" not in fcg["nodeSensor"]:
+                fcg["nodeSensor"]["clusterName"] = kac["clusterName"]
             else:
                 warnings.append(
                     f"falcon-kac.clusterName='{kac['clusterName']}' conflicts with "
-                    f"falcon-sensor.node.clusterName='{fcg['node']['clusterName']}'. "
+                    f"falcon-sensor.node.clusterName='{fcg['nodeSensor']['clusterName']}'. "
                     "The falcon-sensor value has been kept. Review manually."
                 )
 
-        # clusterVisibility — now lives under cluster.visibility.*
+        # clusterVisibility — now lives under clusterguardController.visibility.*
         if "clusterVisibility" in kac:
             visibility = deepcopy(kac["clusterVisibility"])
             strip_comments(visibility)
@@ -516,8 +518,8 @@ def migrate(values: dict, warnings: list,
 
     else:
         warnings.append(
-            "falcon-kac block not found — falcon-clusterguard.cluster not populated. "
-            "Add cluster configuration manually."
+            "falcon-kac block not found — falcon-clusterguard.clusterguardController not populated. "
+            "Add clusterguardController configuration manually."
         )
 
     # falconSecret from falcon-sensor (if not already set)
@@ -592,14 +594,14 @@ def migrate(values: dict, warnings: list,
             "falcon-sensor",
             before=(
                 "\nRetained for container sensor (container.enabled=true)."
-                "\nfalcon-sensor.node is no longer supported — replaced by falcon-clusterguard.node.*"
+                "\nfalcon-sensor.node is no longer supported — replaced by falcon-clusterguard.nodeSensor.*"
             ),
         )
     # else: falcon-sensor omitted entirely — falcon-platform defaults handle it
 
     # Comments prepended to falcon-clusterguard noting the replaced charts.
-    sensor_node_deprecated_note = "falcon-sensor.node is deprecated — replaced by falcon-clusterguard.node.*\n"
-    kac_deprecated_note = "falcon-kac is deprecated — replaced by falcon-clusterguard.cluster.*\n"
+    sensor_node_deprecated_note = "falcon-sensor.node is deprecated — replaced by falcon-clusterguard.nodeSensor.*\n"
+    kac_deprecated_note = "falcon-kac is deprecated — replaced by falcon-clusterguard.clusterguardController.*\n"
     iar_deprecated_note = "falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*\n\n"
 
     # falcon-clusterguard: the new chart
@@ -808,7 +810,7 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         # If kac values were not provided we cannot infer intent — default to false
         # to avoid accidentally enabling the webhook without a configured policy.
         current_ac = (
-            get_nested(values, "falcon-clusterguard", "cluster", "admissionControl", "enabled")
+            get_nested(values, "falcon-clusterguard", "clusterguardController", "admissionControl", "enabled")
             or get_nested(values, "falcon-kac", "admissionControl", "enabled")
         )
         if current_ac is None:
@@ -879,8 +881,8 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
     """Print helm upgrade command and verification steps after a successful migration."""
     fcg = migrated_values.get("falcon-clusterguard") or {}
     fcg_ns = fcg.get("namespaceOverride") or release_ns or "falcon-system"
-    node_enabled    = (fcg.get("node") or {}).get("enabled", True)
-    cluster_enabled = (fcg.get("cluster") or {}).get("enabled", True)
+    node_enabled    = (fcg.get("nodeSensor") or {}).get("enabled", True)
+    cluster_enabled = (fcg.get("clusterguardController") or {}).get("enabled", True)
     iar_enabled     = (fcg.get("imageAnalyzer") or {}).get("enabled", False)
 
     sep = "─" * 60
@@ -901,7 +903,7 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
 3) Verify the upgrade:
 """)
     if node_enabled:
-        node_ds = ((fcg.get("node") or {}).get("daemonset") or {}).get("name") or "falcon-sensor"
+        node_ds = ((fcg.get("nodeSensor") or {}).get("daemonset") or {}).get("name") or "falcon-sensor"
         print(f"   # Node Sensor DaemonSet")
         print(f"   kubectl rollout status daemonset/{node_ds} -n {fcg_ns}")
         print()
@@ -983,7 +985,7 @@ def main():
         "--admission-control",
         metavar="BOOL",
         default=None,
-        help="Override falcon-clusterguard.cluster.admissionControl.enabled (true/false)",
+        help="Override falcon-clusterguard.clusterguardController.admissionControl.enabled (true/false)",
     )
     parser.add_argument(
         "--image-analyzer",

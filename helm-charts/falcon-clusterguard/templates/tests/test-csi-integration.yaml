@@ -110,7 +110,7 @@ spec:
         SPC="{{ include "falcon-clusterguard.fullname" . }}-csi"
         SECRET="{{ include "falcon-clusterguard.csiSecretName" . }}"
         check_spc "${SPC}" "${SECRET}"
-        {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+        {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
         check_workload daemonset {{ include "falcon-clusterguard.nodeDaemonsetName" . }} "${SPC}" falcon-node-sensor FALCONCTL_OPT_CID "${SECRET}"
         {{- end }}
         {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}

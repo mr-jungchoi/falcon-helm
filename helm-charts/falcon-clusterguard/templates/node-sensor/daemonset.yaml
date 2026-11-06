@@ -1,4 +1,4 @@
-{{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+{{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
 {{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . -}}
 {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
 apiVersion: apps/v1
@@ -9,10 +9,10 @@ metadata:
   labels:
     app: "falcon-sensor"
     {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
-    {{- range $key, $value := .Values.node.daemonset.labels }}
+    {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
-  {{- with .Values.node.daemonset.annotations }}
+  {{- with .Values.nodeSensor.daemonset.annotations }}
   annotations:
     {{- range $key, $value := . }}
     {{ $key }}: {{ $value | quote }}
@@ -23,30 +23,30 @@ spec:
     matchLabels:
       {{- include "falcon-clusterguard.nodeSelectorLabels" . | nindent 6 }}
   updateStrategy:
-    type: {{ .Values.node.daemonset.updateStrategy }}
-    {{- if and (eq .Values.node.daemonset.updateStrategy "RollingUpdate") (ne (int .Values.node.daemonset.maxUnavailable) 1) }}
+    type: {{ .Values.nodeSensor.daemonset.updateStrategy }}
+    {{- if and (eq .Values.nodeSensor.daemonset.updateStrategy "RollingUpdate") (ne (int .Values.nodeSensor.daemonset.maxUnavailable) 1) }}
     rollingUpdate:
-      maxUnavailable: {{ .Values.node.daemonset.maxUnavailable }}
+      maxUnavailable: {{ .Values.nodeSensor.daemonset.maxUnavailable }}
     {{- end }}
   template:
     metadata:
       annotations:
-        {{ .Values.node.daemonset.podAnnotationKey }}: disabled
+        {{ .Values.nodeSensor.daemonset.podAnnotationKey }}: disabled
         {{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
         openshift.io/scc: {{ include "falcon-clusterguard.nodeSccName" . }}
         {{- end }}
-        checksum/configmap: {{ include (print $.Template.BasePath "/node/configmap.yaml") . | sha256sum | quote }}
-        {{- range $key, $value := .Values.node.podAnnotations }}
+        checksum/configmap: {{ include (print $.Template.BasePath "/node-sensor/configmap.yaml") . | sha256sum | quote }}
+        {{- range $key, $value := .Values.nodeSensor.podAnnotations }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
       labels:
         {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 8 }}
         {{- include "falcon-clusterguard.nodeLabels" . | nindent 8 }}
         {{- include "falcon-clusterguard.workloadDeployAllowlistLabel" . | nindent 8 }}
-        {{- range $key, $value := .Values.node.daemonset.labels }}
+        {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
-        {{- range $key, $value := .Values.node.podLabels }}
+        {{- range $key, $value := .Values.nodeSensor.podLabels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
@@ -61,13 +61,13 @@ spec:
         - name: {{ include "falcon-clusterguard.pullSecretName" . }}
         {{- end }}
       {{- end }}
-      {{- with .Values.node.daemonset.tolerations }}
+      {{- with .Values.nodeSensor.daemonset.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       nodeSelector:
         kubernetes.io/os: linux
-      {{- with .Values.node.daemonset.nodeAffinity }}
+      {{- with .Values.nodeSensor.daemonset.nodeAffinity }}
       affinity:
         nodeAffinity:
           {{- toYaml . | nindent 10 }}
@@ -75,13 +75,13 @@ spec:
       securityContext:
         fsGroup: 65534
       serviceAccountName: {{ include "falcon-clusterguard.nodeServiceAccountName" . }}
-      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
-      {{- if or .Values.node.daemonset.priorityClassName .Values.gke.autopilot }}
+      terminationGracePeriodSeconds: {{ .Values.nodeSensor.terminationGracePeriod }}
+      {{- if or .Values.nodeSensor.daemonset.priorityClassName .Values.gke.autopilot }}
       priorityClassName: {{ include "falcon-clusterguard.priorityClassName" . }}
       {{- end }}
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      {{- with .Values.node.dnsConfig }}
+      {{- with .Values.nodeSensor.dnsConfig }}
       dnsConfig:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -96,7 +96,7 @@ spec:
           command:
             - /bin/bash
           {{ include "falcon-clusterguard.nodeInitArgs" . | nindent 10 }}
-          {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
+          {{- if or .Values.gke.autopilot .Values.nodeSensor.daemonset.resources }}
           resources:
             requests:
               cpu: 10m
@@ -162,10 +162,10 @@ spec:
                 - NET_ADMIN
             {{- end }}
           {{- include "falcon-clusterguard.daemonsetResources" . | nindent 10 }}
-          {{- if .Values.node.guardian.proxy.enabled }}
+          {{- if .Values.nodeSensor.guardian.proxy.enabled }}
           ports:
             - name: proxy
-              containerPort: {{ .Values.node.guardian.proxy.port }}
+              containerPort: {{ .Values.nodeSensor.guardian.proxy.port }}
               protocol: TCP
           {{- end }}
           env:
@@ -203,7 +203,7 @@ spec:
               mountPath: /run/secrets/ca
               readOnly: true
             {{- end }}
-            {{- if .Values.node.guardian.proxy.enabled }}
+            {{- if .Values.nodeSensor.guardian.proxy.enabled }}
             - name: proxy-tls
               mountPath: /opt/CrowdStrike/certs
               readOnly: true
@@ -239,10 +239,10 @@ spec:
             secretName: "falcon-api-ca"
             {{- end }}
         {{- end }}
-        {{- if .Values.node.guardian.proxy.enabled }}
+        {{- if .Values.nodeSensor.guardian.proxy.enabled }}
         - name: proxy-tls
           secret:
-            secretName: {{ .Values.node.guardian.proxy.tlsSecretName }}
+            secretName: {{ .Values.nodeSensor.guardian.proxy.tlsSecretName }}
             optional: true
             defaultMode: 0400
         {{- end }}

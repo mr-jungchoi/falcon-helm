@@ -46,9 +46,9 @@ spec:
           check_pods "injection annotation" "{.metadata.annotations.sensor\.falcon-system\.crowdstrike\.com/injection}" "disabled"
           check_pods_set "checksum/configmap annotation" "{.metadata.annotations.checksum/configmap}"
           check_pods "helm.sh/chart label" "{.metadata.labels.helm\.sh/chart}" "{{ include "falcon-clusterguard.chart" . }}"
-          {{- if .Values.cluster.hostNetwork }}
+          {{- if .Values.clusterguardController.hostNetwork }}
           check_pods "hostNetwork" "{.spec.hostNetwork}" "true"
-          check_pods "dnsPolicy" "{.spec.dnsPolicy}" "{{ .Values.cluster.dnsPolicy | default "ClusterFirstWithHostNet" }}"
+          check_pods "dnsPolicy" "{.spec.dnsPolicy}" "{{ .Values.clusterguardController.dnsPolicy | default "ClusterFirstWithHostNet" }}"
           {{- end }}
 
           echo "--- Checking gRPC API Service (node sensors connect to it) ---"
@@ -64,7 +64,7 @@ spec:
           check_endpoints webhook
           check_exists validatingwebhookconfiguration "${WEBHOOK_CONFIG}"
           check_equal "ValidatingWebhookConfiguration failurePolicy" \
-            "$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.webhooks[0].failurePolicy}' 2>&1)" "{{ .Values.cluster.webhook.failurePolicy }}"
+            "$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.webhooks[0].failurePolicy}' 2>&1)" "{{ .Values.clusterguardController.webhook.failurePolicy }}"
           {{- else }}
           check_absent service webhook
           check_absent validatingwebhookconfiguration "${WEBHOOK_CONFIG}"

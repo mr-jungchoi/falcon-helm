@@ -2,7 +2,7 @@
   {{- $deploymentName := include "falcon-clusterguard.controllerName" . }}
   {{- $validatingWebhookName := printf "validating.%s" (include "falcon-clusterguard.webhookName" .) }}
   {{- $ns := include "falcon-clusterguard.namespace" . }}
-  {{- $certValid := (.Values.cluster.certExpiration | int) }}
+  {{- $certValid := (.Values.clusterguardController.certExpiration | int) }}
   {{- $certManager := .Values.certManager.enabled }}
   {{- $webhookAltNames := include "falcon-clusterguard.webhookDNSNames" . | fromYamlArray }}
   {{- $webhookFullName := first $webhookAltNames }}
@@ -15,7 +15,7 @@
   {{- $webhookCert := dict "Cert" "" "Key" "" }}
   {{- if not $certManager }}
     {{- $existing := (lookup "v1" "Secret" $ns "falcon-cg-controller-tls").data | default dict }}
-    {{- if and (not .Values.cluster.autoCertificateUpdate) (hasKey $existing "tls.crt") (hasKey $existing "tls.key") (hasKey $existing "ca.crt") }}
+    {{- if and (not .Values.clusterguardController.autoCertificateUpdate) (hasKey $existing "tls.crt") (hasKey $existing "tls.key") (hasKey $existing "ca.crt") }}
       {{- $webhookCert = dict "Cert" (index $existing "tls.crt" | b64dec) "Key" (index $existing "tls.key" | b64dec) }}
       {{- $webhookCA = dict "Cert" (index $existing "ca.crt" | b64dec) }}
     {{- else }}
@@ -34,7 +34,7 @@
     {{- $existingCA := (lookup "v1" "Secret" $ns "falcon-api-ca").data | default dict }}
     {{- $existingServer := (lookup "v1" "Secret" $ns "falcon-api-tls").data | default dict }}
     {{- $existingClient := (lookup "v1" "Secret" $ns "falcon-node-sensor-tls").data | default dict }}
-    {{- if and (not .Values.cluster.autoCertificateUpdate) (hasKey $existingCA "ca.crt") (hasKey $existingServer "tls.crt") (hasKey $existingServer "tls.key") (hasKey $existingClient "tls.crt") (hasKey $existingClient "tls.key") }}
+    {{- if and (not .Values.clusterguardController.autoCertificateUpdate) (hasKey $existingCA "ca.crt") (hasKey $existingServer "tls.crt") (hasKey $existingServer "tls.key") (hasKey $existingClient "tls.crt") (hasKey $existingClient "tls.key") }}
       {{- $grpcCA = dict "Cert" (index $existingCA "ca.crt" | b64dec) }}
       {{- $grpcServerCert = dict "Cert" (index $existingServer "tls.crt" | b64dec) "Key" (index $existingServer "tls.key" | b64dec) }}
       {{- $grpcClientCert = dict "Cert" (index $existingClient "tls.crt" | b64dec) "Key" (index $existingClient "tls.key" | b64dec) }}
@@ -123,10 +123,10 @@ metadata:
   namespace: {{ $ns }}
   labels:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
-    {{- range $key, $value := .Values.cluster.labels }}
+    {{- range $key, $value := .Values.clusterguardController.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
-  {{- with .Values.cluster.annotations }}
+  {{- with .Values.clusterguardController.annotations }}
   annotations:
     {{- range $key, $value := . }}
     {{ $key }}: {{ $value | quote }}
@@ -146,22 +146,22 @@ spec:
     metadata:
       labels:
         {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 8 }}
-        {{- range $key, $value := .Values.cluster.labels }}
+        {{- range $key, $value := .Values.clusterguardController.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
-        {{- range $key, $value := .Values.cluster.podLabels }}
+        {{- range $key, $value := .Values.clusterguardController.podLabels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
       annotations:
         sensor.falcon-system.crowdstrike.com/injection: disabled
         checksum/configmap: {{ include (print $.Template.BasePath "/cg-controller/configmap.yaml") . | sha256sum | quote }}
-        {{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") .Values.cluster.hostNetwork }}
+        {{- if and (include "falcon-clusterguard.openshiftEnabled" . | eq "true") .Values.clusterguardController.hostNetwork }}
         openshift.io/scc: {{ include "falcon-clusterguard.cgControllerSccName" . }}
         {{- end }}
-        {{- if .Values.cluster.autoDeploymentUpdate }}
+        {{- if .Values.clusterguardController.autoDeploymentUpdate }}
         rollme: {{ randAlphaNum 5 | quote }}
         {{- end }}
-        {{- range $key, $value := .Values.cluster.podAnnotations }}
+        {{- range $key, $value := .Values.clusterguardController.podAnnotations }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
@@ -184,19 +184,19 @@ spec:
         runAsUser: 1234
       serviceAccountName: {{ include "falcon-clusterguard.clusterServiceAccountName" . }}
       shareProcessNamespace: true
-      {{- with .Values.cluster.affinity }}
+      {{- with .Values.clusterguardController.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.cluster.tolerations }}
+      {{- with .Values.clusterguardController.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.cluster.hostNetwork }}
+      {{- if .Values.clusterguardController.hostNetwork }}
       hostNetwork: true
-      dnsPolicy: {{ default "ClusterFirstWithHostNet" .Values.cluster.dnsPolicy }}
-      {{- else if .Values.cluster.dnsPolicy }}
-      dnsPolicy: {{ .Values.cluster.dnsPolicy }}
+      dnsPolicy: {{ default "ClusterFirstWithHostNet" .Values.clusterguardController.dnsPolicy }}
+      {{- else if .Values.clusterguardController.dnsPolicy }}
+      dnsPolicy: {{ .Values.clusterguardController.dnsPolicy }}
       {{- end }}
       containers:
         - name: falcon-client
@@ -204,7 +204,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           args:
             - client
-            - "-port={{ .Values.cluster.webhookPort }}"
+            - "-port={{ .Values.clusterguardController.webhookPort }}"
           env:
             {{- /* TODO: Remove __CS_IAR_NAMESPACE, only needed temporarily for testing */}}
             - name: __CS_IAR_NAMESPACE
@@ -238,13 +238,13 @@ spec:
                 name: {{ $falconSecretName }}
             {{- end }}
           ports:
-            - containerPort: {{ .Values.cluster.webhookPort }}
+            - containerPort: {{ .Values.clusterguardController.webhookPort }}
               name: webhook-port
           resources:
             {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
-            {{- toYaml .Values.cluster.resources.client | nindent 12 }}
+            {{- toYaml .Values.clusterguardController.resources.client | nindent 12 }}
             {{- else }}
-            {{- toYaml .Values.cluster.resources.clientNoWebhook | nindent 12 }}
+            {{- toYaml .Values.clusterguardController.resources.clientNoWebhook | nindent 12 }}
             {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
@@ -256,7 +256,7 @@ spec:
             failureThreshold: 30
             httpGet:
               path: /startz
-              port: {{ .Values.cluster.webhookPort }}
+              port: {{ .Values.clusterguardController.webhookPort }}
               scheme: HTTPS
             periodSeconds: 2
             successThreshold: 1
@@ -265,7 +265,7 @@ spec:
             failureThreshold: 3
             httpGet:
               path: /livez
-              port: {{ .Values.cluster.webhookPort }}
+              port: {{ .Values.clusterguardController.webhookPort }}
               scheme: HTTPS
             periodSeconds: 10
             successThreshold: 1
@@ -289,7 +289,7 @@ spec:
           args:
             - "client"
             - "-app=watcher"
-            - "-http-port={{ .Values.cluster.watcherPort }}"
+            - "-http-port={{ .Values.clusterguardController.watcherPort }}"
           env:
             - name: __CS_POD_NAMESPACE
               valueFrom:
@@ -317,13 +317,13 @@ spec:
                 name: {{ $falconSecretName }}
             {{- end }}
           ports:
-            - containerPort: {{ .Values.cluster.watcherPort }}
+            - containerPort: {{ .Values.clusterguardController.watcherPort }}
               name: healthcheck
             - containerPort: 50051
               name: grpc-port
               protocol: TCP
           resources:
-            {{- toYaml .Values.cluster.resources.watcher | nindent 12 }}
+            {{- toYaml .Values.clusterguardController.resources.watcher | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -334,7 +334,7 @@ spec:
             failureThreshold: 30
             httpGet:
               path: /startz
-              port: {{ .Values.cluster.watcherPort }}
+              port: {{ .Values.clusterguardController.watcherPort }}
               scheme: HTTP
             initialDelaySeconds: 15
             periodSeconds: 10
@@ -344,7 +344,7 @@ spec:
             failureThreshold: 5
             httpGet:
               path: /livez
-              port: {{ .Values.cluster.watcherPort }}
+              port: {{ .Values.clusterguardController.watcherPort }}
               scheme: HTTP
             periodSeconds: 30
             successThreshold: 1
@@ -377,7 +377,7 @@ spec:
                 name: {{ $falconSecretName }}
           {{- end }}
           resources:
-            {{- toYaml .Values.cluster.resources.admissionController | nindent 12 }}
+            {{- toYaml .Values.clusterguardController.resources.admissionController | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -388,7 +388,7 @@ spec:
             failureThreshold: 30
             httpGet:
               path: /startz-kac
-              port: {{ .Values.cluster.webhookPort }}
+              port: {{ .Values.clusterguardController.webhookPort }}
               scheme: HTTPS
             periodSeconds: 2
             successThreshold: 1
@@ -397,7 +397,7 @@ spec:
             failureThreshold: 3
             httpGet:
               path: /livez-kac
-              port: {{ .Values.cluster.webhookPort }}
+              port: {{ .Values.clusterguardController.webhookPort }}
               scheme: HTTPS
             periodSeconds: 10
             successThreshold: 1
@@ -475,8 +475,8 @@ webhooks:
             - falcon-system
             - falcon-kubernetes-protection
             - falcon-platform
-            {{- if .Values.cluster.webhook.disableNamespaces }}
-            {{- range splitList "," .Values.cluster.webhook.disableNamespaces }}
+            {{- if .Values.clusterguardController.webhook.disableNamespaces }}
+            {{- range splitList "," .Values.clusterguardController.webhook.disableNamespaces }}
             - {{ . | trim }}
             {{- end }}
             {{- end }}
@@ -489,7 +489,7 @@ webhooks:
       {{- if not $certManager }}
       caBundle: {{ $webhookCA.Cert | b64enc }}
       {{- end }}
-      {{- if .Values.cluster.domainName }}
+      {{- if .Values.clusterguardController.domainName }}
       url: https://{{ $webhookFullName }}:443/validate
       {{- else }}
       service:
@@ -497,7 +497,7 @@ webhooks:
         namespace: {{ $ns }}
         path: /validate
       {{- end }}
-    failurePolicy: {{ .Values.cluster.webhook.failurePolicy }}
+    failurePolicy: {{ .Values.clusterguardController.webhook.failurePolicy }}
     rules:
       - apiGroups:
         - ""
@@ -519,7 +519,7 @@ webhooks:
       {{- if not $certManager }}
       caBundle: {{ $webhookCA.Cert | b64enc }}
       {{- end }}
-      {{- if .Values.cluster.domainName }}
+      {{- if .Values.clusterguardController.domainName }}
       url: https://{{ $webhookFullName }}:443/validate
       {{- else }}
       service:
@@ -540,8 +540,8 @@ webhooks:
             - falcon-system
             - falcon-kubernetes-protection
             - falcon-platform
-            {{- if .Values.cluster.webhook.disableNamespaces }}
-            {{- range splitList "," .Values.cluster.webhook.disableNamespaces }}
+            {{- if .Values.clusterguardController.webhook.disableNamespaces }}
+            {{- range splitList "," .Values.clusterguardController.webhook.disableNamespaces }}
             - {{ . | trim }}
             {{- end }}
             {{- end }}
