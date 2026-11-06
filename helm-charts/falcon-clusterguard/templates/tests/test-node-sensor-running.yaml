@@ -1,0 +1,87 @@
+{{- if and .Values.testing.enabled .Values.nodeSensor.enabled -}}
+{{- $fullname := include "falcon-clusterguard.fullname" . -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ $fullname }}-test-node-running"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+
+          {{- if .Values.nodeSensor.cleanupOnly }}
+
+          echo "--- Checking cleanup-only mode ---"
+          check_absent daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
+          check_rollout daemonset "{{ $fullname }}-node-cleanup"
+          check_pods_running "node cleanup" "app.kubernetes.io/name={{ include "falcon-clusterguard.name" . }}-node-cleanup,app.kubernetes.io/instance={{ .Release.Name }}"
+          {{- else }}
+          DS_NAME="{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
+
+          echo "--- Checking DaemonSet ---"
+          check_exists daemonset "${DS_NAME}"
+          check_rollout daemonset "${DS_NAME}"
+          check_pods_running "node sensor" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.nodeSelectorLabels" .) }}"
+
+          echo "--- Checking supporting resources ---"
+          check_exists configmap "{{ include "falcon-clusterguard.nodeConfigMapName" . }}"
+          check_exists serviceaccount "{{ include "falcon-clusterguard.nodeServiceAccountName" . }}"
+          check_exists clusterrole "{{ $fullname }}-node-access-role"
+          check_exists clusterrolebinding "{{ $fullname }}-node-crb"
+          {{- if or .Values.nodeSensor.daemonset.priorityClassCreate .Values.gke.autopilot }}
+          check_exists priorityclass "{{ include "falcon-clusterguard.priorityClassName" . }}"
+          {{- end }}
+
+          echo "--- Checking pod annotations and labels ---"
+          check_pods "{{ .Values.nodeSensor.daemonset.podAnnotationKey }} annotation" \
+            "{.metadata.annotations.{{ .Values.nodeSensor.daemonset.podAnnotationKey | replace "." "\\." }}}" "disabled"
+          check_pods_set "checksum/configmap annotation" "{.metadata.annotations.checksum/configmap}"
+          check_pods "component label" "{.metadata.labels.app\.kubernetes\.io/component}" "kernel_sensor"
+          check_pods "provider label" "{.metadata.labels.crowdstrike\.com/provider}" "crowdstrike"
+          {{- if and .Values.gke.autopilot .Values.gke.deployAllowListVersion }}
+          check_pods "GKE Autopilot allowlist label" "{.metadata.labels.cloud\.google\.com/matching-allowlist}" \
+            "crowdstrike-falconsensor-deploy-allowlist-{{ .Values.gke.deployAllowListVersion }}"
+          {{- end }}
+
+          {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+
+          echo "--- Checking Cluster Guard gRPC connection settings ---"
+          check_pods "API_SERVICE_NAME" "{.spec.containers[?(@.name==\"falcon-node-sensor\")].env[?(@.name==\"API_SERVICE_NAME\")].value}" \
+            "{{ include "falcon-clusterguard.apiServiceName" . }}"
+          check_pods "client certificate volume" "{.spec.volumes[?(@.name==\"falcon-node-sensor-tls-certs\")].secret.secretName}" "falcon-node-sensor-tls"
+          {{- if .Values.certManager.enabled }}
+          {{- /* The node must take only ca.crt from its leaf Secret, never the CA keypair Secret. */}}
+          check_pods "gRPC CA volume" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.secretName}" "falcon-node-sensor-tls"
+          check_pods "gRPC CA volume items" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.items[*].key}" "ca.crt"
+          {{- else }}
+          check_pods "gRPC CA volume" "{.spec.volumes[?(@.name==\"falcon-api-ca\")].secret.secretName}" "falcon-api-ca"
+          {{- end }}
+          {{- end }}
+          {{- end }}
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ $fullname }}-test-sa
+  restartPolicy: Never
+{{- end -}}

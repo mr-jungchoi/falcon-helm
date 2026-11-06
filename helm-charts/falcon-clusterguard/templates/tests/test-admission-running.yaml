@@ -1,0 +1,85 @@
+{{- if and .Values.testing.enabled (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") -}}
+{{- $fullname := include "falcon-clusterguard.fullname" . -}}
+{{- $admissionControl := include "falcon-clusterguard.admissionControlEnabled" . | eq "true" -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ $fullname }}-test-cg-controller-running"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+          DEPLOY_NAME="{{ include "falcon-clusterguard.controllerName" . }}"
+          CM_NAME="{{ include "falcon-clusterguard.cgControllerConfigMapName" . }}"
+
+          echo "--- Checking clusterguard controller Deployment ---"
+          check_exists deployment "${DEPLOY_NAME}"
+          if kubectl wait deployment "${DEPLOY_NAME}" -n "${NS}" --for=condition=Available --timeout=300s; then
+            ok "Deployment '${DEPLOY_NAME}' is available"
+          else
+            fail "Deployment '${DEPLOY_NAME}' did not become available"
+          fi
+          check_pods_running "clusterguard controller" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.cgControllerSelectorLabels" .) }}"
+
+          echo "--- Checking supporting resources ---"
+          check_exists configmap "${CM_NAME}"
+          check_exists serviceaccount "{{ include "falcon-clusterguard.clusterServiceAccountName" . }}"
+          check_exists clusterrole "{{ $fullname }}-resource-reader"
+          check_exists clusterrolebinding "{{ $fullname }}-security-crb"
+          check_exists role "{{ $fullname }}-role"
+          check_exists rolebinding "{{ $fullname }}-rolebinding"
+
+          echo "--- Checking pod annotations and labels ---"
+          check_pods "injection annotation" "{.metadata.annotations.sensor\.falcon-system\.crowdstrike\.com/injection}" "disabled"
+          check_pods_set "checksum/configmap annotation" "{.metadata.annotations.checksum/configmap}"
+          check_pods "helm.sh/chart label" "{.metadata.labels.helm\.sh/chart}" "{{ include "falcon-clusterguard.chart" . }}"
+          {{- if .Values.clusterguardController.hostNetwork }}
+          check_pods "hostNetwork" "{.spec.hostNetwork}" "true"
+          check_pods "dnsPolicy" "{.spec.dnsPolicy}" "{{ .Values.clusterguardController.dnsPolicy | default "ClusterFirstWithHostNet" }}"
+          {{- end }}
+
+          echo "--- Checking gRPC API Service (node sensors connect to it) ---"
+          check_exists service api
+          check_endpoints api
+
+          echo "--- Checking admission control ---"
+          check_equal "ConfigMap '${CM_NAME}' __CS_ADMISSION_CONTROL_ENABLED" \
+            "$(kubectl get configmap "${CM_NAME}" -n "${NS}" -o jsonpath='{.data.__CS_ADMISSION_CONTROL_ENABLED}' 2>&1)" "{{ $admissionControl }}"
+          WEBHOOK_CONFIG="validating.{{ include "falcon-clusterguard.webhookName" . }}"
+          {{- if $admissionControl }}
+          check_exists service webhook
+          check_endpoints webhook
+          check_exists validatingwebhookconfiguration "${WEBHOOK_CONFIG}"
+          check_equal "ValidatingWebhookConfiguration failurePolicy" \
+            "$(kubectl get validatingwebhookconfiguration "${WEBHOOK_CONFIG}" -o jsonpath='{.webhooks[0].failurePolicy}' 2>&1)" "{{ .Values.clusterguardController.webhook.failurePolicy }}"
+          {{- else }}
+          check_absent service webhook
+          check_absent validatingwebhookconfiguration "${WEBHOOK_CONFIG}"
+          {{- end }}
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ $fullname }}-test-sa
+  restartPolicy: Never
+{{- end -}}

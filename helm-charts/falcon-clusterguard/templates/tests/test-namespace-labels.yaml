@@ -1,0 +1,42 @@
+{{- if and .Values.testing.enabled .Values.testing.labelNamespace -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-namespace-labels"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -c
+        - |
+          {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
+
+          echo "--- Checking PSS namespace labels set by the ns-labeler pre-install Job ---"
+          for LEVEL in enforce warn audit; do
+            check_equal "namespace '${NS}' label pod-security.kubernetes.io/${LEVEL}" \
+              "$(kubectl get namespace "${NS}" -o jsonpath="{.metadata.labels.pod-security\.kubernetes\.io/${LEVEL}}" 2>&1)" "privileged"
+          done
+
+          finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}

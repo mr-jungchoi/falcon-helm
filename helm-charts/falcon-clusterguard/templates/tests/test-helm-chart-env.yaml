@@ -1,0 +1,78 @@
+{{- if .Values.testing.enabled -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "falcon-clusterguard.fullname" . }}-test-helm-chart-env"
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    sensor.falcon-system.crowdstrike.com/injection: disabled
+spec:
+  containers:
+    - name: kubectl
+      image: docker.io/bitnami/kubectl
+      imagePullPolicy: IfNotPresent
+      command:
+      - /bin/sh
+      - -c
+      - |
+        {{- include "falcon-clusterguard.testShellFunctions" . | nindent 8 }}
+        EXPECTED_CHART="{{ include "falcon-clusterguard.helmChart" . }}"
+
+        # check_configmap_env <ConfigMap> <kind> <name> <containers...>
+        # The ConfigMap has HELM_CHART and every listed container loads the ConfigMap via envFrom.
+        check_configmap_env() {
+          CM="$1"; KIND="$2"; NAME="$3"; shift 3
+          check_equal "ConfigMap '${CM}' HELM_CHART" \
+            "$(kubectl get configmap "${CM}" -n "${NS}" -o jsonpath='{.data.HELM_CHART}' 2>&1)" "${EXPECTED_CHART}"
+          for CONTAINER in "$@"; do
+            check_equal "${KIND} '${NAME}' container '${CONTAINER}' envFrom ConfigMap" \
+              "$(kubectl get "${KIND}" "${NAME}" -n "${NS}" \
+                -o jsonpath="{.spec.template.spec.containers[?(@.name==\"${CONTAINER}\")].envFrom[?(@.configMapRef.name==\"${CM}\")].configMapRef.name}" 2>&1)" \
+              "${CM}"
+          done
+        }
+
+        {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
+
+        echo "--- Checking HELM_CHART for the node sensor ---"
+        check_configmap_env "{{ include "falcon-clusterguard.nodeConfigMapName" . }}" \
+          daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}" falcon-node-sensor
+        {{- end }}
+
+        {{- if eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false" }}
+
+        echo "--- Checking HELM_CHART for the clusterguard controller ---"
+        check_configmap_env "{{ include "falcon-clusterguard.cgControllerConfigMapName" . }}" \
+          deployment "{{ include "falcon-clusterguard.controllerName" . }}" falcon-client falcon-watcher falcon-ac
+        {{- end }}
+
+        {{- if .Values.imageAnalyzer.enabled }}
+        {{- $iarKind := ternary "daemonset" "deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
+
+        echo "--- Checking HELM_CHART for the image analyzer ---"
+        # IAR reads HELM_CHART from its pod's helm.sh/chart label through a fieldRef.
+        check_rollout {{ $iarKind }} "{{ include "falcon-clusterguard.iarName" . }}"
+        check_pods_running "image analyzer" "{{ include "falcon-clusterguard.testLabelSelector" (include "falcon-clusterguard.iarSelectorLabels" .) }}"
+        check_pods "HELM_CHART fieldRef" \
+          "{.spec.containers[?(@.name==\"{{ include "falcon-clusterguard.iarName" . }}\")].env[?(@.name==\"HELM_CHART\")].valueFrom.fieldRef.fieldPath}" \
+          "metadata.labels['helm.sh/chart']"
+        check_pods "helm.sh/chart label" "{.metadata.labels.helm\.sh/chart}" "{{ include "falcon-clusterguard.chart" . }}"
+        {{- end }}
+
+        finish
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+  serviceAccountName: {{ include "falcon-clusterguard.fullname" . }}-test-sa
+  restartPolicy: Never
+{{- end -}}
