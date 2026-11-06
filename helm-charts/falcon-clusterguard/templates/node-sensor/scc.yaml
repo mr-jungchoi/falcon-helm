@@ -1,4 +1,4 @@
- {{- if and .Values.node.enabled (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftNodeCreateSCC" . | eq "true") }}
+ {{- if and .Values.nodeSensor.enabled (include "falcon-clusterguard.openshiftEnabled" . | eq "true") (include "falcon-clusterguard.openshiftNodeCreateSCC" . | eq "true") }}
 {{- /* NOTE: Helm on an OpenShift cluster is NOT THE RECOMMENDED configuration. The official Red Hat
        certified operator (https://catalog.redhat.com/en/software/container-stacks/detail/62f2d38f76d039249424703d)
        is the recommended installation method for OpenShift clusters. */}}
@@ -18,7 +18,7 @@ allowHostDirVolumePlugin: true
 allowHostIPC: true
 allowHostNetwork: true
 allowHostPID: true
-allowHostPorts: {{ .Values.node.guardian.proxy.enabled | default false }}
+allowHostPorts: {{ .Values.nodeSensor.guardian.proxy.enabled | default false }}
 allowPrivilegeEscalation: true
 allowPrivilegedContainer: true
 allowedCapabilities:

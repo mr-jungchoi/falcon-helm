@@ -633,13 +633,13 @@ falcon-sensor:
       azure.workload.identity/use: "true"
 
 falcon-clusterguard:
-  node:
+  nodeSensor:
     serviceAccount:
       annotations:
         azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     podLabels:
       azure.workload.identity/use: "true"
-  cluster:
+  clusterguardController:
     serviceAccount:
       annotations:
         azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
@@ -763,15 +763,15 @@ of `falcon-platform` that includes FCG, follow the steps below.
 
 ### What Changed
 
-| Area             | Before                                                 | After                                 |
-|------------------|--------------------------------------------------------|---------------------------------------|
-| Node sensor      | `falcon-sensor` subchart, `falcon-sensor.node.*`       | `falcon-clusterguard.node.*` — `falcon-sensor` subchart removed |
-| Container sensor | `falcon-sensor.container.*`                            | **Unchanged** — `falcon-sensor` subchart retained if container mode is needed |
-| KAC              | `falcon-kac` subchart, `falcon-kac.*`                  | `falcon-clusterguard.cluster.*` — `falcon-kac` subchart removed |
+| Area             | Before                                                      | After                                                                            |
+|------------------|-------------------------------------------------------------|----------------------------------------------------------------------------------|
+| Node sensor      | `falcon-sensor` subchart, `falcon-sensor.node.*`            | `falcon-clusterguard.nodeSensor.*` — `falcon-sensor` subchart removed            |
+| Container sensor | `falcon-sensor.container.*`                                 | **Unchanged** — `falcon-sensor` subchart retained if container mode is needed    |
+| KAC              | `falcon-kac` subchart, `falcon-kac.*`                       | `falcon-clusterguard.clusterguardController.*` — `falcon-kac` subchart removed   |
 | Image scanning   | `falcon-image-analyzer` subchart, `falcon-image-analyzer.*` | `falcon-clusterguard.imageAnalyzer.*` — `falcon-image-analyzer` subchart removed |
-| IAR mode         | `deployment.enabled` or `daemonset.enabled`              | `falcon-clusterguard.imageAnalyzer.mode` (`deployment` or `daemonset`) |
-| Container image  | Separate images per component                            | Single unified FCG image              |
-| Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer`   | `falcon-system` for FCG               |
+| IAR mode         | `deployment.enabled` or `daemonset.enabled`                 | `falcon-clusterguard.imageAnalyzer.mode` (`deployment` or `daemonset`)           |
+| Container image  | Separate images per component                               | Single unified FCG image                                                         |
+| Namespace        | `falcon-system`, `falcon-kac`, `falcon-image-analyzer`      | `falcon-system` for FCG                                                          |
 
 > [!NOTE]
 > `falcon-sensor` (node mode), `falcon-kac`, and `falcon-image-analyzer` have been **removed as
@@ -838,14 +838,14 @@ falcon-clusterguard:
 
 Some settings move outside `imageAnalyzer` because FCG shares them across components:
 
-| Standalone `falcon-image-analyzer` value | FCG value |
-|------------------------------------------|-----------|
-| `daemonset.enabled: true` | `imageAnalyzer.mode: daemonset` (`agentRuntime`, `agentRuntimeSocket`, and `securityContext` move with it) |
-| `crowdstrikeConfig.clusterName` | `node.clusterName` |
-| `crowdstrikeConfig.cid` | `falcon.cid`, if no FCG or global CID is set |
-| `azure.*` | `azure.*` (top level) |
-| `gcp.enabled` | `gke.enabled` |
-| `openshift.sccName` | `openshift.iarSCCName` |
+| Standalone `falcon-image-analyzer` value | FCG value                                                                                                  |
+|------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `daemonset.enabled: true`                | `imageAnalyzer.mode: daemonset` (`agentRuntime`, `agentRuntimeSocket`, and `securityContext` move with it) |
+| `crowdstrikeConfig.clusterName`          | `nodeSensor.clusterName`                                                                                   |
+| `crowdstrikeConfig.cid`                  | `falcon.cid`, if no FCG or global CID is set                                                               |
+| `azure.*`                                | `azure.*` (top level)                                                                                      |
+| `gcp.enabled`                            | `gke.enabled`                                                                                              |
+| `openshift.sccName`                      | `openshift.iarSCCName`                                                                                     |
 
 `kac.namespace` and `namespaceOverride` are no longer used. The output has no
 `falcon-image-analyzer` block, because `falcon-platform` no longer includes that subchart. See
@@ -934,7 +934,7 @@ falcon-clusterguard:
     tag: "<fcg-tag>"
     pullSecret: YOUR-IMAGE-PULL-SECRET-NAME
 
-  node:
+  nodeSensor:
     clusterName: my-cluster
     daemonset:
       tolerations:
@@ -942,8 +942,7 @@ falcon-clusterguard:
           operator: Exists
           effect: NoSchedule
 
-  cluster:
-    enabled: true
+  clusterguardController:
     resources:
       client:  # was: falconClientResources
         limits:
@@ -986,10 +985,8 @@ falcon-clusterguard:
     repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
     tag: "<fcg-tag>"
 
-  node:
+  nodeSensor:
     enabled: false
-  cluster:
-    enabled: true
   imageAnalyzer:
     enabled: true         # image analyzer moved to falcon-clusterguard
 ```

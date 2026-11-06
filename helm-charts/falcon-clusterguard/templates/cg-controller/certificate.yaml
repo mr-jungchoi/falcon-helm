@@ -19,7 +19,7 @@ spec:
       app: falcon-kac
   issuerRef:
     {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
-  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
   dnsNames:
     {{- include "falcon-clusterguard.webhookDNSNames" . | nindent 4 }}
   usages:
@@ -58,7 +58,7 @@ spec:
     name: {{ $grpcSelfSignedIssuer }}
     kind: ClusterIssuer
     group: cert-manager.io
-  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
   commonName: falcon-clusterguard-grpc-ca
   isCA: true
   usages:
@@ -93,7 +93,7 @@ spec:
   issuerRef:
     name: falcon-grpc-ca-issuer
     kind: Issuer
-  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
   dnsNames:
     - api.{{ $ns }}.svc
     - api.{{ $ns }}.svc.cluster.local
@@ -117,7 +117,7 @@ spec:
   issuerRef:
     name: falcon-grpc-ca-issuer
     kind: Issuer
-  duration: "{{ mul .Values.cluster.certExpiration 24 }}h"
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
   uris:
     - spiffe://cluster.local/ns/{{ $ns }}/sa/{{ include "falcon-clusterguard.nodeServiceAccountName" . }}
   usages:

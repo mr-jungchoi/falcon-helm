@@ -91,8 +91,8 @@ Key differences from non-fcg charts:
 | Behavior                                       | falcon-sensor + falcon-kac + falcon-image-analyzer | falcon-clusterguard                                            |
 |:-----------------------------------------------|:---------------------------------------------------|:---------------------------------------------------------------|
 | Container images                               | Separate per chart                                 | Single unified image                                           |
-| Node sensor                                    | `falcon-sensor` chart                              | `node.*` values                                                |
-| KAC                                            | `falcon-kac` chart                                 | `cluster.*` values                                             |
+| Node sensor                                    | `falcon-sensor` chart                              | `nodeSensor.*` values                                          |
+| KAC                                            | `falcon-kac` chart                                 | `clusterguardController.*` values                              |
 | `admissionControl.enabled` default             | `true`                                             | **`false`**                                                    |
 | Image Analyzer                                 | `falcon-image-analyzer` chart                      | `imageAnalyzer.*` values                                       |
 | Container sidecar sensor                       | Supported (`container.enabled=true`)               | Not supported — use `falcon-sensor`                            |
@@ -161,18 +161,17 @@ falcon:
   trace: info
   billing: default
 
-node:
+nodeSensor:
   enabled: true
   clusterName: "my-cluster"   # required for self-hosted K8s; auto-discovered on EKS/GKE/AKS
   daemonset:
     updateStrategy: RollingUpdate
 
-cluster:
+clusterguardController:
   admissionControl:
     enabled: true             # default is false — set true to enable the webhook
   webhook:
     failurePolicy: Ignore
-  replicas: 1
   visibility:
     resourceSnapshots:
       enabled: true
@@ -340,7 +339,7 @@ The following must be installed and configured on your AKS cluster before enabli
 - AKS cluster with OIDC issuer enabled (`az aks update --enable-oidc-issuer --name <cluster> --resource-group <rg>`)
 - A user-assigned managed identity with `Key Vault Secrets User` role on the vault
 - A federated credential binding the managed identity to **each** FCG ServiceAccount that mounts secrets:
-  the node sensor (`node.serviceAccount.name`), the clusterguard controller (`cluster.serviceAccount.name`),
+  the node sensor (`nodeSensor.serviceAccount.name`), the clusterguard controller (`clusterguardController.serviceAccount.name`),
   and, when enabled, the image analyzer (`imageAnalyzer.serviceAccount.name`, default `<release-fullname>-iar`).
   All of them are in the FCG namespace.
 
@@ -371,14 +370,14 @@ secretsStore:
     clientID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   # provisioningTokenSecretName: "falcon-provisioning-token"   # optional
 
-node:
+nodeSensor:
   serviceAccount:
     annotations:
       azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   podLabels:
     azure.workload.identity/use: "true"
 
-cluster:
+clusterguardController:
   serviceAccount:
     annotations:
       azure.workload.identity/client-id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
@@ -424,41 +423,41 @@ the same way.
 
 ### Certificates Used by FCG
 
-| Secret                              | Used by                                               | Purpose                                                 | Created by           |
-|:------------------------------------|:------------------------------------------------------|:--------------------------------------------------------|:---------------------|
-| `falcon-cg-controller-tls`          | Clusterguard controller; admission webhook `caBundle` | Admission webhook server certificate                    | Helm or cert-manager |
-| `falcon-api-ca`                     | Clusterguard controller, node sensor                  | CA certificate for gRPC mTLS between them               | Helm                 |
-| `falcon-grpc-ca`                    | cert-manager only (not mounted by any pod)            | gRPC mTLS CA certificate and private key                | cert-manager         |
-| `falcon-api-tls`                    | Clusterguard controller                               | gRPC API server certificate                             | Helm or cert-manager |
-| `falcon-node-sensor-tls`            | Node sensor                                           | gRPC client certificate                                 | Helm or cert-manager |
-| `<release-fullname>-iar-tls`        | Image Analyzer (when `imageAnalyzer.enabled=true`)    | Image Analyzer agent service certificate                | Helm or cert-manager |
-| `node.guardian.proxy.tlsSecretName` | Node sensor (when `node.guardian.proxy.enabled=true`) | Optional CA bundle for verifying upstream TLS endpoints | You (optional)       |
+| Secret                                    | Used by                                                     | Purpose                                                 | Created by           |
+|:------------------------------------------|:------------------------------------------------------------|:--------------------------------------------------------|:---------------------|
+| `falcon-cg-controller-tls`                | Clusterguard controller; admission webhook `caBundle`       | Admission webhook server certificate                    | Helm or cert-manager |
+| `falcon-api-ca`                           | Clusterguard controller, node sensor                        | CA certificate for gRPC mTLS between them               | Helm                 |
+| `falcon-grpc-ca`                          | cert-manager only (not mounted by any pod)                  | gRPC mTLS CA certificate and private key                | cert-manager         |
+| `falcon-api-tls`                          | Clusterguard controller                                     | gRPC API server certificate                             | Helm or cert-manager |
+| `falcon-node-sensor-tls`                  | Node sensor                                                 | gRPC client certificate                                 | Helm or cert-manager |
+| `<release-fullname>-iar-tls`              | Image Analyzer (when `imageAnalyzer.enabled=true`)          | Image Analyzer agent service certificate                | Helm or cert-manager |
+| `nodeSensor.guardian.proxy.tlsSecretName` | Node sensor (when `nodeSensor.guardian.proxy.enabled=true`) | Optional CA bundle for verifying upstream TLS endpoints | You (optional)       |
 
 ### Certificate Parameters
 
-| Parameter                                             | Description                                                                                                                                                                                  | Default            |
-|:------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------|
-| `certManager.enabled`                                 | Use cert-manager to issue every FCG certificate instead of Helm-generated self-signed certs. Requires cert-manager, including its cainjector. See [Using cert-manager](#using-cert-manager). | `false`            |
-| `certManager.issuerRef`                               | cert-manager `Issuer` or `ClusterIssuer` reference. `issuerRef.name` is required when `certManager.enabled=true`.                                                                            | `{}`               |
-| `cluster.autoCertificateUpdate`                       | Regenerate the admission webhook and gRPC mTLS certificates (controller and node sensor) on each `helm upgrade`. Set to `false` to reuse them. Ignored with cert-manager.                    | `true`             |
-| `cluster.certExpiration`                              | Validity period in days for the admission webhook and gRPC mTLS certificates                                                                                                                 | `3650`             |
-| `cluster.domainName`                                  | Custom DNS domain suffix. Also changes the admission webhook certificate's DNS names to `webhook.<namespace>.svc.<domainName>`                                                               | None               |
-| `imageAnalyzer.iarAgentService.autoCertificateUpdate` | Regenerate the Image Analyzer certificate on each `helm upgrade`. Set to `false` to reuse it. Ignored with cert-manager.                                                                     | `true`             |
-| `imageAnalyzer.iarAgentService.certExpiration`        | Image Analyzer certificate validity period in days                                                                                                                                           | `3650`             |
-| `imageAnalyzer.iarAgentService.domainName`            | Custom DNS domain suffix for the Image Analyzer certificate (e.g., `testing.io` if `svc.testing.io` is required)                                                                             | None               |
+| Parameter                                             | Description                                                                                                                                                                                  | Default |
+|:------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `certManager.enabled`                                 | Use cert-manager to issue every FCG certificate instead of Helm-generated self-signed certs. Requires cert-manager, including its cainjector. See [Using cert-manager](#using-cert-manager). | `false` |
+| `certManager.issuerRef`                               | cert-manager `Issuer` or `ClusterIssuer` reference. `issuerRef.name` is required when `certManager.enabled=true`.                                                                            | `{}`    |
+| `clusterguardController.autoCertificateUpdate`        | Regenerate the admission webhook and gRPC mTLS certificates (controller and node sensor) on each `helm upgrade`. Set to `false` to reuse them. Ignored with cert-manager.                    | `true`  |
+| `clusterguardController.certExpiration`               | Validity period in days for the admission webhook and gRPC mTLS certificates                                                                                                                 | `3650`  |
+| `clusterguardController.domainName`                   | Custom DNS domain suffix. Also changes the admission webhook certificate's DNS names to `webhook.<namespace>.svc.<domainName>`                                                               | None    |
+| `imageAnalyzer.iarAgentService.autoCertificateUpdate` | Regenerate the Image Analyzer certificate on each `helm upgrade`. Set to `false` to reuse it. Ignored with cert-manager.                                                                     | `true`  |
+| `imageAnalyzer.iarAgentService.certExpiration`        | Image Analyzer certificate validity period in days                                                                                                                                           | `3650`  |
+| `imageAnalyzer.iarAgentService.domainName`            | Custom DNS domain suffix for the Image Analyzer certificate (e.g., `testing.io` if `svc.testing.io` is required)                                                                             | None    |
 
 ### Helm-Generated Certificates
 
 By default, Helm generates a self-signed CA and certificates on install, and again on every
 `helm upgrade` while `autoCertificateUpdate=true`. The clusterguard controller restarts on upgrade
-(`cluster.autoDeploymentUpdate`), so it picks up its new certificates.
+(`clusterguardController.autoDeploymentUpdate`), so it picks up its new certificates.
 
 Set `autoCertificateUpdate=false` to keep certificates across upgrades. Each set of certificates is
 reused only if all of its Secrets still exist; if any of them is missing, that whole set is
 regenerated together so certificates always match their CA:
 
-- **Admission webhook** (`cluster.autoCertificateUpdate`): certificate, key, and CA from `falcon-cg-controller-tls`
-- **gRPC mTLS** (`cluster.autoCertificateUpdate`): `falcon-api-ca`, `falcon-api-tls`, and `falcon-node-sensor-tls`
+- **Admission webhook** (`clusterguardController.autoCertificateUpdate`): certificate, key, and CA from `falcon-cg-controller-tls`
+- **gRPC mTLS** (`clusterguardController.autoCertificateUpdate`): `falcon-api-ca`, `falcon-api-tls`, and `falcon-node-sensor-tls`
 - **Image Analyzer** (`imageAnalyzer.iarAgentService.autoCertificateUpdate`): certificate, key, and CA from `<release-fullname>-iar-tls`
 
 ### Using cert-manager
@@ -527,49 +526,49 @@ In automated testing environments, set `testing.labelNamespace: true` to apply t
 
 The following table lists the configurable parameters for the FCG node sensor DaemonSet.
 
-| Parameter                            | Description                                                                                                                  | Default                                          |
-|:-------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------|
-| `node.enabled`                       | Enable the node sensor DaemonSet                                                                                             | `true`                                           |
-| `node.clusterName`                   | Manually set cluster name. Usually auto-discovered on managed Kubernetes (EKS, GKE, AKS). Required for self-hosted clusters. | None (auto-discovery used)                       |
-| `node.serviceAccount.name`           | Name of the Kubernetes ServiceAccount used by the node sensor DaemonSet and cleanup DaemonSet                                | `falcon-node-sensor-sa`                          |
-| `node.serviceAccount.annotations`    | Annotations applied to the ServiceAccount (e.g., for IRSA or Workload Identity)                                              | `{}`                                             |
-| `node.daemonset.annotations`         | Annotations applied to the DaemonSet resource                                                                                | `{}`                                             |
-| `node.daemonset.labels`              | Additional labels applied to the DaemonSet resource                                                                          | `{}`                                             |
-| `node.daemonset.podAnnotationKey`    | Annotation key used to control per-pod/per-node sensor injection                                                             | `sensor.falcon-system.crowdstrike.com/injection` |
-| `node.daemonset.priorityClassCreate` | Create a PriorityClass for the node sensor pods                                                                              | `false`                                          |
-| `node.daemonset.priorityClassName`   | Assign an existing PriorityClass name to node sensor pods                                                                    | `""`                                             |
-| `node.daemonset.priorityClassValue`  | Priority value when `priorityClassCreate` is true                                                                            | `1000000000`                                     |
-| `node.daemonset.tolerations`         | Pod tolerations for node scheduling. Defaults include master, control-plane, and Azure spot nodes.                           | See `values.yaml`                                |
-| `node.daemonset.nodeAffinity`        | Node affinity rules for the DaemonSet                                                                                        | `{}`                                             |
-| `node.daemonset.resources`           | CPU and memory resource requests and limits. Minimum: 250m CPU, 500Mi memory. GKE Autopilot default: 750m CPU, 1.5Gi memory. | None                                             |
-| `node.daemonset.updateStrategy`      | DaemonSet update strategy                                                                                                    | `RollingUpdate`                                  |
-| `node.daemonset.maxUnavailable`      | Maximum number of unavailable nodes during a rolling update                                                                  | `1`                                              |
-| `node.podAnnotations`                | Annotations applied to node sensor pods                                                                                      | `{}`                                             |
-| `node.podLabels`                     | Additional labels applied to node sensor pods. Note: may affect WorkloadAllowlists on GKE Autopilot.                         | `{}`                                             |
-| `node.terminationGracePeriod`        | Seconds to wait for node sensor pods to stop gracefully                                                                      | `60`                                             |
-| `node.hooks.postDelete.enabled`      | Run a cleanup DaemonSet during `helm uninstall` to remove `/opt/CrowdStrike` from all nodes                                  | `true`                                           |
-| `node.cleanupOnly`                   | Run the cleanup DaemonSet only (skip the main sensor DaemonSet). Requires `node.hooks.postDelete.enabled: true`.             | `false`                                          |
+| Parameter                                  | Description                                                                                                                  | Default                                          |
+|:-------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------|
+| `nodeSensor.enabled`                       | Enable the node sensor DaemonSet                                                                                             | `true`                                           |
+| `nodeSensor.clusterName`                   | Manually set cluster name. Usually auto-discovered on managed Kubernetes (EKS, GKE, AKS). Required for self-hosted clusters. | None (auto-discovery used)                       |
+| `nodeSensor.serviceAccount.name`           | Name of the Kubernetes ServiceAccount used by the node sensor DaemonSet and cleanup DaemonSet                                | `falcon-node-sensor-sa`                          |
+| `nodeSensor.serviceAccount.annotations`    | Annotations applied to the ServiceAccount (e.g., for IRSA or Workload Identity)                                              | `{}`                                             |
+| `nodeSensor.daemonset.annotations`         | Annotations applied to the DaemonSet resource                                                                                | `{}`                                             |
+| `nodeSensor.daemonset.labels`              | Additional labels applied to the DaemonSet resource                                                                          | `{}`                                             |
+| `nodeSensor.daemonset.podAnnotationKey`    | Annotation key used to control per-pod/per-node sensor injection                                                             | `sensor.falcon-system.crowdstrike.com/injection` |
+| `nodeSensor.daemonset.priorityClassCreate` | Create a PriorityClass for the node sensor pods                                                                              | `false`                                          |
+| `nodeSensor.daemonset.priorityClassName`   | Assign an existing PriorityClass name to node sensor pods                                                                    | `""`                                             |
+| `nodeSensor.daemonset.priorityClassValue`  | Priority value when `priorityClassCreate` is true                                                                            | `1000000000`                                     |
+| `nodeSensor.daemonset.tolerations`         | Pod tolerations for node scheduling. Defaults include master, control-plane, and Azure spot nodes.                           | See `values.yaml`                                |
+| `nodeSensor.daemonset.nodeAffinity`        | Node affinity rules for the DaemonSet                                                                                        | `{}`                                             |
+| `nodeSensor.daemonset.resources`           | CPU and memory resource requests and limits. Minimum: 250m CPU, 500Mi memory. GKE Autopilot default: 750m CPU, 1.5Gi memory. | None                                             |
+| `nodeSensor.daemonset.updateStrategy`      | DaemonSet update strategy                                                                                                    | `RollingUpdate`                                  |
+| `nodeSensor.daemonset.maxUnavailable`      | Maximum number of unavailable nodes during a rolling update                                                                  | `1`                                              |
+| `nodeSensor.podAnnotations`                | Annotations applied to node sensor pods                                                                                      | `{}`                                             |
+| `nodeSensor.podLabels`                     | Additional labels applied to node sensor pods. Note: may affect WorkloadAllowlists on GKE Autopilot.                         | `{}`                                             |
+| `nodeSensor.terminationGracePeriod`        | Seconds to wait for node sensor pods to stop gracefully                                                                      | `60`                                             |
+| `nodeSensor.hooks.postDelete.enabled`      | Run a cleanup DaemonSet during `helm uninstall` to remove `/opt/CrowdStrike` from all nodes                                  | `true`                                           |
+| `nodeSensor.cleanupOnly`                   | Run the cleanup DaemonSet only (skip the main sensor DaemonSet). Requires `nodeSensor.hooks.postDelete.enabled: true`.       | `false`                                          |
 
 GKE and GKE Autopilot settings (`gke.*`) are in [Cloud Provider Configuration](#cloud-provider-configuration).
 
 
 ### Guardian Local Proxy
 
-| Parameter                           | Description                                                                                   | Default            |
-|:------------------------------------|:----------------------------------------------------------------------------------------------|:-------------------|
-| `node.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                                     | `false`            |
-| `node.guardian.proxy.port`          | Container port for the proxy (40000–49512). Required when `node.guardian.proxy.enabled=true`. | None               |
-| `node.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification.              | `falcon-proxy-tls` |
-| `node.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                                       | `{}`               |
+| Parameter                                 | Description                                                                                         | Default            |
+|:------------------------------------------|:----------------------------------------------------------------------------------------------------|:-------------------|
+| `nodeSensor.guardian.proxy.enabled`       | Enable the Guardian Local Proxy (`falcon-proxy` Service).                                           | `false`            |
+| `nodeSensor.guardian.proxy.port`          | Container port for the proxy (40000–49512). Required when `nodeSensor.guardian.proxy.enabled=true`. | None               |
+| `nodeSensor.guardian.proxy.tlsSecretName` | Name of an optional Secret with CA certificate(s) for upstream TLS verification.                    | `falcon-proxy-tls` |
+| `nodeSensor.dnsConfig`                    | `dnsConfig` fields appended to the node sensor pod spec                                             | `{}`               |
 
-When `node.guardian.proxy.enabled: true`, FCG:
+When `nodeSensor.guardian.proxy.enabled: true`, FCG:
 
-1. Exposes a named `proxy` port (`node.guardian.proxy.port`, required) on the sensor container.
+1. Exposes a named `proxy` port (`nodeSensor.guardian.proxy.port`, required) on the sensor container.
 2. Creates a `falcon-proxy` Service with `internalTrafficPolicy: Local` so traffic is
    always routed to the proxy pod on the **same node** — no cross-node hops.
 
 ```yaml
-node:
+nodeSensor:
   guardian:
     proxy:
       enabled: true
@@ -579,14 +578,14 @@ node:
 ```bash
 helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
   -n falcon-system \
-  --set node.guardian.proxy.enabled=true \
-  --set node.guardian.proxy.port=48080
+  --set nodeSensor.guardian.proxy.enabled=true \
+  --set nodeSensor.guardian.proxy.port=48080
 ```
 
 #### Verifying upstream endpoints (TLS)
 
 If the proxy needs to verify TLS certificates for upstream endpoints, create a Secret
-containing the CA bundle and reference it via `node.guardian.proxy.tlsSecretName`:
+containing the CA bundle and reference it via `nodeSensor.guardian.proxy.tlsSecretName`:
 
 ```bash
 kubectl create secret generic falcon-proxy-tls \
@@ -595,7 +594,7 @@ kubectl create secret generic falcon-proxy-tls \
 ```
 
 ```yaml
-node:
+nodeSensor:
   guardian:
     proxy:
       enabled: true
@@ -610,10 +609,10 @@ exist — the proxy simply runs without a custom CA bundle.
 
 The node sensor pod runs with `hostNetwork: true`, which forces `dnsPolicy:
 ClusterFirstWithHostNet`. This is not configurable. If you need additional DNS search
-domains or custom nameservers for the sensor pod, use `node.dnsConfig`:
+domains or custom nameservers for the sensor pod, use `nodeSensor.dnsConfig`:
 
 ```yaml
-node:
+nodeSensor:
   dnsConfig:
     nameservers:
       - "10.0.0.53"
@@ -712,33 +711,32 @@ When using `falconSecret` with GKE Autopilot, `falconSecret.secretName` must be
 
 FCG has two independent feature gates for the clusterguard controller:
 
-- **`cluster.admissionControl.enabled`**: controls only the ValidatingWebhookConfiguration and webhook Service. The clusterguard controller runs in visibility-only mode by default.
+- **`clusterguardController.admissionControl.enabled`**: controls only the ValidatingWebhookConfiguration and webhook Service. The clusterguard controller runs in visibility-only mode by default.
 - **`imageAnalyzer.enabled`**: deploys the image analyzer alongside the clusterguard controller for image assessment. This is disabled by default. See [Image Analyzer Configuration](#image-analyzer-configuration).
 
-> **Important:** The FCG default for `cluster.admissionControl.enabled` is `false`, whereas
+> **Important:** The FCG default for `clusterguardController.admissionControl.enabled` is `false`, whereas
 > the old `falcon-kac` default was `true`. If you are migrating from `falcon-kac`, you must
-> explicitly set `cluster.admissionControl.enabled=true` to preserve admission control behavior.
+> explicitly set `clusterguardController.admissionControl.enabled=true` to preserve admission control behavior.
 
-| Parameter                            | Description                                                                                                                                           | Default                       |
-|:-------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------------|
-| `cluster.admissionControl.enabled`   | Enable the ValidatingWebhookConfiguration and webhook Service.                                                                                        | `false`                       |
-| `cluster.serviceAccount.name`        | Name of the Kubernetes ServiceAccount used by the clusterguard controller Deployment                                                                  | `falcon-cg-controller-sa`     |
-| `cluster.serviceAccount.annotations` | Annotations applied to the clusterguard controller ServiceAccount (e.g., for IRSA or Workload Identity)                                               | `{}`                          |
-| `cluster.replicas`                   | Number of clusterguard controller replicas. The metadata service is single-instance; keep at `1` unless you understand the implications.              | `1`                           |
-| `cluster.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the `system-cluster-critical` PriorityClass (plus `system-node-critical` when `gke.enabled=true`) | `2`                           |
-| `cluster.hostNetwork`                | Run clusterguard controller in host network mode. Required when a custom CNI prevents control plane nodes from communicating directly with pods.      | `false`                       |
-| `cluster.webhookPort`                | HTTPS port on which the validating webhook backend listens                                                                                            | `4443`                        |
-| `cluster.watcherPort`                | HTTP port on which the resource watcher listens (internal)                                                                                            | `4080`                        |
-| `cluster.dnsPolicy`                  | Pod DNS policy. Defaults to `ClusterFirstWithHostNet` when `hostNetwork=true`; otherwise follows cluster default.                                     | None                          |
-| `cluster.domainName`                 | Custom DNS domain suffix for in-cluster service resolution (e.g., `testing.io` if `svc.testing.io` is required).                                      | None                          |
-| `cluster.tlsVersionMinimum`          | Minimum TLS version accepted by the webhook (`TLS1.2` or `TLS1.3`)                                                                                    | None                          |
-| `cluster.autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`                                                                                             | `true`                        |
-| `cluster.annotations`                | Annotations applied to the clusterguard controller Deployment resource                                                                                | `{}`                          |
-| `cluster.labels`                     | Additional labels applied to the clusterguard controller Deployment resource                                                                          | `{}`                          |
-| `cluster.podAnnotations`             | Annotations applied to clusterguard controller pods                                                                                                   | `{}`                          |
-| `cluster.podLabels`                  | Additional labels applied to clusterguard controller pods                                                                                             | `{}`                          |
-| `cluster.tolerations`                | Pod tolerations for node scheduling                                                                                                                   | `[]`                          |
-| `cluster.affinity`                   | Pod affinity/anti-affinity rules. Defaults to require `amd64` or `arm64` node architecture.                                                           | `nodeAffinity` (amd64, arm64) |
+| Parameter                                           | Description                                                                                                                                           | Default                       |
+|:----------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------|:------------------------------|
+| `clusterguardController.admissionControl.enabled`   | Enable the ValidatingWebhookConfiguration and webhook Service.                                                                                        | `false`                       |
+| `clusterguardController.serviceAccount.name`        | Name of the Kubernetes ServiceAccount used by the clusterguard controller Deployment                                                                  | `falcon-cg-controller-sa`     |
+| `clusterguardController.serviceAccount.annotations` | Annotations applied to the clusterguard controller ServiceAccount (e.g., for IRSA or Workload Identity)                                               | `{}`                          |
+| `clusterguardController.resourceQuota.pods`         | Maximum pods allowed by the ResourceQuota scoped to the `system-cluster-critical` PriorityClass (plus `system-node-critical` when `gke.enabled=true`) | `2`                           |
+| `clusterguardController.hostNetwork`                | Run clusterguard controller in host network mode. Required when a custom CNI prevents control plane nodes from communicating directly with pods.      | `false`                       |
+| `clusterguardController.webhookPort`                | HTTPS port on which the validating webhook backend listens                                                                                            | `4443`                        |
+| `clusterguardController.watcherPort`                | HTTP port on which the resource watcher listens (internal)                                                                                            | `4080`                        |
+| `clusterguardController.dnsPolicy`                  | Pod DNS policy. Defaults to `ClusterFirstWithHostNet` when `hostNetwork=true`; otherwise follows cluster default.                                     | None                          |
+| `clusterguardController.domainName`                 | Custom DNS domain suffix for in-cluster service resolution (e.g., `testing.io` if `svc.testing.io` is required).                                      | None                          |
+| `clusterguardController.tlsVersionMinimum`          | Minimum TLS version accepted by the webhook (`TLS1.2` or `TLS1.3`)                                                                                    | None                          |
+| `clusterguardController.autoDeploymentUpdate`       | Roll out a new Deployment automatically on `helm upgrade`                                                                                             | `true`                        |
+| `clusterguardController.annotations`                | Annotations applied to the clusterguard controller Deployment resource                                                                                | `{}`                          |
+| `clusterguardController.labels`                     | Additional labels applied to the clusterguard controller Deployment resource                                                                          | `{}`                          |
+| `clusterguardController.podAnnotations`             | Annotations applied to clusterguard controller pods                                                                                                   | `{}`                          |
+| `clusterguardController.podLabels`                  | Additional labels applied to clusterguard controller pods                                                                                             | `{}`                          |
+| `clusterguardController.tolerations`                | Pod tolerations for node scheduling                                                                                                                   | `[]`                          |
+| `clusterguardController.affinity`                   | Pod affinity/anti-affinity rules. Defaults to require `amd64` or `arm64` node architecture.                                                           | `nodeAffinity` (amd64, arm64) |
 
 The clusterguard controller Deployment is named `<nameOverride>-controller`, which is
 `falcon-clusterguard-controller` when `nameOverride` is not set.
@@ -747,38 +745,38 @@ The clusterguard controller Deployment is named `<nameOverride>-controller`, whi
 
 Controls how FCG monitors and reports Kubernetes cluster state to CrowdStrike cloud.
 
-| Parameter                                       | Description                                                                                                                           | Default |
-|:------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:--------|
-| `cluster.visibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`  |
-| `cluster.visibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`   |
-| `cluster.visibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`  |
-| `cluster.visibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`  |
+| Parameter                                                      | Description                                                                                                                           | Default |
+|:---------------------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------|:--------|
+| `clusterguardController.visibility.resourceSnapshots.enabled`  | Periodic snapshots of Kubernetes resources. Disabling may cause long-lived resources to disappear from Falcon UI after ~7 days.       | `true`  |
+| `clusterguardController.visibility.resourceSnapshots.interval` | Interval between snapshots. Maximum `22h`, minimum `30m`. Format: `HHhMMm` (e.g., `12h`, `45m`, `1h30m`).                             | `22h`   |
+| `clusterguardController.visibility.resourceWatcher.enabled`    | Continuously watch cluster for resource create/update/delete events. Disabling means Falcon UI reflects only the last snapshot state. | `true`  |
+| `clusterguardController.visibility.resourceConfigMap.enabled`  | Watch ConfigMap events. FCG redacts known sensitive patterns before sending. Set to `false` to exclude ConfigMaps from visibility.    | `true`  |
 
 ### Webhook Configuration
 
-| Parameter                           | Description                                                                                              | Default  |
-|:------------------------------------|:---------------------------------------------------------------------------------------------------------|:---------|
-| `cluster.webhook.failurePolicy`     | Webhook failure policy (`Ignore` or `Fail`). `Ignore` allows workloads to proceed if FCG is unavailable. | `Ignore` |
-| `cluster.webhook.disableNamespaces` | Comma-separated list of namespaces excluded from webhook validation (e.g., `test1,test2`)                | None     |
+| Parameter                                          | Description                                                                                              | Default  |
+|:---------------------------------------------------|:---------------------------------------------------------------------------------------------------------|:---------|
+| `clusterguardController.webhook.failurePolicy`     | Webhook failure policy (`Ignore` or `Fail`). `Ignore` allows workloads to proceed if FCG is unavailable. | `Ignore` |
+| `clusterguardController.webhook.disableNamespaces` | Comma-separated list of namespaces excluded from webhook validation (e.g., `test1,test2`)                | None     |
 
 ### Resource Limits
 
 CPU and memory resource requests and limits for each clusterguard controller container.
 
-| Parameter                                               | Description                                                           | Default |
-|:--------------------------------------------------------|:----------------------------------------------------------------------|:--------|
-| `cluster.resources.client.requests.cpu`                 | CPU request for the `falcon-client` (webhook receiver) container      | `250m`  |
-| `cluster.resources.client.requests.memory`              | Memory request for the `falcon-client` container                      | `384Mi` |
-| `cluster.resources.client.limits.memory`                | Memory limit for the `falcon-client` container                        | `384Mi` |
-| `cluster.resources.clientNoWebhook.requests.cpu`        | CPU request for `falcon-client` when admission control is disabled    | `100m`  |
-| `cluster.resources.clientNoWebhook.requests.memory`     | Memory request for `falcon-client` when admission control is disabled | `128Mi` |
-| `cluster.resources.clientNoWebhook.limits.memory`       | Memory limit for `falcon-client` when admission control is disabled   | `128Mi` |
-| `cluster.resources.watcher.requests.cpu`                | CPU request for the `falcon-watcher` (K8s event streamer) container   | `250m`  |
-| `cluster.resources.watcher.requests.memory`             | Memory request for the `falcon-watcher` container                     | `512Mi` |
-| `cluster.resources.watcher.limits.memory`               | Memory limit for the `falcon-watcher` container                       | `512Mi` |
-| `cluster.resources.admissionController.requests.cpu`    | CPU request for the `falcon-ac` (admission controller) container      | `100m`  |
-| `cluster.resources.admissionController.requests.memory` | Memory request for the `falcon-ac` container                          | `256Mi` |
-| `cluster.resources.admissionController.limits.memory`   | Memory limit for the `falcon-ac` container                            | `256Mi` |
+| Parameter                                                              | Description                                                           | Default |
+|:-----------------------------------------------------------------------|:----------------------------------------------------------------------|:--------|
+| `clusterguardController.resources.client.requests.cpu`                 | CPU request for the `falcon-client` (webhook receiver) container      | `250m`  |
+| `clusterguardController.resources.client.requests.memory`              | Memory request for the `falcon-client` container                      | `384Mi` |
+| `clusterguardController.resources.client.limits.memory`                | Memory limit for the `falcon-client` container                        | `384Mi` |
+| `clusterguardController.resources.clientNoWebhook.requests.cpu`        | CPU request for `falcon-client` when admission control is disabled    | `100m`  |
+| `clusterguardController.resources.clientNoWebhook.requests.memory`     | Memory request for `falcon-client` when admission control is disabled | `128Mi` |
+| `clusterguardController.resources.clientNoWebhook.limits.memory`       | Memory limit for `falcon-client` when admission control is disabled   | `128Mi` |
+| `clusterguardController.resources.watcher.requests.cpu`                | CPU request for the `falcon-watcher` (K8s event streamer) container   | `250m`  |
+| `clusterguardController.resources.watcher.requests.memory`             | Memory request for the `falcon-watcher` container                     | `512Mi` |
+| `clusterguardController.resources.watcher.limits.memory`               | Memory limit for the `falcon-watcher` container                       | `512Mi` |
+| `clusterguardController.resources.admissionController.requests.cpu`    | CPU request for the `falcon-ac` (admission controller) container      | `100m`  |
+| `clusterguardController.resources.admissionController.requests.memory` | Memory request for the `falcon-ac` container                          | `256Mi` |
+| `clusterguardController.resources.admissionController.limits.memory`   | Memory limit for the `falcon-ac` container                            | `256Mi` |
 
 ## Image Analyzer Configuration
 
@@ -959,7 +957,7 @@ three separate SCCs:
 - **Node sensor SCC**: grants privileged host access (`hostPID`, `hostIPC`, `hostNetwork`,
   and a privileged container) required by the node DaemonSet
 - **Cluster Guard Controller SCC**: grants host network access required by the clusterguard controller when
-  `cluster.hostNetwork=true`
+  `clusterguardController.hostNetwork=true`
 - **Image Analyzer SCC**: allows the IAR Deployment to run as root (UID 0) when
   `imageAnalyzer.enabled=true`. No host access is granted unless `imageAnalyzer.hostNetwork` or `azure.enabled`
   is set. With `imageAnalyzer.mode=daemonset`, it also allows privileged containers, privilege
@@ -1030,8 +1028,8 @@ helm install falcon-clusterguard crowdstrike/falcon-clusterguard \
   -n falcon-system \
   --set image.repository="<Your_Registry>/falcon-clusterguard" \
   --set image.tag="<FCG_VERSION>" \
-  --set node.enabled=true \
-  --set node.cleanupOnly=true
+  --set nodeSensor.enabled=true \
+  --set nodeSensor.cleanupOnly=true
 ```
 
 Validate removal:
@@ -1052,7 +1050,7 @@ helm uninstall falcon-clusterguard -n falcon-system
 
 ### Admission Webhook Not Receiving Requests
 
-Ensure `cluster.admissionControl.enabled=true`. The clusterguard controller Deployment can run
+Ensure `clusterguardController.admissionControl.enabled=true`. The clusterguard controller Deployment can run
 without a webhook (visibility-only mode) — the webhook is disabled by default.
 
 Check that the ValidatingWebhookConfiguration exists:
@@ -1061,7 +1059,7 @@ Check that the ValidatingWebhookConfiguration exists:
 kubectl get validatingwebhookconfiguration | grep falcon
 ```
 
-If it is missing, upgrade with `cluster.admissionControl.enabled=true`.
+If it is missing, upgrade with `clusterguardController.admissionControl.enabled=true`.
 
 ### Image Analyzer Not Starting
 
@@ -1087,11 +1085,11 @@ Templates are grouped by component under `templates/`:
 | Directory                   | Contents                                                                                                     |
 |:----------------------------|:-------------------------------------------------------------------------------------------------------------|
 | `templates/shared/`         | Resources used by more than one component (image pull Secret, ResourceQuota) and chart-wide validation       |
-| `templates/node/`           | Node sensor DaemonSet, ConfigMap, RBAC, SCC, PriorityClass, Guardian proxy Service, and post-delete cleanup  |
+| `templates/node-sensor`           | Node sensor DaemonSet, ConfigMap, RBAC, SCC, PriorityClass, Guardian proxy Service, and post-delete cleanup  |
 | `templates/cg-controller/`  | Cluster Guard controller Deployment, webhook configuration, ConfigMap, RBAC, SCC, Services, and certificates |
 | `templates/image-analyzer/` | Image Analyzer Deployment or DaemonSet and supporting resources, plus `_helpers.tpl` and `_pod.tpl`          |
 | `templates/tests/`          | `helm test` hooks                                                                                            |
 
 Shared helpers live in `templates/_helpers.tpl`. Templates that compute a checksum of another
 template must use its full path under `templates/`, for example
-`include (print $.Template.BasePath "/node/configmap.yaml") .`.
+`include (print $.Template.BasePath "/node-sensor/configmap.yaml") .`.

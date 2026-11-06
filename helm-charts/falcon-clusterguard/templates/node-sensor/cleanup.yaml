@@ -1,4 +1,4 @@
-{{- if and .Values.node.enabled .Values.node.hooks.postDelete.enabled }}
+{{- if and .Values.nodeSensor.enabled .Values.nodeSensor.hooks.postDelete.enabled }}
   {{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . }}
   {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
 apiVersion: v1
@@ -9,7 +9,7 @@ metadata:
   labels:
     {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
   annotations:
-    {{- if not .Values.node.cleanupOnly }}
+    {{- if not .Values.nodeSensor.cleanupOnly }}
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "0"
     {{- end }}
@@ -23,7 +23,7 @@ metadata:
   namespace: {{ include "falcon-clusterguard.namespace" . }}
   labels:
     {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
-  {{- if not .Values.node.cleanupOnly }}
+  {{- if not .Values.nodeSensor.cleanupOnly }}
   annotations:
     "helm.sh/hook": post-delete
     "helm.sh/hook-delete-policy": hook-succeeded
@@ -47,16 +47,16 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     app.kubernetes.io/component: kernel_sensor
     crowdstrike.com/provider: crowdstrike
-    {{- range $key, $value := .Values.node.daemonset.labels }}
+    {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
   annotations:
-    {{- if not .Values.node.cleanupOnly }}
+    {{- if not .Values.nodeSensor.cleanupOnly }}
     "helm.sh/hook": post-delete
     "helm.sh/hook-weight": "1"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
     {{- end }}
-    {{- range $key, $value := .Values.node.daemonset.annotations }}
+    {{- range $key, $value := .Values.nodeSensor.daemonset.annotations }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
@@ -69,11 +69,11 @@ spec:
   template:
     metadata:
       annotations:
-        {{ .Values.node.daemonset.podAnnotationKey }}: disabled
+        {{ .Values.nodeSensor.daemonset.podAnnotationKey }}: disabled
         {{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
         openshift.io/scc: {{ include "falcon-clusterguard.nodeSccName" . }}
         {{- end }}
-        {{- range $key, $value := .Values.node.podAnnotations }}
+        {{- range $key, $value := .Values.nodeSensor.podAnnotations }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
       labels:
@@ -85,7 +85,7 @@ spec:
         app.kubernetes.io/component: kernel_sensor
         crowdstrike.com/provider: crowdstrike
         {{ include "falcon-clusterguard.workloadCleanupAllowlistLabel" . }}
-        {{- range $key, $value := .Values.node.daemonset.labels }}
+        {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
@@ -98,19 +98,19 @@ spec:
         - name: {{ include "falcon-clusterguard.cleanupPullSecretName" . }}
         {{- end }}
       {{- end }}
-      {{- with .Values.node.daemonset.tolerations }}
+      {{- with .Values.nodeSensor.daemonset.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       nodeSelector:
         kubernetes.io/os: linux
-      {{- with .Values.node.daemonset.nodeAffinity }}
+      {{- with .Values.nodeSensor.daemonset.nodeAffinity }}
       affinity:
         nodeAffinity:
           {{- toYaml . | nindent 10 }}
       {{- end }}
       serviceAccountName: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
-      terminationGracePeriodSeconds: {{ .Values.node.terminationGracePeriod }}
+      terminationGracePeriodSeconds: {{ .Values.nodeSensor.terminationGracePeriod }}
       hostPID: true
       initContainers:
       - name: cleanup-opt-crowdstrike
@@ -123,7 +123,7 @@ spec:
           - >-
             echo "Running /opt/CrowdStrike/falcon-daemonset-init -u";
             /opt/CrowdStrike/falcon-daemonset-init -u
-        {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
+        {{- if or .Values.gke.autopilot .Values.nodeSensor.daemonset.resources }}
         resources:
           requests:
             cpu: 10m
@@ -158,7 +158,7 @@ spec:
         args:
           - -c
           - sleep infinity
-        {{- if or .Values.gke.autopilot .Values.node.daemonset.resources }}
+        {{- if or .Values.gke.autopilot .Values.nodeSensor.daemonset.resources }}
         resources:
           requests:
             cpu: 10m

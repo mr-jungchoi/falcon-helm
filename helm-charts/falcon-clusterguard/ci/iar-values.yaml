@@ -1,6 +1,6 @@
 falcon:
   cid: 1234567890ABCDEF1234567890ABCDEF-12
-node:
+nodeSensor:
   clusterName: "test-cluster12.test"
 imageAnalyzer:
   enabled: true

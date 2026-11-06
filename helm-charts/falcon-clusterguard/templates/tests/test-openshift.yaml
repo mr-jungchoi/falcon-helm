@@ -39,7 +39,7 @@ spec:
             check_pods "openshift.io/scc annotation" "{.metadata.annotations.openshift\.io/scc}" "$3"
           }
 
-          {{- if and .Values.node.enabled (not .Values.node.cleanupOnly) }}
+          {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
 
           echo "--- Node sensor ---"
           {{- if include "falcon-clusterguard.openshiftNodeCreateSCC" . | eq "true" }}
@@ -50,7 +50,7 @@ spec:
             "{{ include "falcon-clusterguard.nodeSccName" . }}"
           {{- end }}
 
-          {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.hostNetwork }}
+          {{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.clusterguardController.hostNetwork }}
 
           echo "--- Clusterguard controller (hostNetwork) ---"
           {{- if include "falcon-clusterguard.openshiftCgControllerCreateSCC" . | eq "true" }}

@@ -34,7 +34,7 @@ the suffix is added so the result always ends in -controller and stays within 63
 {{- end }}
 
 {{/*
-Node sensor DaemonSet name. Configurable with node.daemonset.name; defaults to falcon-sensor.
+Node sensor DaemonSet name: "<nameOverride>-sensor" when nameOverride is set, otherwise falcon-sensor.
 */}}
 {{- define "falcon-clusterguard.nodeDaemonsetName" -}}
 {{- if .Values.nameOverride }}
@@ -67,8 +67,8 @@ The first entry is the certificate's common name. Shared by the Helm-generated c
 {{- define "falcon-clusterguard.webhookDNSNames" -}}
 {{- $ns := include "falcon-clusterguard.namespace" . -}}
 {{- $fullName := printf "webhook.%s.svc" $ns -}}
-{{- if .Values.cluster.domainName -}}
-{{- $fullName = printf "webhook.%s.svc.%s" $ns .Values.cluster.domainName -}}
+{{- if .Values.clusterguardController.domainName -}}
+{{- $fullName = printf "webhook.%s.svc.%s" $ns .Values.clusterguardController.domainName -}}
 {{- end -}}
 {{- list $fullName (printf "%s.cluster.local" $fullName) (printf "webhook.%s" $ns) "webhook" | toYaml -}}
 {{- end -}}
@@ -160,14 +160,14 @@ app: falcon-clusterguard
 ServiceAccount name for the node sensor DaemonSet (privileged; bound to node SCC on OpenShift)
 */}}
 {{- define "falcon-clusterguard.nodeServiceAccountName" -}}
-{{- default (printf "%s-node-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.node.serviceAccount.name }}
+{{- default (printf "%s-node-sensor-sa" (include "falcon-clusterguard.fullname" .)) .Values.nodeSensor.serviceAccount.name }}
 {{- end }}
 
 {{/*
 ServiceAccount name for the clusterguard controller Deployment (restricted; no host access)
 */}}
 {{- define "falcon-clusterguard.clusterServiceAccountName" -}}
-{{- default (printf "%s-clusterguard-controller-sa" (include "falcon-clusterguard.fullname" .)) .Values.cluster.serviceAccount.name }}
+{{- default (printf "%s-clusterguard-controller-sa" (include "falcon-clusterguard.fullname" .)) .Values.clusterguardController.serviceAccount.name }}
 {{- end }}
 
 {{/*
@@ -189,8 +189,8 @@ Build the unified FCG image reference. Digest takes precedence over tag.
 PriorityClass name for the node DaemonSet
 */}}
 {{- define "falcon-clusterguard.priorityClassName" -}}
-{{- printf "%s" .Values.node.daemonset.priorityClassName -}}
-{{- if not .Values.node.daemonset.priorityClassName -}}
+{{- printf "%s" .Values.nodeSensor.daemonset.priorityClassName -}}
+{{- if not .Values.nodeSensor.daemonset.priorityClassName -}}
 {{- printf "%s" "falcon-clusterguard-node-security-critical" -}}
 {{- end -}}
 {{- end -}}
@@ -201,22 +201,22 @@ DaemonSet resource block (GKE Autopilot enforces minimum defaults)
 {{- define "falcon-clusterguard.daemonsetResources" -}}
 {{- if .Values.gke.autopilot -}}
 resources:
-  {{- if (.Values.node.daemonset.resources | default dict).limits }}
+  {{- if (.Values.nodeSensor.daemonset.resources | default dict).limits }}
   limits:
-    cpu: {{ (.Values.node.daemonset.resources.limits | default dict).cpu | default "750m" }}
-    memory: {{ (.Values.node.daemonset.resources.limits | default dict).memory | default "1.5Gi" }}
-    ephemeral-storage: {{ (index (.Values.node.daemonset.resources.limits | default dict) "ephemeral-storage") | default "100Mi" }}
+    cpu: {{ (.Values.nodeSensor.daemonset.resources.limits | default dict).cpu | default "750m" }}
+    memory: {{ (.Values.nodeSensor.daemonset.resources.limits | default dict).memory | default "1.5Gi" }}
+    ephemeral-storage: {{ (index (.Values.nodeSensor.daemonset.resources.limits | default dict) "ephemeral-storage") | default "100Mi" }}
   {{- else }}
   limits:
     cpu: 750m
     memory: 1.5Gi
     ephemeral-storage: 100Mi
   {{- end }}
-  {{- if (.Values.node.daemonset.resources | default dict).requests }}
+  {{- if (.Values.nodeSensor.daemonset.resources | default dict).requests }}
   requests:
-    cpu: {{ (.Values.node.daemonset.resources.requests | default dict).cpu | default "750m" }}
-    ephemeral-storage: {{ (index (.Values.node.daemonset.resources.requests | default dict) "ephemeral-storage") | default "100Mi" }}
-    memory: {{ (.Values.node.daemonset.resources.requests | default dict).memory | default "1.5Gi" }}
+    cpu: {{ (.Values.nodeSensor.daemonset.resources.requests | default dict).cpu | default "750m" }}
+    ephemeral-storage: {{ (index (.Values.nodeSensor.daemonset.resources.requests | default dict) "ephemeral-storage") | default "100Mi" }}
+    memory: {{ (.Values.nodeSensor.daemonset.resources.requests | default dict).memory | default "1.5Gi" }}
   {{- else }}
   requests:
     cpu: 750m
@@ -224,9 +224,9 @@ resources:
     ephemeral-storage: 100Mi
   {{- end }}
 {{- else -}}
-{{- if .Values.node.daemonset.resources -}}
+{{- if .Values.nodeSensor.daemonset.resources -}}
 resources:
-{{- toYaml .Values.node.daemonset.resources | trim | nindent 2 -}}
+{{- toYaml .Values.nodeSensor.daemonset.resources | trim | nindent 2 -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -268,7 +268,7 @@ ConfigMap name for the clusterguard controller Deployment.
 GKE WorkloadAllowlist label for the deploy DaemonSet
 */}}
 {{- define "falcon-clusterguard.workloadDeployAllowlistLabel" -}}
-{{- if and .Values.gke.autopilot .Values.node.enabled .Values.gke.deployAllowListVersion -}}
+{{- if and .Values.gke.autopilot .Values.nodeSensor.enabled .Values.gke.deployAllowListVersion -}}
 {{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-deploy-allowlist-%s\"" .Values.gke.deployAllowListVersion -}}
 {{- end -}}
 {{- end -}}
@@ -277,7 +277,7 @@ GKE WorkloadAllowlist label for the deploy DaemonSet
 GKE WorkloadAllowlist label for the cleanup DaemonSet
 */}}
 {{- define "falcon-clusterguard.workloadCleanupAllowlistLabel" -}}
-{{- if and .Values.gke.autopilot .Values.node.enabled .Values.gke.cleanupAllowListVersion -}}
+{{- if and .Values.gke.autopilot .Values.nodeSensor.enabled .Values.gke.cleanupAllowListVersion -}}
 {{- printf "cloud.google.com/matching-allowlist: \"crowdstrike-falconsensor-cleanup-allowlist-%s\"" .Values.gke.cleanupAllowListVersion -}}
 {{- end -}}
 {{- end -}}
@@ -286,7 +286,7 @@ GKE WorkloadAllowlist label for the cleanup DaemonSet
 Service account name used by the post-delete cleanup DaemonSet
 */}}
 {{- define "falcon-clusterguard.cleanupServiceAccountName" -}}
-{{- if not .Values.node.cleanupOnly -}}
+{{- if not .Values.nodeSensor.cleanupOnly -}}
 {{- printf "%s-node-cleanup" (include "falcon-clusterguard.nodeServiceAccountName" .) -}}
 {{- else -}}
 {{- printf "%s-node-cleanup-standalone" (include "falcon-clusterguard.nodeServiceAccountName" .) -}}
@@ -321,30 +321,30 @@ On OpenShift lookup namespaces and emit namespaces prefixed with "openshift-"
 
 {{/*
 Generate the __CS_* env vars for the watcher/metadata containers.
-Reads .Values.cluster.visibility.* with safe defaults if values are missing.
+Reads .Values.clusterguardController.visibility.* with safe defaults if values are missing.
 */}}
 {{- define "falcon-clusterguard.generateWatcherEnvVars" -}}
 {{- $snapshotsEnabled := true -}}
 {{- $snapshotInterval := "22h" -}}
 {{- $watcherEnabled := true -}}
 {{- $configMapEnabled := true -}}
-{{- if .Values.cluster.visibility -}}
-{{- if .Values.cluster.visibility.resourceSnapshots -}}
-  {{- if ne .Values.cluster.visibility.resourceSnapshots.enabled nil -}}
-  {{ $snapshotsEnabled = .Values.cluster.visibility.resourceSnapshots.enabled -}}
+{{- if .Values.clusterguardController.visibility -}}
+{{- if .Values.clusterguardController.visibility.resourceSnapshots -}}
+  {{- if ne .Values.clusterguardController.visibility.resourceSnapshots.enabled nil -}}
+  {{ $snapshotsEnabled = .Values.clusterguardController.visibility.resourceSnapshots.enabled -}}
   {{- end -}}
-  {{- if .Values.cluster.visibility.resourceSnapshots.interval -}}
-  {{ $snapshotInterval = .Values.cluster.visibility.resourceSnapshots.interval -}}
-  {{- end -}}
-{{- end -}}
-{{- if .Values.cluster.visibility.resourceWatcher -}}
-  {{- if ne .Values.cluster.visibility.resourceWatcher.enabled nil -}}
-  {{ $watcherEnabled = .Values.cluster.visibility.resourceWatcher.enabled -}}
+  {{- if .Values.clusterguardController.visibility.resourceSnapshots.interval -}}
+  {{ $snapshotInterval = .Values.clusterguardController.visibility.resourceSnapshots.interval -}}
   {{- end -}}
 {{- end -}}
-{{- if .Values.cluster.visibility.resourceConfigMap -}}
-  {{- if ne .Values.cluster.visibility.resourceConfigMap.enabled nil -}}
-  {{ $configMapEnabled = .Values.cluster.visibility.resourceConfigMap.enabled -}}
+{{- if .Values.clusterguardController.visibility.resourceWatcher -}}
+  {{- if ne .Values.clusterguardController.visibility.resourceWatcher.enabled nil -}}
+  {{ $watcherEnabled = .Values.clusterguardController.visibility.resourceWatcher.enabled -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.clusterguardController.visibility.resourceConfigMap -}}
+  {{- if ne .Values.clusterguardController.visibility.resourceConfigMap.enabled nil -}}
+  {{ $configMapEnabled = .Values.clusterguardController.visibility.resourceConfigMap.enabled -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -355,10 +355,10 @@ __CS_VISIBILITY_CONFIGMAPS_ENABLED: {{ $configMapEnabled | toString | quote }}
 {{- end -}}
 
 {{/*
-Disable cluster guard, which disables K8s metadata and degrades node sensor visibility
+Disable the cluster guard controller, which disables K8s metadata collection and degrades node sensor visibility
 */}}
 {{- define "falcon-clusterguard.clusterGuardDisabled" -}}
-{{- if eq .Values.cluster.disableClusterGuard "I understand this disables K8s metadata and degrades node sensor visibility" -}}
+{{- if eq .Values.clusterguardController.disableClusterGuardController "I understand this disables K8s metadata collection and degrades node sensor visibility" -}}
 true
 {{- else -}}
 false
@@ -369,7 +369,7 @@ false
 Admission control enabled? True if both cluster AND admissionControl are enabled.
 */}}
 {{- define "falcon-clusterguard.admissionControlEnabled" -}}
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.cluster.admissionControl.enabled -}}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.clusterguardController.admissionControl.enabled -}}
 true
 {{- else -}}
 false
@@ -380,12 +380,12 @@ false
 Validate high level FCG components are configured properly
 */}}
 {{- define "falcon-clusterguard.validateValues" -}}
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") (not .Values.node.enabled) }}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") (not .Values.nodeSensor.enabled) }}
     {{ fail "Error: at least one of Node Sensor or Cluster Guard must be enabled." }}
 {{- end }}
 
-{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.cluster.admissionControl.enabled }}
-    {{ fail "Error: cluster.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." }}
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "true") .Values.clusterguardController.admissionControl.enabled }}
+    {{ fail "Error: clusterguardController.admissionControl.enabled cannot be true when cluster guard is disabled. Cluster Guard is required for the admission controller." }}
 {{- end }}
 
 {{- if and (not .Values.image.tag) (not .Values.image.digest) }}
@@ -587,10 +587,10 @@ OpenShift node createSCC — false if either chart-level or global disables it.
 {{- end -}}
 
 {{/*
-OpenShift clusterguard controller createSCC — requires openshift enabled, createSCC, and cluster.hostNetwork.
+OpenShift clusterguard controller createSCC — requires openshift enabled, createSCC, and clusterguardController.hostNetwork.
 */}}
 {{- define "falcon-clusterguard.openshiftCgControllerCreateSCC" -}}
-{{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.cluster.hostNetwork -}}
+{{- and (or .Values.openshift.enabled .Values.global.openshift.enabled) .Values.openshift.createSCC .Values.global.openshift.createSCC .Values.clusterguardController.hostNetwork -}}
 {{- end -}}
 
 {{/*

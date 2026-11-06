@@ -1,4 +1,4 @@
-{{- if and .Values.testing.enabled .Values.node.enabled -}}
+{{- if and .Values.testing.enabled .Values.nodeSensor.enabled -}}
 {{- $fullname := include "falcon-clusterguard.fullname" . -}}
 apiVersion: v1
 kind: Pod
@@ -22,7 +22,7 @@ spec:
         - |
           {{- include "falcon-clusterguard.testShellFunctions" . | nindent 10 }}
 
-          {{- if .Values.node.cleanupOnly }}
+          {{- if .Values.nodeSensor.cleanupOnly }}
 
           echo "--- Checking cleanup-only mode ---"
           check_absent daemonset "{{ include "falcon-clusterguard.nodeDaemonsetName" . }}"
@@ -41,13 +41,13 @@ spec:
           check_exists serviceaccount "{{ include "falcon-clusterguard.nodeServiceAccountName" . }}"
           check_exists clusterrole "{{ $fullname }}-node-access-role"
           check_exists clusterrolebinding "{{ $fullname }}-node-crb"
-          {{- if or .Values.node.daemonset.priorityClassCreate .Values.gke.autopilot }}
+          {{- if or .Values.nodeSensor.daemonset.priorityClassCreate .Values.gke.autopilot }}
           check_exists priorityclass "{{ include "falcon-clusterguard.priorityClassName" . }}"
           {{- end }}
 
           echo "--- Checking pod annotations and labels ---"
-          check_pods "{{ .Values.node.daemonset.podAnnotationKey }} annotation" \
-            "{.metadata.annotations.{{ .Values.node.daemonset.podAnnotationKey | replace "." "\\." }}}" "disabled"
+          check_pods "{{ .Values.nodeSensor.daemonset.podAnnotationKey }} annotation" \
+            "{.metadata.annotations.{{ .Values.nodeSensor.daemonset.podAnnotationKey | replace "." "\\." }}}" "disabled"
           check_pods_set "checksum/configmap annotation" "{.metadata.annotations.checksum/configmap}"
           check_pods "component label" "{.metadata.labels.app\.kubernetes\.io/component}" "kernel_sensor"
           check_pods "provider label" "{.metadata.labels.crowdstrike\.com/provider}" "crowdstrike"

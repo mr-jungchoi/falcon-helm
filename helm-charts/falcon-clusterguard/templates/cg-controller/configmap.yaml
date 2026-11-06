@@ -12,8 +12,8 @@ data:
   FALCON_MODE: kac
   __CS_ADMISSION_CONTROL_ENABLED: {{ include "falcon-clusterguard.admissionControlEnabled" . | quote }}
   __CS_GRPC_API_ENABLED: "true"
-  {{- if .Values.cluster.tlsVersionMinimum }}
-  __CS_TLS_PROTOCOL_MIN: {{ .Values.cluster.tlsVersionMinimum | quote }}
+  {{- if .Values.clusterguardController.tlsVersionMinimum }}
+  __CS_TLS_PROTOCOL_MIN: {{ .Values.clusterguardController.tlsVersionMinimum | quote }}
   {{- end }}
 
   {{- include "falcon-clusterguard.generateWatcherEnvVars" . | nindent 2 }}
@@ -31,7 +31,7 @@ data:
   {{- end }}
   {{- end }}
 
-{{- if .Values.node.clusterName }}
+{{- if .Values.nodeSensor.clusterName }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -41,6 +41,6 @@ metadata:
   labels:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 data:
-  ClusterName: {{ .Values.node.clusterName | quote }}
+  ClusterName: {{ .Values.nodeSensor.clusterName | quote }}
 {{- end }}
 {{- end }}

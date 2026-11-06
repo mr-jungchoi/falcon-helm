@@ -101,8 +101,8 @@ secretsStore:
 #   - clusterguard controller admission webhook (caBundle injected by cert-manager's cainjector)
 #   - gRPC mTLS between the clusterguard controller and node sensors
 #   - image analyzer agent service
-# cluster.autoCertificateUpdate and imageAnalyzer.iarAgentService.autoCertificateUpdate are
-# ignored; cert-manager handles renewal. Validity periods still come from cluster.certExpiration
+# clusterguardController.autoCertificateUpdate and imageAnalyzer.iarAgentService.autoCertificateUpdate are
+# ignored; cert-manager handles renewal. Validity periods still come from clusterguardController.certExpiration
 # and imageAnalyzer.iarAgentService.certExpiration.
 # Requires cert-manager (including cainjector) in the cluster and an issuerRef that can issue
 # certificates for in-cluster service names, such as a self-signed or CA ClusterIssuer.
@@ -143,7 +143,7 @@ azure:
 # =============================================================================
 # Node sensor DaemonSet configuration
 # =============================================================================
-node:
+nodeSensor:
   # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
   enabled: true
 
@@ -253,7 +253,7 @@ node:
 # =============================================================================
 # Cluster Guard controller configuration
 # =============================================================================
-cluster:
+clusterguardController:
   # Toggle admission control (ValidatingWebhookConfiguration + webhook Service) on/off.
   # When false, the clusterguard controller Deployment still runs for K8s metadata visibility,
   # but does not act as a validating webhook.
@@ -530,7 +530,7 @@ openshift:
   # Set to true to create a privileged SCC for the node sensor DaemonSet,
   # and a hostNetwork SCC for the clusterguard controller Deployment.
   # Required for the node sensor to run as root with host access (hostPID, hostNetwork, hostIPC).
-  # Only needed for clusterguard controller when cluster.hostNetwork=true.
+  # Only needed for clusterguard controller when clusterguardController.hostNetwork=true.
   createSCC: true
 
   # Name of the node sensor SCC. Defaults to "<release-fullname>-node-sensor".

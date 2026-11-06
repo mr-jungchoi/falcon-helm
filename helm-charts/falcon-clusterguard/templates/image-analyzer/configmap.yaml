@@ -16,7 +16,7 @@ data:
   AGENT_HELM_VERSION: "1.1.17"
   LOG_OUTPUT: {{ $imageAnalyzer.log.output | quote }}
   LOG_VERBOSITY: {{ $imageAnalyzer.log.verbosity | quote }}
-  AGENT_CLUSTER_NAME: {{ .Values.node.clusterName | quote }}
+  AGENT_CLUSTER_NAME: {{ .Values.nodeSensor.clusterName | quote }}
   AGENT_REGISTRY_CREDENTIALS: {{ $imageAnalyzer.privateRegistries.credentials | quote }}
   AGENT_NAMESPACE_EXCLUSIONS: {{ $imageAnalyzer.exclusions.namespace | quote }}
   AGENT_REGISTRY_EXCLUSIONS: {{ $imageAnalyzer.exclusions.registry | quote }}

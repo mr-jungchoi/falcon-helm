@@ -9,7 +9,7 @@ metadata:
   annotations:
     kubernetes.io/description: >-
       Grants the Falcon Cluster Guard controller hostNetwork access.
-      Only required when cluster.hostNetwork=true (e.g. custom CNI environments).
+      Only required when clusterguardController.hostNetwork=true (e.g. custom CNI environments).
 allowHostDirVolumePlugin: false
 allowHostIPC: false
 allowHostNetwork: true
