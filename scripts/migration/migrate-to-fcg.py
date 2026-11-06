@@ -5,24 +5,29 @@ migrate-to-fcg.py — Migrate Falcon platform values to falcon-clusterguard (FCG
 Supports two input modes (mutually exclusive):
 
   Umbrella chart mode — one falcon-platform values file:
-    python3 scripts/migrate-to-fcg.py --platform-values my-platform-values.yaml
+    python3 scripts/migration/migrate-to-fcg.py --platform-values my-platform-values.yaml
 
   Individual charts mode — separate values files per chart:
-    python3 scripts/migrate-to-fcg.py \\
+    python3 scripts/migration/migrate-to-fcg.py \\
       --sensor-values my-sensor-values.yaml \\
       --kac-values my-kac-values.yaml \\
       [--iar-values my-iar-values.yaml]
 
   Interactive mode — guided prompts discover your release and values:
-    python3 scripts/migrate-to-fcg.py --interactive
+    python3 scripts/migration/migrate-to-fcg.py --interactive
 
 Common options:
-    --fcg-image-repo        FCG image repository (default: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard)
-    --fcg-image-tag         FCG image tag (default: 8.14.0-12345-1)
+    --fcg-image-repo        FCG image repository
+    --fcg-image-tag         FCG image tag
+    --fcg-image-digest      FCG image digest (sha256:<64 hex characters>); FCG uses it in place of the tag
     --admission-control     Override admission control enabled: true or false
     --image-analyzer        Override image analyzer enabled: true or false
     --output <file>         Write output to this path (default: <first-input>.fcg-migrated.yaml)
     --dry-run               Print migrated YAML to stdout without writing any file
+
+An FCG image repository, and a tag or digest, are required. If they aren't passed, the script
+prompts for them (or exits with an error when stdin is not a terminal). Default values will be
+added once FCG is generally available.
 
 Requirements:
     pip3 install ruamel.yaml
@@ -31,6 +36,7 @@ Requirements:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from copy import deepcopy
@@ -38,28 +44,27 @@ from copy import deepcopy
 try:
     from ruamel.yaml import YAML
     from ruamel.yaml.comments import CommentedMap, CommentedSeq
+    from ruamel.yaml.error import CommentMark
+    from ruamel.yaml.tokens import CommentToken
 except ImportError:
     print("ERROR: ruamel.yaml is required. Install it with: pip3 install ruamel.yaml", file=sys.stderr)
     sys.exit(1)
 
 
-FCG_DEFAULT_IMAGE_REPO = "registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard"
-FCG_DEFAULT_IMAGE_TAG  = "8.14.0-12345-1"
+# There is no default FCG image repository, tag, or digest yet; the script asks for them instead.
+# Default values will be added once FCG is generally available. The repository is expected to be
+# registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard.
 
-# ---------------------------------------------------------------------------
-# Keys that existed in falcon-sensor / falcon-kac but have no FCG equivalent.
-# Each entry: (source_path_tuple, replacement_note)
-# Used to annotate the deprecated stub blocks in the output.
-# ---------------------------------------------------------------------------
-
-DEPRECATED_SENSOR_KEYS = {
-    # (key_in_node_block, comment)
-    "backend": "DEPRECATED: removed in FCG. Sensor auto-selects eBPF/kernel.",
-}
-
-DEPRECATED_KAC_KEYS = {
-    # (top-level key in falcon-kac, comment) — currently empty; kept for future use
-}
+# An image repository without a tag or digest: an optional registry host (with an optional port),
+# then lowercase path components. Also OCI tag syntax, and a sha256 digest with or without the
+# "sha256:" prefix.
+IMAGE_REPO_RE = re.compile(
+    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::[0-9]+)?/)?"
+    r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
+    r"(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*$"
+)
+IMAGE_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+IMAGE_DIGEST_RE = re.compile(r"^(sha256:)?[a-f0-9]{64}$")
 
 # falcon-kac resource keys that were renamed — emit an EOL comment on the new key
 # showing where it came from.
@@ -73,7 +78,7 @@ RESOURCE_RENAMES = {
 # falcon-image-analyzer keys copied to falcon-clusterguard.imageAnalyzer.*, in FCG values.yaml
 # order. crowdstrikeConfig is filtered down to IAR_CROWDSTRIKE_CONFIG_KEYS.
 IAR_KEYS = [
-    "serviceAccount", "replicaCount", "crowdstrikeConfig", "exclusions", "hostNetwork",
+    "serviceAccount", "crowdstrikeConfig", "exclusions", "hostNetwork",
     "dnsPolicy", "podAnnotations", "podLabels", "podSecurityContext", "securityContext",
     "resources", "tolerations", "affinity", "priorityClassName", "nodeSelector", "watcher",
     "log", "iarAgentService", "privateRegistries", "volumes", "volumeMounts",
@@ -81,7 +86,7 @@ IAR_KEYS = [
 ]
 
 IAR_CROWDSTRIKE_CONFIG_KEYS = [
-    "enableKlogs", "clientID", "clientSecret", "dockerAPIToken", "agentRegion",
+    "enableKlogs", "clientID", "clientSecret", "agentRegion",
     "agentMaxConsumerThreads", "agentRuntime", "agentRuntimeSocket",
 ]
 
@@ -129,30 +134,31 @@ def insert_before(cm, key, value, before):
         cm[key] = value
 
 
-def annotate_deprecated(cm, key, comment):
-    """Add a DEPRECATED comment before a key in a CommentedMap, if the key exists."""
-    if key in cm:
-        cm.yaml_set_comment_before_after_key(key, before=comment)
-
-
 def strip_comments(obj):
-    """Recursively clear ruamel comment metadata from a deepcopy'd value.
+    """Recursively clear ruamel comment and blank-line metadata from a copied value.
 
-    ruamel preserves comment/whitespace metadata from parse time. When we
-    deepcopy a value from the source file and place it in a new map, that
-    metadata can cause spurious blank lines to appear between keys. Stripping
-    it ensures the output structure is determined solely by our writer settings.
+    ruamel stores each comment on whatever token precedes it, often deep inside the previous
+    block, so a copied block can carry blank lines or comments that belong elsewhere. Copies are
+    stripped, and carry_comments() re-attaches source comments where their keys ended up.
     """
-    if isinstance(obj, CommentedMap):
-        if hasattr(obj, "ca"):
-            obj.ca.items.clear()
-        for v in obj.values():
+    if isinstance(obj, (CommentedMap, CommentedSeq)):
+        obj.ca.items.clear()
+        obj.ca.comment = None
+        obj.ca.end = None
+        for v in (obj.values() if isinstance(obj, CommentedMap) else obj):
             strip_comments(v)
-    elif isinstance(obj, CommentedSeq):
-        if hasattr(obj, "ca"):
-            obj.ca.items.clear()
-        for item in obj:
-            strip_comments(item)
+
+
+def copy_value(value):
+    """Deep copy a source value without its comment metadata (see strip_comments).
+
+    A plain dict (such as an `or {}` default) becomes a CommentedMap so comments can be attached.
+    """
+    value = deepcopy(value)
+    strip_comments(value)
+    if isinstance(value, dict) and not isinstance(value, CommentedMap):
+        value = CommentedMap(value)
+    return value
 
 
 def _parse_bool(value: str) -> bool:
@@ -162,6 +168,77 @@ def _parse_bool(value: str) -> bool:
     if value.lower() in ("false", "0", "no"):
         return False
     raise ValueError(f"Expected true/false, got: {value!r}")
+
+
+def validate_image_repo(value: str) -> str:
+    """Return value if it is a valid image repository (no tag or digest). Raises ValueError on bad input."""
+    if not IMAGE_REPO_RE.match(value or ""):
+        raise ValueError(
+            f"invalid image repository {value!r}: expected a path such as registry.example.com/falcon-clusterguard, "
+            "in lowercase, without a tag or digest"
+        )
+    return value
+
+
+def prompt_image_repo(out=None):
+    """Ask for an FCG image repository until a valid one is entered.
+
+    Prompts go to stderr by default so --dry-run output on stdout stays valid YAML.
+    """
+    out = out or sys.stderr
+    print("An FCG image repository is required. Default values will be added once FCG is generally "
+          "available.", file=out)
+    while True:
+        print("FCG image repository (for example registry.example.com/falcon-clusterguard): ", end="", file=out,
+              flush=True)
+        answer = sys.stdin.readline()
+        if not answer:
+            raise SystemExit("ERROR: no FCG image repository was entered.")
+        try:
+            return validate_image_repo(answer.strip())
+        except ValueError as e:
+            print(f"  {e}", file=out)
+
+
+def validate_image_tag(value: str) -> str:
+    """Return value if it is a valid image tag. Raises ValueError on bad input."""
+    if not IMAGE_TAG_RE.match(value or ""):
+        raise ValueError(f"invalid image tag {value!r}: use letters, digits, '_', '.', or '-' (up to 128 characters)")
+    return value
+
+
+def normalize_image_digest(value: str) -> str:
+    """Return value as sha256:<hex>, adding the prefix if missing. Raises ValueError on bad input."""
+    if not IMAGE_DIGEST_RE.match(value or ""):
+        raise ValueError(f"invalid image digest {value!r}: expected sha256: followed by 64 lowercase hex characters")
+    return value if value.startswith("sha256:") else f"sha256:{value}"
+
+
+def parse_image_ref(value: str):
+    """Classify a prompt answer as a tag or a digest. Returns (tag, digest), one of them None."""
+    value = (value or "").strip()
+    if value.startswith("sha256:") or IMAGE_DIGEST_RE.match(value):
+        return None, normalize_image_digest(value)
+    return validate_image_tag(value), None
+
+
+def prompt_image_ref(out=None):
+    """Ask for an FCG image tag or digest until a valid one is entered. Returns (tag, digest).
+
+    Prompts go to stderr by default so --dry-run output on stdout stays valid YAML.
+    """
+    out = out or sys.stderr
+    print("An FCG image tag or digest is required. Default values will be added once FCG is "
+          "generally available.", file=out)
+    while True:
+        print("FCG image tag, or digest (sha256:...): ", end="", file=out, flush=True)
+        answer = sys.stdin.readline()
+        if not answer:
+            raise SystemExit("ERROR: no FCG image tag or digest was entered.")
+        try:
+            return parse_image_ref(answer)
+        except ValueError as e:
+            print(f"  {e}", file=out)
 
 
 def apply_overrides(migrated: dict, admission_control_override, image_analyzer_override):
@@ -211,13 +288,12 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
     for k in IAR_KEYS:
         if k == "crowdstrikeConfig":
             ia_cs = CommentedMap(
-                (ck, deepcopy(cs_config[ck])) for ck in IAR_CROWDSTRIKE_CONFIG_KEYS if copied(ck, cs_config)
+                (ck, copy_value(cs_config[ck])) for ck in IAR_CROWDSTRIKE_CONFIG_KEYS if copied(ck, cs_config)
             )
             if ia_cs:
                 ia[k] = ia_cs
         elif copied(k, iar):
-            val = deepcopy(iar[k])
-            strip_comments(val)
+            val = copy_value(iar[k])
             ia[k] = val
 
     # crowdstrikeConfig.clusterName → nodeSensor.clusterName (shared by all FCG components)
@@ -292,8 +368,7 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
     # Cloud provider settings live at the FCG top level: azure.* moves as-is, and
     # gcp.enabled (the GKE metadata-server init container) becomes gke.enabled.
     if "azure" in iar:
-        azure = deepcopy(iar["azure"])
-        strip_comments(azure)
+        azure = copy_value(iar["azure"])
         insert_before(fcg, "azure", azure, before="nodeSensor")
     if get_nested(iar, "gcp", "enabled"):
         if "gke" not in fcg:
@@ -321,8 +396,9 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
 
 
 def migrate(values: dict, warnings: list,
-            fcg_image_repo: str = FCG_DEFAULT_IMAGE_REPO,
-            fcg_image_tag: str = FCG_DEFAULT_IMAGE_TAG) -> dict:
+            fcg_image_repo: str = None,
+            fcg_image_tag: str = None,
+            fcg_image_digest: str = None) -> dict:
     fcg = CommentedMap()
     fcg["enabled"] = True
 
@@ -335,21 +411,39 @@ def migrate(values: dict, warnings: list,
     ns_override = sensor.get("namespaceOverride") or "falcon-system"
     fcg["namespaceOverride"] = ns_override
 
-    # image — set canonical FCG registry and tag, then carry over auth/digest from
-    # falcon-sensor.node.image or falcon-kac.image (sensor takes precedence).
+    # image — set the FCG repository, tag, and digest, then carry over pull auth and pull policy
+    # from falcon-sensor.node.image or falcon-kac.image (sensor takes precedence).
     fcg_image = CommentedMap()
-    fcg_image["repository"] = fcg_image_repo
-    fcg_image["tag"] = fcg_image_tag
+    if fcg_image_repo:
+        fcg_image["repository"] = fcg_image_repo
+    if fcg_image_tag:
+        fcg_image["tag"] = fcg_image_tag
+    if fcg_image_digest:
+        fcg_image["digest"] = fcg_image_digest
 
     sensor_image = get_nested(sensor, "node", "image") or {}
     kac_image = get_nested(values.get("falcon-kac") or {}, "image") or {}
-    # Prefer sensor value; fall back to kac for shared image auth fields.
-    # Both source charts name the pull secret pullSecrets; FCG names it pullSecret.
-    for field, fcg_field in (("pullSecrets", "pullSecret"), ("registryConfigJSON", "registryConfigJSON"),
-                             ("digest", "digest"), ("pullPolicy", "pullPolicy")):
-        val = sensor_image.get(field) or kac_image.get(field)
-        if val:
-            fcg_image[fcg_field] = val
+    # Pull auth comes from one source (sensor first), because FCG rejects pullSecret and
+    # registryConfigJSON together. Both source charts name the pull secret pullSecrets.
+    auth_image = sensor_image if (sensor_image.get("pullSecrets") or sensor_image.get("registryConfigJSON")) else kac_image
+    if auth_image.get("pullSecrets"):
+        fcg_image["pullSecret"] = auth_image["pullSecrets"]
+    elif auth_image.get("registryConfigJSON"):
+        fcg_image["registryConfigJSON"] = auth_image["registryConfigJSON"]
+    pull_policy = sensor_image.get("pullPolicy") or kac_image.get("pullPolicy")
+    if pull_policy:
+        fcg_image["pullPolicy"] = pull_policy
+    # A digest identifies the old sensor or kac image, not the FCG image, and FCG would use it
+    # in place of the tag.
+    dropped_digests = [
+        f"{chart}.image.digest" for chart, image in (("falcon-sensor.node", sensor_image), ("falcon-kac", kac_image))
+        if image.get("digest")
+    ]
+    if dropped_digests:
+        warnings.append(
+            f"{', '.join(dropped_digests)} omitted — the digest belongs to the old image. "
+            "Pass --fcg-image-digest to pin the FCG image by digest."
+        )
 
     fcg["image"] = fcg_image
 
@@ -374,14 +468,13 @@ def migrate(values: dict, warnings: list,
         ]
         for k in direct_node_keys:
             if k in sensor_node:
-                node[k] = deepcopy(sensor_node[k])
+                node[k] = copy_value(sensor_node[k])
 
         # node.gke.* (autopilot, allowlist versions) moves to the FCG top level, shared with
         # the image analyzer. Assigned before fcg["nodeSensor"] so it sits ahead of nodeSensor
         # in the output.
         if "gke" in sensor_node:
-            gke = deepcopy(sensor_node["gke"])
-            strip_comments(gke)
+            gke = copy_value(sensor_node["gke"])
             fcg["gke"] = gke
 
         # backend is deprecated — omit it, add warning and comment
@@ -392,7 +485,7 @@ def migrate(values: dict, warnings: list,
 
         # serviceAccount lives at falcon-sensor top level, maps to nodeSensor.serviceAccount.
         # Carry the old name forward explicitly to avoid breaking external RBAC.
-        sensor_sa = deepcopy(sensor.get("serviceAccount") or {})
+        sensor_sa = copy_value(sensor.get("serviceAccount") or {})
         if not sensor_sa.get("name"):
             sensor_sa["name"] = "crowdstrike-falcon-sa"
         node["serviceAccount"] = sensor_sa
@@ -432,15 +525,23 @@ def migrate(values: dict, warnings: list,
         ]
         for k in direct_cluster_keys:
             if k in kac:
-                cluster[k] = deepcopy(kac[k])
+                cluster[k] = copy_value(kac[k])
 
-        # falcon-kac.enabled is no longer mapped — cluster sensor is always enabled in FCG.
+        # falcon-kac.enabled is no longer mapped — the clusterguard controller always runs in FCG.
 
         # falcon-kac.admissionControl.enabled → clusterguardController.admissionControl.enabled
         # Controls the ValidatingWebhookConfiguration + webhook Service.
         # Old default: true. New default: false. Always write explicitly to preserve behavior.
+        # A disabled falcon-kac (falcon-platform falcon-kac.enabled=false) had no webhook at all.
         kac_ac = kac.get("admissionControl", {}) or {}
-        ac_enabled = kac_ac.get("enabled", True)  # old kac default was true
+        if kac.get("enabled") is False:
+            ac_enabled = False
+            warnings.append(
+                "falcon-kac.enabled is false, so falcon-clusterguard.clusterguardController.admissionControl.enabled "
+                "is set to false. The clusterguard controller still runs for cluster visibility."
+            )
+        else:
+            ac_enabled = kac_ac.get("enabled", True)  # old kac default was true
         if "admissionControl" not in cluster:
             cluster["admissionControl"] = CommentedMap()
         cluster["admissionControl"]["enabled"] = ac_enabled
@@ -448,20 +549,18 @@ def migrate(values: dict, warnings: list,
         # webhook block
         kac_webhook = kac.get("webhook", {}) or {}
         if kac_webhook:
-            wh = deepcopy(kac_webhook)
-            strip_comments(wh)
+            wh = copy_value(kac_webhook)
             cluster["webhook"] = wh
 
         # resourceQuota
         if "resourceQuota" in kac:
-            cluster["resourceQuota"] = deepcopy(kac["resourceQuota"])
+            cluster["resourceQuota"] = copy_value(kac["resourceQuota"])
 
         # Resource renames — add EOL comment showing the old key name
         resources = CommentedMap()
         for old_key, (new_key, eol_comment) in RESOURCE_RENAMES.items():
             if old_key in kac:
-                val = deepcopy(kac[old_key])
-                strip_comments(val)
+                val = copy_value(kac[old_key])
                 resources[new_key] = val
                 resources.yaml_add_eol_comment(eol_comment, key=new_key)
         if resources:
@@ -469,7 +568,7 @@ def migrate(values: dict, warnings: list,
 
         # serviceAccount → clusterguardController.serviceAccount.
         # Carry the old name forward explicitly to avoid breaking external RBAC.
-        kac_sa = deepcopy(kac.get("serviceAccount") or {})
+        kac_sa = copy_value(kac.get("serviceAccount") or {})
         if not kac_sa.get("name"):
             kac_sa["name"] = "falcon-kac-sa"
         cluster["serviceAccount"] = kac_sa
@@ -481,9 +580,9 @@ def migrate(values: dict, warnings: list,
         if "clusterName" in kac and kac["clusterName"]:
             if "nodeSensor" not in fcg:
                 fcg["nodeSensor"] = CommentedMap()
-            if "clusterName" not in fcg["nodeSensor"]:
+            if not fcg["nodeSensor"].get("clusterName"):
                 fcg["nodeSensor"]["clusterName"] = kac["clusterName"]
-            else:
+            elif fcg["nodeSensor"]["clusterName"] != kac["clusterName"]:
                 warnings.append(
                     f"falcon-kac.clusterName='{kac['clusterName']}' conflicts with "
                     f"falcon-sensor.node.clusterName='{fcg['nodeSensor']['clusterName']}'. "
@@ -492,8 +591,7 @@ def migrate(values: dict, warnings: list,
 
         # clusterVisibility — now lives under clusterguardController.visibility.*
         if "clusterVisibility" in kac:
-            visibility = deepcopy(kac["clusterVisibility"])
-            strip_comments(visibility)
+            visibility = copy_value(kac["clusterVisibility"])
             cluster["visibility"] = visibility
 
         # falconImageAnalyzerNamespace is dropped — the image analyzer now runs in the FCG namespace.
@@ -503,15 +601,12 @@ def migrate(values: dict, warnings: list,
                 "now runs in the FCG namespace."
             )
 
-        # falconSecret — prefer sensor value if both present
-        if "falconSecret" in kac:
-            if "falconSecret" not in fcg:
-                fcg["falconSecret"] = deepcopy(kac["falconSecret"])
-            else:
-                warnings.append(
-                    "falconSecret found in both falcon-sensor and falcon-kac. "
-                    "The falcon-sensor value has been used. Review manually."
-                )
+        # falconSecret — the sensor value takes precedence (set after this block)
+        if kac.get("falconSecret") and sensor.get("falconSecret") and kac["falconSecret"] != sensor["falconSecret"]:
+            warnings.append(
+                "falconSecret found in both falcon-sensor and falcon-kac. "
+                "The falcon-sensor value has been used. Review manually."
+            )
 
         # falcon.* (CID, cloud, trace, etc.) — set on fcg root, NOT cluster
         # (handled below after the kac block to merge with sensor values)
@@ -522,10 +617,10 @@ def migrate(values: dict, warnings: list,
             "Add clusterguardController configuration manually."
         )
 
-    # falconSecret from falcon-sensor (if not already set)
-    sensor_secret = get_nested(sensor, "falconSecret")
-    if sensor_secret and "falconSecret" not in fcg:
-        fcg["falconSecret"] = deepcopy(sensor_secret)
+    # falconSecret — prefer falcon-sensor's; fall back to falcon-kac's
+    falcon_secret = get_nested(sensor, "falconSecret") or (values.get("falcon-kac") or {}).get("falconSecret")
+    if falcon_secret:
+        fcg["falconSecret"] = copy_value(falcon_secret)
 
     # falcon.* — merge sensor and kac values at fcg root (sensor takes precedence).
     # Inserted right after `image` to mirror where falcon.* appeared in the source
@@ -534,7 +629,7 @@ def migrate(values: dict, warnings: list,
     # CommentedMap.insert() lets us control position rather than always appending.
     sensor_falcon = sensor.get("falcon") or {}
     kac_falcon    = (values.get("falcon-kac") or {}).get("falcon") or {}
-    merged_falcon = deepcopy(kac_falcon)
+    merged_falcon = copy_value(kac_falcon)
     merged_falcon.update({k: v for k, v in sensor_falcon.items() if v is not None})
     if merged_falcon:
         # Insert after "image" (index 2: enabled=0, namespaceOverride=1, image=2)
@@ -544,7 +639,7 @@ def migrate(values: dict, warnings: list,
     # secretsStore — prefer sensor value; fall back to kac
     sensor_csi = sensor.get("secretsStore") or {}
     kac_csi = (values.get("falcon-kac") or {}).get("secretsStore") or {}
-    merged_csi = deepcopy(kac_csi)
+    merged_csi = copy_value(kac_csi)
     merged_csi.update({k: v for k, v in sensor_csi.items() if v is not None})
     if any(v for v in merged_csi.values() if v):
         fcg["secretsStore"] = merged_csi
@@ -552,7 +647,7 @@ def migrate(values: dict, warnings: list,
     # openshift — prefer sensor value; fall back to kac (both map to fcg root)
     sensor_os = get_nested(sensor, "node", "openshift") or {}
     kac_os = (values.get("falcon-kac") or {}).get("openshift") or {}
-    merged_os = deepcopy(kac_os)
+    merged_os = copy_value(kac_os)
     merged_os.update({k: v for k, v in sensor_os.items() if v is not None})
     if merged_os.get("enabled") or merged_os.get("createSCC") is False:
         fcg["openshift"] = merged_os
@@ -574,7 +669,7 @@ def migrate(values: dict, warnings: list,
     preserved_top = ["global", "createComponentNamespaces"]
     for k in preserved_top:
         if k in values:
-            out[k] = deepcopy(values[k])
+            out[k] = copy_value(values[k])
 
     # falcon-sensor: retain only if container mode is active.
     # If container mode is falsy, remove the block entirely — falcon-platform
@@ -583,12 +678,12 @@ def migrate(values: dict, warnings: list,
     if sensor_container and sensor_container.get("enabled"):
         # Container mode active — keep only the container block, drop all node.* values.
         sensor_out = CommentedMap()
-        sensor_out["container"] = deepcopy(sensor_container)
+        sensor_out["container"] = copy_value(sensor_container)
         # Preserve top-level falcon-sensor keys that apply to container mode
         for k in ("enabled", "namespaceOverride", "falcon", "falconSecret",
                   "serviceAccount", "secretsStore", "openshift"):
             if k in sensor:
-                sensor_out[k] = deepcopy(sensor[k])
+                sensor_out[k] = copy_value(sensor[k])
         out["falcon-sensor"] = sensor_out
         out.yaml_set_comment_before_after_key(
             "falcon-sensor",
@@ -604,14 +699,296 @@ def migrate(values: dict, warnings: list,
     kac_deprecated_note = "falcon-kac is deprecated — replaced by falcon-clusterguard.clusterguardController.*\n"
     iar_deprecated_note = "falcon-image-analyzer is deprecated — replaced by falcon-clusterguard.imageAnalyzer.*\n\n"
 
-    # falcon-clusterguard: the new chart
+    # falcon-clusterguard: the new chart, separated by a blank line from any keys above it
     out["falcon-clusterguard"] = fcg
     out.yaml_set_comment_before_after_key(
         "falcon-clusterguard",
-        before=sensor_node_deprecated_note + kac_deprecated_note + iar_deprecated_note,
+        before=("\n" if len(out) > 1 else "") + sensor_node_deprecated_note + kac_deprecated_note + iar_deprecated_note,
     )
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Comments
+# ---------------------------------------------------------------------------
+# ruamel attaches each comment to whatever token precedes it, so copied values lose comments that
+# belong to keys copied one by one and pick up blank lines from neighboring blocks. Copies are
+# stripped (copy_value) and comments are rebuilt from line numbers instead: a comment on a key's
+# line is that key's end-of-line comment, a full-line comment belongs to the next key or list
+# item, and comments above the first key are the file header. carry_comments() then attaches each
+# comment where its key ended up in the migrated values.
+
+F = ("falcon-clusterguard",)
+CTRL = F + ("clusterguardController",)
+IA = F + ("imageAnalyzer",)
+
+# (source path, destination paths, exact). A comment at a source path goes to the destination of
+# the longest matching source prefix, with the rest of its path appended. exact rules match only
+# their own path. An empty destination list means the key is dropped.
+COMMENT_RULES = [
+    (("global",), [("global",)], False),
+    (("createComponentNamespaces",), [("createComponentNamespaces",)], False),
+    # falcon-sensor
+    (("falcon-sensor",), [F + ("nodeSensor",)], True),
+    (("falcon-sensor", "node"), [F + ("nodeSensor",)], False),
+    (("falcon-sensor", "node", "gke"), [F + ("gke",)], False),
+    (("falcon-sensor", "node", "openshift"), [F + ("openshift",)], False),
+    (("falcon-sensor", "node", "backend"), [], False),
+    (("falcon-sensor", "node", "image"), [F + ("image",)], False),
+    (("falcon-sensor", "node", "image", "pullSecrets"), [F + ("image", "pullSecret")], False),
+    (("falcon-sensor", "namespaceOverride"), [F + ("namespaceOverride",), ("falcon-sensor", "namespaceOverride")], False),
+    (("falcon-sensor", "serviceAccount"), [F + ("nodeSensor", "serviceAccount"), ("falcon-sensor", "serviceAccount")], False),
+    (("falcon-sensor", "container"), [("falcon-sensor", "container")], False),
+    (("falcon-sensor", "enabled"), [("falcon-sensor", "enabled")], False),
+] + [
+    (("falcon-sensor", k), [F + (k,), ("falcon-sensor", k)], False)
+    for k in ("falcon", "falconSecret", "secretsStore", "openshift")
+] + [
+    # falcon-kac: children move under clusterguardController unless a rule below says otherwise
+    (("falcon-kac",), [CTRL], False),
+    (("falcon-kac", "clusterVisibility"), [CTRL + ("visibility",)], False),
+    (("falcon-kac", "clusterName"), [F + ("nodeSensor", "clusterName")], False),
+    (("falcon-kac", "image"), [F + ("image",)], False),
+    (("falcon-kac", "image", "pullSecrets"), [F + ("image", "pullSecret")], False),
+] + [
+    (("falcon-kac", old), [CTRL + ("resources", new)], False) for old, (new, _) in RESOURCE_RENAMES.items()
+] + [
+    (("falcon-kac", k), [F + (k,)], False) for k in ("falcon", "falconSecret", "secretsStore", "openshift")
+] + [
+    (("falcon-kac", k), [], False)
+    for k in ("enabled", "replicas", "falconImageAnalyzerNamespace", "nameOverride", "fullnameOverride", "testing",
+              "global")
+] + [
+    # falcon-image-analyzer: children move under imageAnalyzer unless a rule below says otherwise
+    (("falcon-image-analyzer",), [IA], False),
+    (("falcon-image-analyzer", "crowdstrikeConfig", "clusterName"), [F + ("nodeSensor", "clusterName")], False),
+    (("falcon-image-analyzer", "crowdstrikeConfig", "cid"), [F + ("falcon", "cid")], False),
+    (("falcon-image-analyzer", "image"), [F + ("image",)], False),
+    (("falcon-image-analyzer", "openshift"), [F + ("openshift",)], False),
+    (("falcon-image-analyzer", "openshift", "sccName"), [F + ("openshift", "iarSCCName")], False),
+    (("falcon-image-analyzer", "azure"), [F + ("azure",)], False),
+    (("falcon-image-analyzer", "gcp"), [F + ("gke",)], False),
+    (("falcon-image-analyzer", "daemonset"), [IA + ("mode",)], True),
+] + [
+    (("falcon-image-analyzer", k), [], False)
+    for k in ("deployment", "secretsStore", "kac", "namespaceOverride", "global", "testing")
+] + [
+    # The image tag, digest, and repository are set for FCG, so comments about the old image are dropped.
+    ((chart, "image", k), [], False)
+    for chart in ("falcon-kac", "falcon-image-analyzer") for k in ("repository", "tag", "digest")
+] + [
+    (("falcon-sensor", "node", "image", k), [], False) for k in ("repository", "tag", "digest")
+]
+
+
+def _comment_tokens(obj, found):
+    if isinstance(obj, CommentToken):
+        found[(obj.start_mark.line, obj.start_mark.column, obj.value)] = obj
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            _comment_tokens(item, found)
+
+
+def extract_comments(root, prefix=()):
+    """Read the comments of a loaded values document.
+
+    Returns (header, notes, unplaced): header is the list of comment lines above the first key,
+    notes maps each key or list-item path (prefixed with prefix) to {"before": [...], "eol": str},
+    and unplaced lists (path, text) for comments after the last key.
+    """
+    elements = []  # (line, column, path), one per map key and list item
+    tokens = {}
+
+    def walk(node, path):
+        if not isinstance(node, (CommentedMap, CommentedSeq)):
+            return
+        _comment_tokens(node.ca.comment, tokens)
+        _comment_tokens(list(node.ca.items.values()), tokens)
+        _comment_tokens(getattr(node.ca, "end", None), tokens)
+        if isinstance(node, CommentedMap):
+            for k, v in node.items():
+                if node.lc.key(k) is not None:
+                    line, col = node.lc.key(k)
+                    elements.append((line, col, path + (k,)))
+                walk(v, path + (k,))
+        else:
+            for i, v in enumerate(node):
+                if node.lc.item(i) is not None:
+                    line, col = node.lc.item(i)
+                    elements.append((line, col - 2, path + (i,)))  # the "- " is two columns left of the item
+                walk(v, path + (i,))
+
+    walk(root, prefix)
+    elements.sort(key=lambda e: (e[0], e[1]))
+
+    lines = {}  # (line, column) -> comment text, one per physical comment line
+    for (line, col, value), _ in sorted(tokens.items()):
+        segments = value.split("\n")
+        # A token's start mark is its first comment, even when the value starts with the newline
+        # that ends the previous line, so line numbers count from that segment.
+        first = next((i for i, seg in enumerate(segments) if seg.strip().startswith("#")), None)
+        if first is None:
+            continue
+        for i, segment in enumerate(segments[first:], first):
+            text = segment.strip()
+            if text.startswith("#"):
+                seg_col = col if i == first else len(segment) - len(segment.lstrip())
+                lines[(line + i - first, seg_col)] = text
+
+    # Comments above the first key are the file header, except a block directly above the first key
+    # (no blank line in between) that doesn't start at the top of the file: that block is the key's.
+    first_line = elements[0][0] if elements else None
+    comment_lines = {line for line, _ in lines}
+    block_start = first_line
+    while block_start is not None and block_start - 1 in comment_lines:
+        block_start -= 1
+    header_end = first_line if block_start == 0 else block_start
+
+    header, notes, unplaced = [], {}, []
+    for (line, col), text in sorted(lines.items()):
+        on_line = [e for e in elements if e[0] == line and e[1] < col]
+        if on_line:
+            note = notes.setdefault(max(on_line, key=lambda e: e[1])[2], {"before": [], "eol": None})
+            note["eol"] = text if not note["eol"] else f"{note['eol']} {text}"
+            continue
+        following = [e for e in elements if e[0] > line]
+        if not following:
+            unplaced.append(("<end of file>", text))
+        elif line < header_end:
+            header.append(text)
+        else:
+            notes.setdefault(following[0][2], {"before": [], "eol": None})["before"].append(text)
+    return header, notes, unplaced
+
+
+def _lookup(node, path):
+    for k in path:
+        if isinstance(node, dict) and k in node:
+            node = node[k]
+        elif isinstance(node, list) and isinstance(k, int) and k < len(node):
+            node = node[k]
+        else:
+            raise KeyError(path)
+    return node
+
+
+def _plain(value):
+    return json.loads(json.dumps(value, default=str))
+
+
+def _comment_destinations(path):
+    """Destination paths for a comment at source path, and whether an exact rule matched.
+
+    An exact rule renames one key into another, so its comment is kept even though the value's
+    form changes (for example falcon-image-analyzer.daemonset becoming imageAnalyzer.mode).
+    """
+    best = None
+    for rule in COMMENT_RULES:
+        src, dsts, exact = rule
+        if path[:len(src)] == src and (not exact or len(path) == len(src)):
+            if best is None or len(src) > len(best[0]):
+                best = rule
+    if best is None:
+        return [], False
+    src, dsts, exact = best
+    return [dst + path[len(src):] for dst in dsts], exact
+
+
+def _output_indent(out, path):
+    """Column at which a key or list item at path is written (mapping indent 2, list offset 2)."""
+    col, node = 0, out
+    for depth, k in enumerate(path):
+        if depth == len(path) - 1:
+            return col
+        node = node[k]
+        col += 2 if isinstance(node, (dict, list)) else 0
+    return col
+
+
+def _add_before(parent, key, comments, indent):
+    entry = parent.ca.items.setdefault(key, [None, [], None, None])
+    if entry[1] is None:
+        entry[1] = []
+    existing = {t.value.strip() for t in entry[1]}
+    entry[1].extend(CommentToken(c + "\n", CommentMark(indent)) for c in comments if c not in existing)
+
+
+def _add_eol(parent, key, comment):
+    entry = parent.ca.items.get(key) or []
+    index = 0 if isinstance(parent, CommentedSeq) else 2
+    current = entry[index] if len(entry) > index else None
+    current = current.value.strip() if isinstance(current, CommentToken) else ""
+    if comment in current:
+        return
+    text = f"{current} — {comment.lstrip('#').strip()}" if current else comment
+    parent.yaml_add_eol_comment(text, key=key)
+
+
+def comment_sources(values):
+    """The (document, path prefix) pairs to read comments from, for carry_comments().
+
+    A falcon-platform values file is one document. Values combined from standalone chart files
+    have no line numbers of their own, so each chart file is read separately.
+    """
+    if isinstance(values, CommentedMap) and all(values.lc.key(k) is not None for k in values):
+        return [(values, ())]
+    return [(v, (k,)) for k, v in values.items() if isinstance(v, CommentedMap)]
+
+
+def carry_comments(sources, out, warnings):
+    """Attach the comments of the source values to their keys' new locations in out.
+
+    sources is a list of (loaded document, path prefix) pairs: one (values, ()) for a falcon-platform
+    values file, or one per standalone chart values file, such as (sensor_values, ("falcon-sensor",)).
+    A comment is attached only where its key still exists with the same value, so it isn't left
+    describing a value the migration changed. Containers moved as a whole keep their comments.
+    Comments that can't be placed are listed in a warning.
+    """
+    header, unplaced = [], []
+    for root, prefix in sources:
+        src_header, notes, src_unplaced = extract_comments(root, prefix)
+        header += src_header
+        unplaced += src_unplaced
+        for path, note in notes.items():
+            texts = note["before"] + ([note["eol"]] if note["eol"] else [])
+            try:
+                value = _lookup(root, path[len(prefix):])
+            except KeyError:
+                continue
+            placed = False
+            destinations, exact = _comment_destinations(path)
+            for dst in destinations:
+                try:
+                    new_value = _lookup(out, dst)
+                except KeyError:
+                    continue
+                moved_container = isinstance(value, (dict, list)) and isinstance(new_value, (dict, list))
+                if not (exact or moved_container) and _plain(value) != _plain(new_value):
+                    continue
+                parent = _lookup(out, dst[:-1])
+                if not isinstance(parent, (CommentedMap, CommentedSeq)):
+                    continue
+                if note["before"]:
+                    _add_before(parent, dst[-1], note["before"], _output_indent(out, dst))
+                if note["eol"]:
+                    _add_eol(parent, dst[-1], note["eol"])
+                placed = True
+            if not placed:
+                unplaced += [(".".join(map(str, path)), t) for t in texts]
+
+    if header:
+        tokens = [CommentToken(c + "\n", CommentMark(0)) for c in header] + [CommentToken("\n", CommentMark(0))]
+        if out.ca.comment is None:
+            out.ca.comment = [None, tokens]
+        else:
+            out.ca.comment[1] = tokens + (out.ca.comment[1] or [])
+    if unplaced:
+        listed = "".join(f"\n       {path}: {text}" for path, text in unplaced)
+        warnings.append(
+            "These comments were not carried over because their key was dropped or its value changed. "
+            "Copy any you still need by hand:" + listed
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -637,9 +1014,11 @@ def _choose(question, choices):
         print(f"  Please enter a number between 1 and {len(choices)}.")
 
 
-def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=None):
+def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=None,
+               cli_image_repo=None, cli_image_tag=None, cli_image_digest=None):
     """
-    Interactive wizard. Returns (values dict, primary_input_label, fcg_image_repo, fcg_image_tag).
+    Interactive wizard. Returns (values, primary_input_label, fcg_image_repo, fcg_image_tag,
+    fcg_image_digest, release_name, release_ns, admission_control_override, image_analyzer_override).
     Discovers the existing Helm release, asks for registry/version, and loads or extracts values.
     """
     print("=" * 60)
@@ -688,29 +1067,19 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         release_ns   = _prompt("Release namespace", default="falcon-platform")
 
     # ------------------------------------------------------------------
-    # Step 2: Registry and FCG version
+    # Step 2: FCG image (no defaults until FCG is generally available)
     # ------------------------------------------------------------------
-    print("\n── Step 2: FCG image registry ──")
+    print("\n── Step 2: FCG image ──")
 
-    registry_choice, _ = _choose(
-        "Which registry would you like to use?",
-        [
-            ("CrowdStrike registry (default)", "crowdstrike"),
-            ("Mirror / private registry",       "mirror"),
-        ],
-    )
-
-    if "Mirror" in registry_choice:
-        fcg_image_repo = _prompt(
-            "Full FCG image repository path\n"
-            "  e.g. my-registry.company.com/falcon-clusterguard/release/falcon-clusterguard",
-            default=FCG_DEFAULT_IMAGE_REPO,
-        )
+    fcg_image_repo = cli_image_repo or prompt_image_repo(out=sys.stdout)
+    if cli_image_tag or cli_image_digest:
+        fcg_image_tag, fcg_image_digest = cli_image_tag, cli_image_digest
     else:
-        fcg_image_repo = FCG_DEFAULT_IMAGE_REPO
-
-    fcg_image_tag = _prompt("FCG image tag", default=FCG_DEFAULT_IMAGE_TAG)
-    print(f"  ✓ Image: {fcg_image_repo}:{fcg_image_tag}")
+        fcg_image_tag, fcg_image_digest = prompt_image_ref(out=sys.stdout)
+    if fcg_image_digest:
+        print(f"  ✓ Image: {fcg_image_repo}@{fcg_image_digest}")
+    else:
+        print(f"  ✓ Image: {fcg_image_repo}:{fcg_image_tag}")
 
     # ------------------------------------------------------------------
     # Step 3: Values source
@@ -813,6 +1182,8 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
             get_nested(values, "falcon-clusterguard", "clusterguardController", "admissionControl", "enabled")
             or get_nested(values, "falcon-kac", "admissionControl", "enabled")
         )
+        if get_nested(values, "falcon-kac", "enabled") is False:
+            current_ac = False  # falcon-kac was not deployed, so it had no webhook
         if current_ac is None:
             current_ac = True if kac_provided else False
         ac_default = "true" if current_ac else "false"
@@ -859,7 +1230,8 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         print(f"  ✓ falcon-clusterguard.imageAnalyzer.enabled = {str(image_analyzer_override).lower()}")
 
     print("\n" + "=" * 60)
-    return values, primary_input_label, fcg_image_repo, fcg_image_tag, release_name, release_ns, admission_control_override, image_analyzer_override
+    return (values, primary_input_label, fcg_image_repo, fcg_image_tag, fcg_image_digest, release_name, release_ns,
+            admission_control_override, image_analyzer_override)
 
 def _detect_release(preferred_names=("falcon-platform",)):
     """Try to auto-detect the Helm release name and namespace. Returns (name, ns) or defaults."""
@@ -929,6 +1301,16 @@ def print_next_steps(output_path, primary_input, release_name, release_ns, migra
 # Main
 # ---------------------------------------------------------------------------
 
+def make_yaml():
+    """Round-trip YAML instance used to read source values and write the migrated file."""
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 120
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml.best_map_flow_style = False
+    return yaml
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Migrate Falcon platform values to falcon-clusterguard (FCG).",
@@ -973,13 +1355,21 @@ def main():
         "--fcg-image-repo",
         metavar="REPO",
         default=None,
-        help=f"FCG image repository (default: {FCG_DEFAULT_IMAGE_REPO})",
+        help="FCG image repository, without a tag. Prompted for when not set "
+             "(no default until FCG is generally available)",
     )
     parser.add_argument(
         "--fcg-image-tag",
         metavar="TAG",
         default=None,
-        help=f"FCG image tag (default: {FCG_DEFAULT_IMAGE_TAG})",
+        help="FCG image tag. Prompted for when neither --fcg-image-tag nor --fcg-image-digest is set "
+             "(no default until FCG is generally available)",
+    )
+    parser.add_argument(
+        "--fcg-image-digest",
+        metavar="DIGEST",
+        default=None,
+        help="FCG image digest (sha256:<64 hex characters>). FCG uses it in place of the tag",
     )
     parser.add_argument(
         "--admission-control",
@@ -1019,15 +1409,29 @@ def main():
         except ValueError as e:
             parser.error(f"--image-analyzer: {e}")
 
+    # Validate the FCG image repository, tag, and digest. There are no defaults until FCG is generally available.
+    fcg_image_repo = fcg_image_tag = fcg_image_digest = None
+    if args.fcg_image_repo is not None:
+        try:
+            fcg_image_repo = validate_image_repo(args.fcg_image_repo)
+        except ValueError as e:
+            parser.error(f"--fcg-image-repo: {e}")
+    if args.fcg_image_tag is not None:
+        try:
+            fcg_image_tag = validate_image_tag(args.fcg_image_tag)
+        except ValueError as e:
+            parser.error(f"--fcg-image-tag: {e}")
+    if args.fcg_image_digest is not None:
+        try:
+            fcg_image_digest = normalize_image_digest(args.fcg_image_digest)
+        except ValueError as e:
+            parser.error(f"--fcg-image-digest: {e}")
+
     # Validate: individual chart flags only with --sensor-values
     if args.platform_values and (args.kac_values or args.iar_values):
         parser.error("--sensor-values, --kac-values, and --iar-values cannot be used with --platform-values")
 
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 120
-    yaml.indent(mapping=2, sequence=4, offset=2)
-    yaml.best_map_flow_style = False
+    yaml = make_yaml()
 
     def load(path):
         with open(path, "r") as f:
@@ -1039,20 +1443,15 @@ def main():
     )
 
     if use_wizard:
-        values, primary_input, fcg_image_repo, fcg_image_tag, release_name, release_ns, \
+        values, primary_input, fcg_image_repo, fcg_image_tag, fcg_image_digest, release_name, release_ns, \
             admission_control_override, image_analyzer_override = run_wizard(
                 yaml, cli_admission_control=admission_control_override,
                 cli_image_analyzer=image_analyzer_override,
+                cli_image_repo=fcg_image_repo, cli_image_tag=fcg_image_tag, cli_image_digest=fcg_image_digest,
             )
-        if args.fcg_image_repo is not None:
-            fcg_image_repo = args.fcg_image_repo
-        if args.fcg_image_tag is not None:
-            fcg_image_tag = args.fcg_image_tag
     elif args.platform_values:
         values = load(args.platform_values)
         primary_input = args.platform_values
-        fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
-        fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
         release_name, release_ns = _detect_release()
         if admission_control_override is None and "falcon-kac" not in values:
             admission_control_override = False
@@ -1071,19 +1470,32 @@ def main():
         if iar_vals:
             values["falcon-image-analyzer"] = iar_vals
         primary_input  = args.sensor_values
-        fcg_image_repo = args.fcg_image_repo or FCG_DEFAULT_IMAGE_REPO
-        fcg_image_tag  = args.fcg_image_tag  or FCG_DEFAULT_IMAGE_TAG
         release_name, release_ns = _detect_release()
         if admission_control_override is None and not kac_vals:
             admission_control_override = False
         if image_analyzer_override is None and not iar_vals:
             image_analyzer_override = False
 
+    missing = []
+    if not fcg_image_repo:
+        missing.append("an FCG image repository (--fcg-image-repo)")
+    if not (fcg_image_tag or fcg_image_digest):
+        missing.append("an FCG image tag or digest (--fcg-image-tag or --fcg-image-digest)")
+    if missing and not sys.stdin.isatty():
+        parser.error(f"{' and '.join(missing)} {'are' if len(missing) > 1 else 'is'} required. "
+                     "Default values will be added once FCG is generally available.")
+    if not fcg_image_repo:
+        fcg_image_repo = prompt_image_repo()
+    if not (fcg_image_tag or fcg_image_digest):
+        fcg_image_tag, fcg_image_digest = prompt_image_ref()
+
     warnings = []
     migrated = migrate(values, warnings,
                        fcg_image_repo=fcg_image_repo,
-                       fcg_image_tag=fcg_image_tag)
+                       fcg_image_tag=fcg_image_tag,
+                       fcg_image_digest=fcg_image_digest)
     apply_overrides(migrated, admission_control_override, image_analyzer_override)
+    carry_comments(comment_sources(values), migrated, warnings)
 
     if warnings:
         print("\nMIGRATION WARNINGS — review these before applying:", file=sys.stderr)

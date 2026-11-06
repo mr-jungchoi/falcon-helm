@@ -97,7 +97,7 @@ The default image name to deploy the pod sensor is `falcon-sensor`.
 {{ "\033[33m" }}WARNING: falcon-image-analyzer is no longer part of falcon-platform, so the
 falcon-image-analyzer.* values are ignored and no standalone image analyzer is deployed.
 The image analyzer is now part of falcon-clusterguard: move these settings to
-falcon-clusterguard.imageAnalyzer.* (scripts/migrate-to-fcg.py does this).{{ "\033[0m" }}
+falcon-clusterguard.imageAnalyzer.* (scripts/migration/migrate-to-fcg.py does this).{{ "\033[0m" }}
 {{- end }}
 
 {{- if not $anyEnabled }}
