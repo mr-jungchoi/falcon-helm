@@ -20,6 +20,10 @@ WORKLOADS
   Node Sensor DaemonSet:
     kubectl rollout status daemonset/{{ include "falcon-clusterguard.nodeDaemonsetName" . }} \
       -n {{ include "falcon-clusterguard.namespace" . }}
+  {{- if and (not .Values.gke.autopilot) (not (kindIs "invalid" (dig "limits" "cpu" nil (.Values.nodeSensor.daemonset.resources | default dict)))) }}
+    Note: a CPU limit is set (nodeSensor.daemonset.resources.limits.cpu). This is not recommended:
+    the sensor is throttled when it reaches the limit, which can delay event processing.
+  {{- end }}
 {{- else }}
   Node Sensor: disabled (nodeSensor.enabled=false)
 {{- end }}

@@ -156,7 +156,7 @@ nodeSensor:
   # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).
   serviceAccount:
     name: falcon-node-sensor-sa
-    annotations: { }
+    annotations: {}
 
   daemonset:
     # Annotations to apply to the daemonset
@@ -192,15 +192,16 @@ nodeSensor:
     # Resource settings for the DaemonSet Sensor. Resource limits are not recommended when running in
     # kernel mode. Purposefully, the defaults are set to the minimum requirements. Depending on the
     # size of your cluster and the node types, you may need to increase these values.
+    # Setting a CPU limit is not recommended: the sensor is throttled when it reaches the limit, which can
+    # delay event processing. GKE Autopilot requires CPU limits, so the chart sets 750m there by default.
     # resources:
     #   limits:
-    #     cpu: 250m
-    #     ephemeral-storage: 100Mi
-    #     memory: 500Mi
+    #     ephemeral-storage: 128Mi
+    #     memory: 512Mi
     #   requests:
     #     cpu: 250m
-    #     ephemeral-storage: 100Mi
-    #     memory: 500Mi
+    #     ephemeral-storage: 128Mi
+    #     memory: 512Mi
 
     # Update strategy to roll out new daemonset configuration to the nodes.
     updateStrategy: RollingUpdate
