@@ -44,6 +44,7 @@ unified deployment and configuration.
   - [Container sensor + FCG together](#container-sensor--fcg-together)
 - [Troubleshooting](#troubleshooting)
   - [Partial Falcon Platform Installation - Release Failure](#partial-falcon-platform-installation---release-failure)
+  - [Upgrade Errors After Migrating to FCG](#upgrade-errors-after-migrating-to-fcg)
   - [Falcon Sensor Troubleshooting Guides](#falcon-sensor-troubleshooting-guides)
   - [Falcon Image Analyzer Troubleshooting Guides](#falcon-image-analyzer-troubleshooting-guides)
   - [Component Logs](#component-logs)
@@ -783,6 +784,13 @@ of `falcon-platform` that includes FCG, follow the steps below.
 
 The migration script automatically remaps your existing values file to the FCG schema.
 
+If you installed with `--set` flags, or don't have your current values file, export the release's
+values first:
+
+```bash
+helm get values falcon-platform -n falcon-platform -o yaml > my-values.yaml
+```
+
 **Prerequisites:**
 ```bash
 pip3 install ruamel.yaml
@@ -863,9 +871,13 @@ Some settings move outside `imageAnalyzer` because FCG shares them across compon
 ```bash
 helm upgrade falcon-platform crowdstrike/falcon-platform \
   -n falcon-platform \
-  --reuse-values \
   -f my-values-fcg.yaml
 ```
+
+Don't add `--reuse-values`. The migrated file already contains all of your settings, and
+`--reuse-values` would bring back the old `falcon-sensor.node`, `falcon-kac`, and
+`falcon-image-analyzer` values. See [Upgrade Errors After Migrating to FCG](#upgrade-errors-after-migrating-to-fcg)
+if the upgrade fails.
 
 > [!NOTE]
 > `falcon-sensor` (node mode), `falcon-kac`, and `falcon-image-analyzer` have been removed as
@@ -1015,6 +1027,29 @@ In some cases you might be missing some permissions or your cluster might not be
 Once you have diagnosed the root cause of the failure and addressed the issue, you can either:
 1. Do a complete uninstall, then reinstall.
 2. Or run a `helm upgrade --install` with the necessary Helm values to [install the remaining Falcon components](#installreinstall-a-single-component).
+
+### Upgrade Errors After Migrating to FCG
+
+#### `node.enabled=true is no longer supported starting with falcon-sensor chart version 2.0.0`
+
+Your values still set `falcon-sensor.node.enabled: true`. This usually comes from `--reuse-values`,
+which brings back the values from the previous release, or from a values file that wasn't migrated.
+Upgrade with only the migrated values file, as shown in [Step 4](#step-4--apply-the-upgrade). If you
+still run the Falcon Container sensor, set `falcon-sensor.node.enabled: false` and
+`falcon-sensor.container.enabled: true`.
+
+#### Two node sensor pods on a node during the upgrade
+
+If the old node sensor DaemonSet has a different name from FCG's `falcon-sensor` DaemonSet, for
+example the default `falcon-platform-falcon-sensor`, Helm creates the FCG DaemonSet before it deletes
+the old one. For a short time, each node runs an old and a new node sensor pod. The old pods stop
+when Helm deletes the old DaemonSet later in the same upgrade.
+
+#### Other upgrade errors
+
+For `field is immutable`, `cannot be imported into the current release`, and server-side apply
+conflict errors, see [Upgrade Errors](../falcon-clusterguard/README.md#upgrade-errors) in the
+`falcon-clusterguard` README.
 
 ### Falcon Sensor Troubleshooting Guides
 - [Falcon Sensor - Node Deployment Considerations](/helm-charts/falcon-sensor/README.md#deployment-considerations)

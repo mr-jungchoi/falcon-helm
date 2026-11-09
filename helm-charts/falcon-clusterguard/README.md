@@ -48,6 +48,7 @@ built around a single container image.
 - [OpenShift Compatibility](#openshift-compatibility)
 - [Uninstall Helm Chart](#uninstall-helm-chart)
 - [Troubleshooting](#troubleshooting)
+  - [Upgrade Errors](#upgrade-errors)
 - [Chart Layout](#chart-layout)
 
 ## What is FCG?
@@ -465,7 +466,7 @@ the same way.
 | `falcon-grpc-ca`                          | cert-manager only (not mounted by any pod)                  | gRPC mTLS CA certificate and private key                | cert-manager         |
 | `falcon-api-tls`                          | Clusterguard controller                                     | gRPC API server certificate                             | Helm or cert-manager |
 | `falcon-node-sensor-tls`                  | Node sensor                                                 | gRPC client certificate                                 | Helm or cert-manager |
-| `<release-fullname>-iar-tls`              | Image Analyzer (when `imageAnalyzer.enabled=true`)          | Image Analyzer agent service certificate                | Helm or cert-manager |
+| `falcon-clusterguard-iar-tls`             | Image Analyzer (when `imageAnalyzer.enabled=true`)          | Image Analyzer agent service certificate                | Helm or cert-manager |
 | `nodeSensor.guardian.proxy.tlsSecretName` | Node sensor (when `nodeSensor.guardian.proxy.enabled=true`) | Optional CA bundle for verifying upstream TLS endpoints | You (optional)       |
 
 ### Certificate Parameters
@@ -493,7 +494,7 @@ regenerated together so certificates always match their CA:
 
 - **Admission webhook** (`clusterguardController.autoCertificateUpdate`): certificate, key, and CA from `falcon-cg-controller-tls`
 - **gRPC mTLS** (`clusterguardController.autoCertificateUpdate`): `falcon-api-ca`, `falcon-api-tls`, and `falcon-node-sensor-tls`
-- **Image Analyzer** (`imageAnalyzer.iarAgentService.autoCertificateUpdate`): certificate, key, and CA from `<release-fullname>-iar-tls`
+- **Image Analyzer** (`imageAnalyzer.iarAgentService.autoCertificateUpdate`): certificate, key, and CA from `falcon-clusterguard-iar-tls` (`<nameOverride>-iar-tls` if you set `nameOverride`)
 
 ### Using cert-manager
 
@@ -1112,6 +1113,76 @@ Common causes:
 - Pod rejected by Pod Security Admission: IAR runs as root, so the namespace needs the `privileged` (or at least `baseline`) enforcement label.
 - Authentication errors in the logs: verify the API client credentials and `imageAnalyzer.crowdstrikeConfig.agentRegion`.
 - DaemonSet pods stuck in `ContainerCreating` with a `hostPath type check failed` event: the runtime socket is not at the expected path. Check `crowdstrikeConfig.agentRuntime`, or set `crowdstrikeConfig.agentRuntimeSocket` to the socket on your nodes.
+
+### Upgrade Errors
+
+#### `spec.selector: Invalid value: ... field is immutable`
+
+```text
+Error: UPGRADE FAILED: ... DaemonSet.apps "falcon-sensor" is invalid: spec.selector: Invalid value: {...}: field is immutable
+```
+
+The release already has a DaemonSet with the same name but different selector labels. Kubernetes
+doesn't allow a workload's selector to change after it is created. FCG uses the same node sensor
+selector labels as the `falcon-sensor` chart, so when a `falcon-platform` release already has a
+`falcon-sensor` node DaemonSet with the same name, the upgrade updates it in place. You can still see
+this error if:
+
+- The old DaemonSet was created by a pre-release FCG build, which used different selector labels.
+- Your old `falcon-sensor` values set `nameOverride`, and your FCG values set a different one (or none).
+
+`--force-replace`, `--server-side --force-conflicts`, and `--take-ownership` don't fix this error.
+They change how Helm writes the object, but the API server still rejects the new selector. Delete the
+DaemonSet, then run the upgrade again:
+
+```bash
+kubectl delete daemonset falcon-sensor -n falcon-system
+helm upgrade <release> <chart> -n <release-namespace> -f <values-file>
+```
+
+Nodes aren't protected between the delete and the new pods starting, so run the upgrade right away.
+Each node keeps its agent ID (AID), because the sensor stores it on the node and the cleanup
+DaemonSet only runs on `helm uninstall`. Don't delete with `--cascade=orphan`: the new DaemonSet
+doesn't adopt the old pods, so each node would run two node sensors.
+
+#### `exists and cannot be imported into the current release`
+
+```text
+Error: UPGRADE FAILED: Unable to continue with update: Secret "falcon-cg-controller-tls" in namespace "falcon-system" exists and cannot be imported into the current release: invalid ownership metadata
+```
+
+Helm won't create an object that already exists unless the object belongs to the same release.
+Common causes:
+
+- **A standalone `falcon-sensor`, `falcon-kac`, or `falcon-image-analyzer` release owns the object.**
+  Uninstall it first. See [Migrating from falcon-sensor and falcon-kac](#migrating-from-falcon-sensor-and-falcon-kac).
+- **You set `certManager.enabled=false` after using cert-manager.** cert-manager created the
+  certificate Secrets, so Helm doesn't own them. Delete the `Certificate` objects first, so
+  cert-manager doesn't recreate the Secrets, then delete the Secrets and upgrade. Helm generates new
+  certificates, and the clusterguard controller restarts to pick them up:
+
+  ```bash
+  NS=falcon-system
+  kubectl delete certificate -n $NS -l app.kubernetes.io/instance=<release>
+  kubectl delete secret -n $NS falcon-cg-controller-tls falcon-api-tls falcon-node-sensor-tls falcon-grpc-ca falcon-clusterguard-iar-tls
+  helm upgrade <release> <chart> -n <release-namespace> -f <values-file>
+  ```
+
+  Turning cert-manager on doesn't need these steps. Helm removes the Secrets it generated, and
+  cert-manager issues new ones. Pods that start before cert-manager has issued their certificates
+  wait in `ContainerCreating` until it does.
+
+#### `Apply failed with N conflicts: conflict with "<manager>"`
+
+Helm 4 upgrades with server-side apply. This error means a field Helm sets was last changed by
+another tool, for example `kubectl edit`, `kubectl set image`, or `kubectl scale`. To let Helm take
+the fields back, add `--force-conflicts`:
+
+```bash
+helm upgrade <release> <chart> -n <release-namespace> -f <values-file> --server-side=true --force-conflicts
+```
+
+To keep a manual change, set it in your values file instead, so the next upgrade doesn't revert it.
 
 ## Chart Layout
 
