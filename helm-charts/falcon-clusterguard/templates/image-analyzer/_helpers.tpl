@@ -28,7 +28,7 @@ IAR selector labels — matches the standalone falcon-image-analyzer chart for c
 */}}
 {{- define "falcon-clusterguard.iarSelectorLabels" -}}
 app: falcon-image-analyzer
-app.kubernetes.io/name: {{ include "falcon-clusterguard.iarName" . }}
+app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 

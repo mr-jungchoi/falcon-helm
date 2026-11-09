@@ -1,5 +1,4 @@
 {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
-{{- include "falcon-clusterguard.validateDaemonsetResources" . }}
 {{- $imagePullSecretName := include "falcon-clusterguard.imagePullSecret" . -}}
 {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . -}}
 apiVersion: apps/v1

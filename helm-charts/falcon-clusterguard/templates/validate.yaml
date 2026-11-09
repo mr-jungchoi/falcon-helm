@@ -5,6 +5,11 @@ with a descriptive error when the top-level FCG configuration is invalid.
 {{/*{{- include "falcon-clusterguard.validateRegistryCredentials" . }}*/}}
 {{- include "falcon-clusterguard.validateOneOfFalconCidOrFalconSecret" . }}
 {{- include "falcon-clusterguard.validateValues" . }}
+
+{{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
+  {{- include "falcon-clusterguard.validateDaemonsetResources" . }}
+{{- end }}
+
 {{- if .Values.imageAnalyzer.enabled }}
   {{- include "falcon-clusterguard.validateIarMode" . }}
   {{- include "falcon-clusterguard.validateIarCredentials" . }}
