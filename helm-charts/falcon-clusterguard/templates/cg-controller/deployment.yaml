@@ -469,18 +469,7 @@ webhooks:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
-            - {{ $ns }}
-            - kube-system
-            - kube-public
-            - falcon-system
-            - falcon-kubernetes-protection
-            - falcon-platform
-            {{- if .Values.clusterguardController.webhook.disableNamespaces }}
-            {{- range splitList "," .Values.clusterguardController.webhook.disableNamespaces }}
-            - {{ . | trim }}
-            {{- end }}
-            {{- end }}
-            {{ include "falcon-clusterguard.openshiftNamespaces" . | nindent 12 }}
+            {{- include "falcon-clusterguard.webhookExcludedNamespaces" . | nindent 12 }}
         - key: {{ include "falcon-clusterguard.webhookName" . }}/admission-review
           operator: NotIn
           values:
@@ -534,18 +523,7 @@ webhooks:
         - key: kubernetes.io/metadata.name
           operator: NotIn
           values:
-            - {{ $ns }}
-            - kube-system
-            - kube-public
-            - falcon-system
-            - falcon-kubernetes-protection
-            - falcon-platform
-            {{- if .Values.clusterguardController.webhook.disableNamespaces }}
-            {{- range splitList "," .Values.clusterguardController.webhook.disableNamespaces }}
-            - {{ . | trim }}
-            {{- end }}
-            {{- end }}
-            {{- include "falcon-clusterguard.openshiftNamespaces" . | nindent 12 }}
+            {{- include "falcon-clusterguard.webhookExcludedNamespaces" . | nindent 12 }}
         - key: {{ include "falcon-clusterguard.webhookName" . }}/admission-review
           operator: NotIn
           values:
