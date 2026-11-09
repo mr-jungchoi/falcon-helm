@@ -297,6 +297,17 @@ Validate one of falcon.cid, falconSecret, or secretsStore is configured
 {{- end -}}
 
 {{/*
+Validate node mode is not enabled. Node mode is no longer supported starting with chart version 2.0.0:
+the falcon-clusterguard chart replaces the node DaemonSet, and this chart only deploys the Falcon
+Container sensor.
+*/}}
+{{- define "falcon-sensor.validateNodeModeDeprecated" -}}
+{{- if .Values.node.enabled -}}
+{{- fail "node.enabled=true is no longer supported starting with falcon-sensor chart version 2.0.0. The falcon-clusterguard chart replaces the node DaemonSet. Install falcon-clusterguard for node protection, or set node.enabled=false and container.enabled=true to deploy the Falcon Container sensor." }}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Validate falconSecret.secretName
 */}}
 {{- define "falcon-sensor.validateFalconSecretName" -}}
