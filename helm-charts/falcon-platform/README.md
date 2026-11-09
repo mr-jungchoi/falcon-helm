@@ -875,6 +875,15 @@ helm upgrade falcon-platform crowdstrike/falcon-platform \
 > **not** run (that only fires on `helm uninstall`). The FCG image analyzer starts in the FCG
 > namespace in the same upgrade.
 
+> [!IMPORTANT]
+> If you also run `falcon-sensor` (node mode), `falcon-kac`, or `falcon-image-analyzer` as separate
+> Helm releases outside `falcon-platform`, uninstall them before this upgrade. FCG creates some of
+> the same objects, such as the ValidatingWebhookConfiguration `validating.falcon-kac.crowdstrike.com`
+> and the `falcon-sensor` DaemonSet, and Helm won't take them over from another release. To keep each
+> node's agent ID (AID), uninstall `falcon-sensor` with `--no-hooks` so its cleanup doesn't remove the
+> AID. See [Migrating from falcon-sensor and falcon-kac](../falcon-clusterguard/README.md#migrating-from-falcon-sensor-and-falcon-kac)
+> for the full list.
+
 ### Step 5 — Clean up deprecated namespaces
 
 Once the upgrade is confirmed stable:

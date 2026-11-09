@@ -196,6 +196,35 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
   -n falcon-platform
 ```
 
+> [!IMPORTANT]
+> Helm won't install FCG over objects that belong to another Helm release. If you installed any of
+> these charts as their own releases, rather than through `falcon-platform`, deal with them first:
+>
+> | Standalone release          | Objects shared with FCG                                                                                                                   | What to do                                 |
+> |:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------|
+> | `falcon-sensor` (node mode) | DaemonSet `falcon-sensor` and ConfigMap `falcon-sensor-config`, if it's in the FCG namespace                                              | Uninstall it. FCG runs the node sensor.    |
+> | `falcon-kac`                | ValidatingWebhookConfiguration `validating.falcon-kac.crowdstrike.com` (cluster-wide), and Service `webhook` if it's in the FCG namespace | Uninstall it. FCG runs admission control.  |
+> | `falcon-image-analyzer`     | Service `iar-agent-service`, if it's in the FCG namespace                                                                                 | Uninstall it. FCG runs the image analyzer. |
+>
+> Uninstall these even when nothing is shared, because a second node sensor, admission webhook, or
+> image analyzer would run alongside FCG's. Their protection stops between the uninstall and the FCG
+> install.
+>
+> To keep each node's agent ID (AID), so hosts keep their identity in the Falcon console, skip the
+> `falcon-sensor` cleanup when you uninstall it. The cleanup DaemonSet removes the sensor from every
+> node, including its AID:
+>
+> ```bash
+> helm uninstall <falcon-sensor-release> -n <namespace> --no-hooks
+> ```
+>
+> FCG's node sensor then reuses the AID stored on each node. If you let the cleanup run instead,
+> wait until its `*-node-cleanup` pods are gone before you install FCG.
+>
+> Upgrading `falcon-platform` should not need this step: the FCG subchart replaces the old subcharts'
+> objects in the same release. Namespaces labeled `falcon-kac.crowdstrike.com/admission-review=disabled`
+> stay excluded from admission control.
+
 ## What the script does
 
 ### Moves
