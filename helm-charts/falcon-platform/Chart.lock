@@ -1,9 +1,9 @@
 dependencies:
 - name: falcon-clusterguard
   repository: file://../falcon-clusterguard
-  version: 0.1.0-test.6
+  version: 0.1.0-beta.0
 - name: falcon-sensor
   repository: file://../falcon-sensor
-  version: 1.37.0
-digest: sha256:6bdf48988d011dab529f5b5365776ff711f7cec1b8d56d8a9afc930f4fcf015a
-generated: "2026-10-21T16:11:00.172529-04:00"
+  version: 2.0.0-fcg-beta.0
+digest: sha256:b6b5746be251d757d44c12b4476c7ecd40ca2e7506ced8828d18cfee1e8c6eca
+generated: "2026-11-09T12:28:06.089348-05:00"
