@@ -661,7 +661,18 @@
                         "runAsGroup": {"type": "integer"}
                     }
                 },
-                "resources": {"type": "object", "default": {}},
+                "resources": {
+                  "type": "object",
+                  "default": {
+                    "requests": {
+                      "cpu": "500m",
+                      "memory": "1Gi"
+                    },
+                    "limits": {
+                      "memory": "8Gi"
+                    }
+                  }
+                },
                 "tolerations": {"type": "array"},
                 "affinity": {"type": "object", "default": {}},
                 "priorityClassName": {"type": "string"},

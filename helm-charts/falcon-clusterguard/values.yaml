@@ -453,7 +453,14 @@ imageAnalyzer:
   # Deployment mode always uses a fixed, non-privileged security context.
   securityContext: {}
 
-  resources: {}
+  # Resource requests and limits for the image analyzer container. Defaults give the pod
+  # Burstable QoS so it is not starved of CPU or evicted first. A CPU limit is not set.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 8Gi
 
   tolerations: []
 
