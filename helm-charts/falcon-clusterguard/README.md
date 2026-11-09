@@ -91,6 +91,34 @@ python3 scripts/migration/migrate-to-fcg.py --interactive
 > and `--fcg-image-tag` (or `--fcg-image-digest`), or enter them when the script prompts.
 > Default values will be added once FCG is generally available.
 
+> [!IMPORTANT]
+> Helm won't install FCG over objects that belong to another Helm release. If you installed any of
+> these charts as their own releases, rather than through `falcon-platform`, deal with them first:
+>
+> | Standalone release          | Objects shared with FCG                                                                                                                   | What to do                                 |
+> |:----------------------------|:------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------|
+> | `falcon-sensor` (node mode) | DaemonSet `falcon-sensor` and ConfigMap `falcon-sensor-config`, if it's in the FCG namespace                                              | Uninstall it. FCG runs the node sensor.    |
+> | `falcon-kac`                | ValidatingWebhookConfiguration `validating.falcon-kac.crowdstrike.com` (cluster-wide), and Service `webhook` if it's in the FCG namespace | Uninstall it. FCG runs admission control.  |
+> | `falcon-image-analyzer`     | Service `iar-agent-service`, if it's in the FCG namespace                                                                                 | Uninstall it. FCG runs the image analyzer. |
+>
+> Uninstall these even when nothing is shared, because a second node sensor, admission webhook, or
+> image analyzer would run alongside FCG's.
+>
+> To keep each node's agent ID (AID), so hosts keep their identity in the Falcon console, skip the
+> `falcon-sensor` cleanup when you uninstall it. The cleanup DaemonSet removes the sensor from every
+> node, including its AID:
+>
+> ```bash
+> helm uninstall <falcon-sensor-release> -n <namespace> --no-hooks
+> ```
+>
+> FCG's node sensor then reuses the AID stored on each node. If you let the cleanup run instead,
+> wait until its `*-node-cleanup` pods are gone before you install FCG.
+>
+> Upgrading `falcon-platform` should not need this step: the FCG subchart replaces the old subcharts'
+> objects in the same release. Namespaces labeled `falcon-kac.crowdstrike.com/admission-review=disabled`
+> stay excluded from admission control.
+
 See `scripts/migration/README.md` for full documentation.
 
 Key differences from non-fcg charts:
