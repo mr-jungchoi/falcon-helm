@@ -8,6 +8,13 @@ platform purpose-built to stop breaches via a unified set of cloud-delivered
 technologies that prevent all types of attacks — including malware and much
 more.
 
+> [!WARNING]
+> **Node mode is no longer supported starting with chart version 2.0.0.** Installing or upgrading with
+> `node.enabled=true` fails. Use the [falcon-clusterguard](../falcon-clusterguard/README.md) chart to deploy the Falcon sensor to
+> Kubernetes nodes, and see [Migrating from falcon-sensor and falcon-kac](../falcon-clusterguard/README.md#migrating-from-falcon-sensor-and-falcon-kac)
+> to move an existing node deployment. This chart now deploys only the Falcon Container sensor
+> (`node.enabled=false`, `container.enabled=true`).
+
 ## Table of Contents
 - [Kubernetes Cluster Compatibility](#kubernetes-cluster-compatability)
 - [Dependencies](#dependencies)
@@ -65,6 +72,7 @@ The Falcon Helm chart has been tested to deploy on the following Kubernetes dist
 
 | Helm Chart Version | Falcon Sensor Version | Notes                                                                                   |
 |:-------------------|:----------------------|:----------------------------------------------------------------------------------------|
+| `2.0.0`            | —                     | Node mode is no longer supported. Use the `falcon-clusterguard` chart.                  |
 | `1.37.0`           | `>= 7.40`             | Deprecated `backend` option. Added new CrowdStrike config volume.                       |
 | `1.36.0`           | `>= 7.35, < 7.40`     | —                                                                                       |
 | `1.35.0`           | `>= 7.35, < 7.40`     | Added Falcon Data Protection for Cloud support for self-managed Kubernetes clusters.    |
@@ -223,6 +231,11 @@ container:
 
 ## Installing on Kubernetes Cluster Nodes
 
+> [!WARNING]
+> Node mode is no longer supported starting with chart version 2.0.0, and `node.enabled=true` fails.
+> This section is kept for reference for chart versions before 2.0.0.
+> Use the [falcon-clusterguard](../falcon-clusterguard/README.md) chart instead.
+
 ### Deployment Considerations
 
 To ensure a successful deployment, you will want to ensure that:
@@ -283,7 +296,7 @@ The following tables lists the more common configurable parameters of the chart 
 
 | Parameter                       | Description                                                                                                                                                                                                                                                                                           | Default                                                                                                                    |
 |:--------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------|
-| `node.enabled`                  | Enable installation on the Kubernetes node                                                                                                                                                                                                                                                            | `true`                                                                                                                     |
+| `node.enabled`                  | Enable installation on the Kubernetes node. Not supported starting with chart version 2.0.0: must be `false`.                                                                                                                                                                                         | `true`                                                                                                                     |
 | `node.backend`                  | **(Deprecated)** This field is ignored. This option may be removed in a future release.                                                                                                        | bpf                                                                                                                        |
 | `node.gke.autopilot`            | Enable if running on GKE Autopilot clusters                                                                                                                                                                                                                                                           | `false`                                                                                                                    |
 | `node.image.repository`         | Falcon Sensor Node registry/image name                                                                                                                                                                                                                                                                | `falcon-node-sensor`                                                                                                       |
@@ -712,9 +725,10 @@ Failing to remove the `/opt/CrowdStrike` directory may lead to these potential p
 1. Unnecessary disk space consumption by the `/opt/CrowdStrike` directory.
 2. Reuse of the previous Agent ID (AID) found in `/opt/CrowdStrike/falconstore` during subsequent sensor reinstallations.
 
-If the automatic cleanup fails, you can manually run the cleanup DaemonSet by running the following:
+If the automatic cleanup fails, you can manually run the cleanup DaemonSet by running the following. Node mode
+is no longer supported starting with chart version 2.0.0, so use a chart version before 2.0.0:
 ```bash
-helm install falcon-helm crowdstrike/falcon-sensor -n <NAMESPACE>\
+helm install falcon-helm crowdstrike/falcon-sensor -n <NAMESPACE> --version 1.37.0 \
   --set node.image.repository="<Your_Registry>/falcon-node-sensor>" \
   --set node.enabled=true \
   --set node.cleanupOnly=true

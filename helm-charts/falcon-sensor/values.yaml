@@ -3,7 +3,9 @@
 # Declare variables to be passed into your templates.
 
 node:
-  # When enabled, Helm chart deploys the Falcon Sensors to Kubernetes nodes
+  # Node mode is no longer supported starting with chart version 2.0.0 and must be set to false. Use the
+  # falcon-clusterguard chart to deploy the Falcon sensor to Kubernetes nodes. Setting this to true fails
+  # the install.
   enabled: true
 
   # Deprecated: This field is ignored. The sensor uses eBPF by default, but falls back to kernel mode
