@@ -1,0 +1,176 @@
+{{- if and .Values.nodeSensor.enabled .Values.nodeSensor.hooks.postDelete.enabled }}
+  {{- $imagePullSecret := include "falcon-clusterguard.imagePullSecret" . }}
+  {{- $registryConfigJson := include "falcon-clusterguard.registryConfigJson" . }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
+  annotations:
+    {{- if not .Values.nodeSensor.cleanupOnly }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "0"
+    {{- end }}
+
+{{- if $registryConfigJson }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "falcon-clusterguard.cleanupPullSecretName" . }}
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
+  {{- if not .Values.nodeSensor.cleanupOnly }}
+  annotations:
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-delete-policy": hook-succeeded
+  {{- end }}
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ $registryConfigJson }}
+{{- end }}
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-node-cleanup
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+    {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: kernel_sensor
+    crowdstrike.com/provider: crowdstrike
+    {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  annotations:
+    {{- if not .Values.nodeSensor.cleanupOnly }}
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- end }}
+    {{- range $key, $value := .Values.nodeSensor.daemonset.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: kernel_sensor
+      crowdstrike.com/provider: crowdstrike
+  template:
+    metadata:
+      annotations:
+        {{ .Values.nodeSensor.daemonset.podAnnotationKey }}: disabled
+        {{- if include "falcon-clusterguard.openshiftEnabled" . | eq "true" }}
+        openshift.io/scc: {{ include "falcon-clusterguard.nodeSccName" . }}
+        {{- end }}
+        {{- range $key, $value := .Values.nodeSensor.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+      labels:
+        helm.sh/chart: {{ include "falcon-clusterguard.chart" . }}
+        {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 8 }}
+        app.kubernetes.io/name: {{ include "falcon-clusterguard.name" . }}-node-cleanup
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        app.kubernetes.io/component: kernel_sensor
+        crowdstrike.com/provider: crowdstrike
+        {{ include "falcon-clusterguard.workloadCleanupAllowlistLabel" . }}
+        {{- range $key, $value := .Values.nodeSensor.daemonset.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- if or $imagePullSecret $registryConfigJson }}
+      imagePullSecrets:
+        {{- if $imagePullSecret }}
+        - name: {{ $imagePullSecret }}
+        {{- end }}
+        {{- if $registryConfigJson }}
+        - name: {{ include "falcon-clusterguard.cleanupPullSecretName" . }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSensor.daemonset.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      {{- with .Values.nodeSensor.daemonset.nodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      serviceAccountName: {{ include "falcon-clusterguard.cleanupServiceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.nodeSensor.terminationGracePeriod }}
+      hostPID: true
+      initContainers:
+      - name: cleanup-opt-crowdstrike
+        image: {{ include "falcon-clusterguard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        command:
+          - /bin/bash
+        args:
+          - '-c'
+          - >-
+            echo "Running /opt/CrowdStrike/falcon-daemonset-init -u";
+            /opt/CrowdStrike/falcon-daemonset-init -u
+        {{- if or .Values.gke.autopilot .Values.nodeSensor.daemonset.resources }}
+        resources:
+          requests:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+          limits:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+        {{- end }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+          allowPrivilegeEscalation: true
+          {{- if .Values.gke.autopilot }}
+          readOnlyRootFilesystem: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+              - SYS_PTRACE
+              - SYS_CHROOT
+              - DAC_READ_SEARCH
+          {{- else }}
+          readOnlyRootFilesystem: false
+          {{- end }}
+      containers:
+      - name: cleanup-sleep
+        image: {{ include "falcon-clusterguard.image" . | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        command:
+          - /bin/bash
+        args:
+          - -c
+          - sleep infinity
+        {{- if or .Values.gke.autopilot .Values.nodeSensor.daemonset.resources }}
+        resources:
+          requests:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+          limits:
+            cpu: 10m
+            ephemeral-storage: 100Mi
+            memory: 50Mi
+        {{- end }}
+        securityContext:
+          privileged: false
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: true
+{{- end }}

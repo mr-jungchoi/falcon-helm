@@ -1,0 +1,14 @@
+{{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
+{{- if or .Values.nodeSensor.daemonset.priorityClassCreate .Values.gke.autopilot }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "falcon-clusterguard.priorityClassName" . }}
+  labels:
+    {{- include "falcon-clusterguard.falconSensorAppLabel" . | nindent 4 }}
+    {{- include "falcon-clusterguard.nodeLabels" . | nindent 4 }}
+value: {{ .Values.nodeSensor.daemonset.priorityClassValue }}
+globalDefault: false
+description: "Priority class for the CrowdStrike Falcon Cluster Guard node sensor DaemonSet on GKE Autopilot clusters."
+{{- end }}
+{{- end }}

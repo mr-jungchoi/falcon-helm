@@ -1,0 +1,21 @@
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "falcon-clusterguard.fullname" . }}-rq
+  namespace: {{ include "falcon-clusterguard.namespace" . }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  hard:
+    pods: {{ .Values.clusterguardController.resourceQuota.pods }}
+  scopeSelector:
+    matchExpressions:
+      - operator: In
+        scopeName: PriorityClass
+        values:
+          - system-cluster-critical
+          {{- if .Values.gke.enabled }}
+          - system-node-critical
+          {{- end }}
+{{- end }}

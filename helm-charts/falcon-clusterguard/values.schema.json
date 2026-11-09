@@ -1,0 +1,842 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "type": "object",
+    "properties": {
+        "image": {
+            "type": "object",
+            "required": ["repository"],
+            "properties": {
+                "repository": {
+                    "type": "string"
+                },
+                "pullPolicy": {
+                    "type": "string",
+                    "default": "Always",
+                    "pattern": "^(Always|Never|IfNotPresent)$"
+                },
+                "pullSecret": {
+                    "type": ["null", "string"]
+                },
+                "registryConfigJSON": {
+                    "type": ["null", "string"]
+                },
+                "tag": {
+                    "type": ["null", "string"]
+                },
+                "digest": {
+                    "type": ["null", "string"],
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+            },
+            "$comment": "Registry authentication: set at most one of pullSecret or registryConfigJSON.",
+            "allOf": [
+                {
+                    "if": {
+                        "required": ["pullSecret"],
+                        "properties": {"pullSecret": {"$ref": "#/$defs/nonEmptyString"}}
+                    },
+                    "then": {
+                        "properties": {
+                            "registryConfigJSON": {"$ref": "#/$defs/unsetString"}
+                        }
+                    }
+                },
+                {
+                    "if": {
+                        "required": ["registryConfigJSON"],
+                        "properties": {"registryConfigJSON": {"$ref": "#/$defs/nonEmptyString"}}
+                    },
+                    "then": {
+                        "properties": {
+                            "pullSecret": {"$ref": "#/$defs/unsetString"}
+                        }
+                    }
+                }
+            ]
+        },
+        "falcon": {
+            "type": "object",
+            "properties": {
+                "cid": {
+                    "type": ["null", "string"],
+                    "pattern": "^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$",
+                    "examples": ["1234567890ABCDEF1234567890ABCDEF-12"]
+                },
+                "cloud": {
+                    "type": ["null", "string"],
+                    "enum": [null, "", "us-1", "us-2", "us-3", "eu-1", "us-gov-1", "us-gov-2"]
+                },
+                "trace": {
+                    "type": ["null", "string"],
+                    "pattern": "^(|none|err|warn|info|debug)$"
+                },
+                "apd": {
+                    "type": ["null", "boolean"]
+                },
+                "aph": {
+                    "type": ["null", "string"]
+                },
+                "app": {
+                    "type": ["null", "integer"],
+                    "minimum": 0,
+                    "maximum": 65535
+                },
+                "feature": {
+                    "type": ["null", "string"]
+                },
+                "billing": {
+                    "type": ["null", "string"]
+                },
+                "tags": {
+                    "type": ["null", "string"]
+                },
+                "provisioning_token": {
+                    "type": ["null", "string"]
+                }
+            }
+        },
+        "falconSecret": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "secretName": {
+                    "type": "string"
+                }
+            }
+        },
+        "secretsStore": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": ["boolean", "null"],
+                    "default": null
+                },
+                "provider": {
+                    "type": "string",
+                    "enum": ["", "azure"]
+                },
+                "secretName": {
+                    "type": "string"
+                },
+                "azure": {
+                    "type": "object",
+                    "properties": {
+                        "vaultName": { "type": "string" },
+                        "tenantID": { "type": "string" },
+                        "clientID": { "type": "string" }
+                    }
+                },
+                "provisioningTokenSecretName": {
+                    "type": "string",
+                    "description": "Name of the secrets store secret containing FALCONCTL_OPT_PROVISIONING_TOKEN (optional)"
+                }
+            }
+        },
+        "certManager": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "issuerRef": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "group": {"type": "string"}
+                    }
+                }
+            },
+            "$comment": "issuerRef.name is required when cert-manager is enabled; every Certificate the chart renders uses it.",
+            "if": {
+                "required": ["enabled"],
+                "properties": {"enabled": {"const": true}}
+            },
+            "then": {
+                "required": ["issuerRef"],
+                "properties": {
+                    "issuerRef": {
+                        "required": ["name"],
+                        "properties": {"name": {"$ref": "#/$defs/nonEmptyString"}}
+                    }
+                }
+            }
+        },
+        "gke": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "GKE cluster (Standard or Autopilot). Adds system-node-critical to the clusterguard ResourceQuota scope and the Image Analyzer metadata-server init container."
+                },
+                "autopilot": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "deployAllowListVersion": {
+                    "type": ["null", "string"],
+                    "description": "GKE Autopilot WorkloadAllowlist version for the node sensor DaemonSet (vX.Y.Z). Required when autopilot is true."
+                },
+                "cleanupAllowListVersion": {
+                    "type": ["null", "string"],
+                    "description": "GKE Autopilot WorkloadAllowlist version for the node sensor cleanup DaemonSet (vX.Y.Z). Required when autopilot is true."
+                }
+            },
+            "$comment": "The WorkloadAllowlist versions are only used on GKE Autopilot, so they are only required and validated when autopilot is true.",
+            "if": {
+                "required": ["autopilot"],
+                "properties": {"autopilot": {"const": true}}
+            },
+            "then": {
+                "required": ["deployAllowListVersion", "cleanupAllowListVersion"],
+                "properties": {
+                    "deployAllowListVersion": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"},
+                    "cleanupAllowListVersion": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"}
+                }
+            }
+        },
+        "azure": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Mount azure.json from the node for AKS image pull authentication"
+                },
+                "azureConfig": {
+                    "type": "string",
+                    "default": "/etc/kubernetes/azure.json"
+                }
+            }
+        },
+        "nodeSensor": {
+            "type": "object",
+            "required": ["enabled"],
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "clusterName": {
+                    "type": ["null", "string"]
+                },
+                "serviceAccount": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "default": "falcon-node-sensor-sa"
+                        },
+                        "annotations": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "daemonset": {
+                    "type": "object",
+                    "properties": {
+                        "annotations": {
+                            "type": "object"
+                        },
+                        "podAnnotationKey": {
+                            "type": "string"
+                        },
+                        "labels": {
+                            "type": "object"
+                        },
+                        "priorityClassCreate": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "priorityClassName": {
+                            "type": "string"
+                        },
+                        "priorityClassValue": {
+                            "type": "integer",
+                            "default": 1000000000,
+                            "minimum": 1
+                        },
+                        "tolerations": {
+                            "type": "array"
+                        },
+                        "nodeAffinity": {
+                            "type": "object"
+                        },
+                        "resources": {
+                            "type": "object",
+                            "properties": {
+                                "limits": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "CPU quantity, such as 250m or 1. Minimum 250m. Not recommended: the sensor is throttled when it reaches the limit."
+                                        },
+                                        "memory": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "Memory quantity, such as 512Mi or 1.5Gi. Minimum 512Mi."
+                                        },
+                                        "ephemeral-storage": { "type": "string" }
+                                    }
+                                },
+                                "requests": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cpu": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "CPU quantity, such as 250m or 1. Minimum 250m."
+                                        },
+                                        "memory": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "Memory quantity, such as 512Mi or 1.5Gi. Minimum 512Mi."
+                                        },
+                                        "ephemeral-storage": { "type": "string" }
+                                    }
+                                }
+                            }
+                        },
+                        "updateStrategy": {
+                            "type": "string",
+                            "default": "RollingUpdate",
+                            "pattern": "^(RollingUpdate|OnDelete)$"
+                        },
+                        "maxUnavailable": {
+                            "oneOf": [
+                                {
+                                    "type": "string",
+                                    "pattern": "^[0-9]+%$"
+                                },
+                                {
+                                    "type": "integer",
+                                    "minimum": 1
+                                }
+                            ]
+                        }
+                    }
+                },
+                "podAnnotations": {
+                    "type": "object"
+                },
+                "podLabels": {
+                    "type": "object"
+                },
+                "terminationGracePeriod": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "hooks": {
+                    "type": "object",
+                    "properties": {
+                        "postDelete": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        }
+                    }
+                },
+                "cleanupOnly": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "dnsConfig": {
+                    "type": "object",
+                    "properties": {
+                        "nameservers": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "searches": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "value": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "clusterguardController": {
+            "type": "object",
+            "properties": {
+                "admissionControl": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                },
+                "serviceAccount": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "default": "falcon-cg-controller-sa"
+                        },
+                        "annotations": {
+                            "type": "object"
+                        }
+                    }
+                },
+                "resourceQuota": {
+                    "type": "object",
+                    "properties": {
+                        "pods": {
+                            "oneOf": [
+                                {
+                                    "type": ["string", "null"],
+                                    "pattern": "^[0-9]+$"
+                                },
+                                {
+                                    "type": ["integer", "null"],
+                                    "minimum": 1
+                                }
+                            ]
+                        }
+                    }
+                },
+                "hostNetwork": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "webhookPort": {
+                    "type": "integer",
+                    "default": 4443,
+                    "minimum": 1024,
+                    "maximum": 65535
+                },
+                "watcherPort": {
+                    "type": "integer",
+                    "default": 4080,
+                    "minimum": 1024,
+                    "maximum": 65535
+                },
+                "dnsPolicy": {
+                    "type": ["null", "string"],
+                    "enum": [null, "ClusterFirst", "ClusterFirstWithHostNet", "Default", "None"]
+                },
+                "autoCertificateUpdate": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "certExpiration": {
+                    "type": "integer",
+                    "default": 3650,
+                    "minimum": 0
+                },
+                "domainName": {
+                    "type": ["null", "string"]
+                },
+                "tlsVersionMinimum": {
+                    "type": ["null", "string"],
+                    "pattern": "^(TLS1.2|TLS1.3)$"
+                },
+                "webhook": {
+                    "type": "object",
+                    "properties": {
+                        "failurePolicy": {
+                            "type": "string",
+                            "default": "Ignore",
+                            "pattern": "^(Ignore|Fail)$"
+                        },
+                        "disableNamespaces": {
+                            "type": ["null", "string"]
+                        }
+                    }
+                },
+                "resources": {
+                    "type": "object",
+                    "properties": {
+                        "client": { "$ref": "#/$defs/resourceRequirements" },
+                        "clientNoWebhook": { "$ref": "#/$defs/resourceRequirements" },
+                        "watcher": { "$ref": "#/$defs/resourceRequirements" },
+                        "admissionController": { "$ref": "#/$defs/resourceRequirements" }
+                    }
+                },
+                "tolerations": {
+                    "type": "array"
+                },
+                "affinity": {
+                    "type": "object"
+                },
+                "autoDeploymentUpdate": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "annotations": {
+                    "type": "object"
+                },
+                "labels": {
+                    "type": "object"
+                },
+                "podAnnotations": {
+                    "type": "object"
+                },
+                "podLabels": {
+                    "type": "object"
+                },
+                "disableClusterGuardController": {
+                    "type": ["null", "string"],
+                    "enum": [null, "I understand this disables K8s metadata collection and degrades node sensor visibility"]
+                },
+                "visibility": {
+                    "type": "object",
+                    "properties": {
+                        "resourceSnapshots": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                },
+                                "interval": {
+                                    "type": "string",
+                                    "default": "22h"
+                                }
+                            }
+                        },
+                        "resourceWatcher": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        },
+                        "resourceConfigMap": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean",
+                                    "default": true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "imageAnalyzer": {
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean", "default": false},
+                "mode": {
+                    "type": "string",
+                    "enum": ["deployment", "daemonset"],
+                    "default": "deployment",
+                    "description": "deployment: watcher mode. daemonset: socket mode (privileged; requires crowdstrikeConfig.agentRuntime)."
+                },
+                "serviceAccount": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "annotations": {
+                            "type": "object",
+                            "default": {},
+                            "examples": [
+                                {
+                                    "iam.gke.io/gcp-service-account": "my-service-account@my-project.iam.gserviceaccount.com"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "crowdstrikeConfig": {
+                    "type": "object",
+                    "properties": {
+                        "enableKlogs": {
+                            "type": ["string", "boolean"],
+                            "pattern": "^(true|false)$",
+                            "default": "false"
+                        },
+                        "clientID": {
+                            "type": "string",
+                            "description": "CrowdStrike Oauth Client ID (must be provided with clientSecret as a pair)",
+                            "examples": ["1234567890abcdef1234567890abcdef"]
+                        },
+                        "clientSecret": {
+                            "type": "string",
+                            "description": "CrowdStrike Oauth Client Secret (must be provided with clientID as a pair)",
+                            "examples": ["1234567890abcdef1234567890abcdef12345678"]
+                        },
+                        "agentRegion": {
+                            "type": "string",
+                            "description": "CrowdStrike Cloud Region",
+                            "default": "autodiscovery"
+                        },
+                        "agentMaxConsumerThreads": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]*$",
+                            "description": "Maximum number of threads to use for image analysis",
+                            "default": "1"
+                        },
+                        "agentRuntime": {
+                            "type": "string",
+                            "description": "Runtime for the agent to use"
+                        },
+                        "agentRuntimeSocket": {
+                            "type": "string",
+                            "description": "Runtime container socket for the agent to use",
+                            "examples": ["/run/containerd/containerd.sock"]
+                        }
+                    },
+                    "dependentRequired": {"clientID": ["clientSecret"], "clientSecret": ["clientID"]}
+                },
+                "exclusions": {
+                    "type": "object",
+                    "properties": {
+                        "namespace": {"type": "string"},
+                        "registry": {"type": "string"},
+                        "imageName": {"type": "string"}
+                    }
+                },
+                "hostNetwork": {"type": "boolean", "default": false},
+                "dnsPolicy": {"type": ["null", "string"]},
+                "podAnnotations": {"type": "object", "default": {}},
+                "podLabels": {
+                    "type": "object",
+                    "default": {},
+                    "description": "Additional labels to add to pod metadata. Use to set azure.workload.identity/use: 'true' when using Azure Key Vault."
+                },
+                "podSecurityContext": {"type": "object", "default": {}},
+                "securityContext": {
+                    "type": "object",
+                    "default": {},
+                    "description": "DaemonSet mode only. Supports privileged, allowPrivilegeEscalation, runAsUser, runAsGroup; other keys are ignored.",
+                    "properties": {
+                        "privileged": {"type": "boolean"},
+                        "allowPrivilegeEscalation": {"type": "boolean"},
+                        "runAsUser": {"type": "integer"},
+                        "runAsGroup": {"type": "integer"}
+                    }
+                },
+                "resources": {"type": "object", "default": {}},
+                "tolerations": {"type": "array"},
+                "affinity": {"type": "object", "default": {}},
+                "priorityClassName": {"type": "string"},
+                "nodeSelector": {"type": "object", "default": {}},
+                "watcher": {
+                    "type": "object",
+                    "properties": {
+                        "listPageSize": {"type": "integer", "minimum": 1}
+                    }
+                },
+                "log": {
+                    "type": "object",
+                    "properties": {
+                        "output": {"type": "integer", "enum": [1, 2]},
+                        "verbosity": {"type": "string"}
+                    }
+                },
+                "iarAgentService": {
+                    "type": "object",
+                    "properties": {
+                        "httpPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+                        "autoCertificateUpdate": {"type": "boolean"},
+                        "certExpiration": {"type": "integer", "minimum": 1},
+                        "domainName": {"type": ["null", "string"]}
+                    }
+                },
+                "privateRegistries": {
+                    "type": "object",
+                    "properties": {
+                        "credentials": {"type": "string"},
+                        "autoDiscoverCredentials": {"type": "boolean"}
+                    }
+                },
+                "volumes": {"type": "array"},
+                "volumeMounts": {"type": "array"},
+                "proxyConfig": {
+                    "default": {},
+                    "type": "object",
+                    "properties": {
+                        "HTTP_PROXY": {"type": ["null", "string"]},
+                        "HTTPS_PROXY": {"type": ["null", "string"]},
+                        "NO_PROXY": {"type": ["null", "string"]}
+                    }
+                }
+            },
+            "$comment": "imageAnalyzer.crowdstrikeConfig.agentRuntime must be docker, containerd, crio, or podman when imageAnalyzer.mode is daemonset.",
+            "allOf": [
+                {
+                    "if": {
+                        "required": ["mode"],
+                        "properties": {
+                            "mode": {"const": "daemonset"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "crowdstrikeConfig": {
+                                "required": ["agentRuntime"],
+                                "properties": {
+                                    "agentRuntime": {"pattern": "^(docker|containerd|crio|podman)$"}
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "testing": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "labelNamespace": {
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
+        "nameOverride": {
+            "type": ["null", "string"]
+        },
+        "fullnameOverride": {
+            "type": ["null", "string"]
+        },
+        "openshift": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": false
+                },
+                "createSCC": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "nodeSCCName": {
+                    "type": "string"
+                },
+                "cgControllerSCCName": {
+                    "type": "string"
+                }
+            }
+        },
+        "global": {
+            "type": "object",
+            "properties": {
+                "helmChart": {
+                    "type": "string"
+                },
+                "falcon": {
+                    "type": "object",
+                    "properties": {
+                        "cid": {
+                            "type": ["null", "string"],
+                            "pattern": "^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$"
+                        }
+                    }
+                },
+                "falconSecret": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "secretName": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "containerRegistry": {
+                    "type": "object",
+                    "properties": {
+                        "pullSecret": { "type": "string" },
+                        "configJSON": { "type": "string" }
+                    }
+                },
+                "openshift": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "createSCC": {
+                            "type": "boolean",
+                            "default": true
+                        }
+                    }
+                },
+                "secretsStore": {
+                    "type": "object",
+                    "properties": {
+                        "enabled": {
+                            "type": ["boolean", "null"],
+                            "default": false
+                        },
+                        "provider": {
+                            "type": "string",
+                            "enum": ["", "azure"]
+                        },
+                        "secretName": {
+                            "type": "string"
+                        },
+                        "azure": {
+                            "type": "object",
+                            "properties": {
+                                "vaultName": { "type": "string" },
+                                "tenantID": { "type": "string" },
+                                "clientID": { "type": "string" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "$defs": {
+        "nonEmptyString": {
+            "type": "string",
+            "minLength": 1
+        },
+        "unsetString": {
+            "description": "Must be null or empty because another, mutually exclusive option is set.",
+            "type": ["null", "string"],
+            "maxLength": 0
+        },
+        "resourceRequirements": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "object",
+                    "properties": {
+                        "cpu": { "type": "string" },
+                        "memory": { "type": "string" }
+                    }
+                },
+                "limits": {
+                    "type": "object",
+                    "properties": {
+                        "cpu": { "type": "string" },
+                        "memory": { "type": "string" }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,125 @@
+{{- if and (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") .Values.certManager.enabled }}
+{{- $ns := include "falcon-clusterguard.namespace" . -}}
+{{- $grpcSelfSignedIssuer := include "falcon-clusterguard.grpcSelfSignedIssuerName" . -}}
+
+{{- /* Admission webhook server certificate, issued directly by the configured issuer.
+       The ValidatingWebhookConfiguration's caBundle is filled from this Certificate by
+       cert-manager's cainjector (cert-manager.io/inject-ca-from annotation). */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-cg-controller-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  secretName: falcon-cg-controller-tls
+  secretTemplate:
+    labels:
+      app: falcon-kac
+  issuerRef:
+    {{- toYaml .Values.certManager.issuerRef | nindent 4 }}
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
+  dnsNames:
+    {{- include "falcon-clusterguard.webhookDNSNames" . | nindent 4 }}
+  usages:
+    - server auth
+
+---
+
+{{- /* Chart-owned self-signed issuer for the gRPC CA. The gRPC CA is a private trust root
+       between the controller and node sensors only, so it is never issued by the user's
+       issuerRef: that issuer may be an enterprise CA, and the gRPC CA key would then be a
+       subordinate CA of it. */}}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ $grpcSelfSignedIssuer }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+
+---
+{{- /* Self-signed CA certificate for gRPC mTLS.
+       Both the server cert and client cert are signed by this CA so they share a trust root.
+       Its Secret holds the CA private key, so no pod mounts it; pods read the CA certificate
+       from the ca.crt that cert-manager writes into each leaf Secret instead. */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-grpc-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  secretName: falcon-grpc-ca
+  issuerRef:
+    name: {{ $grpcSelfSignedIssuer }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
+  commonName: falcon-clusterguard-grpc-ca
+  isCA: true
+  usages:
+    - cert sign
+    - crl sign
+
+---
+{{- /* Namespaced CA Issuer backed by the CA cert above.
+       Both leaf certs reference this issuer so they share the same CA trust root. */}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: falcon-grpc-ca-issuer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: falcon-grpc-ca
+
+---
+{{- /* gRPC API server certificate — presented by falcon-watcher to node sensors. */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-api-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  secretName: falcon-api-tls
+  issuerRef:
+    name: falcon-grpc-ca-issuer
+    kind: Issuer
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
+  dnsNames:
+    - api.{{ $ns }}.svc
+    - api.{{ $ns }}.svc.cluster.local
+    - api.{{ $ns }}
+    - api
+  usages:
+    - server auth
+
+---
+{{- /* Node sensor client certificate — presented by falcon-sensor pods to the gRPC server.
+       SPIFFE URI SAN allows the gRPC server to enforce identity-based authorization. */}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-node-sensor-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
+spec:
+  secretName: falcon-node-sensor-tls
+  issuerRef:
+    name: falcon-grpc-ca-issuer
+    kind: Issuer
+  duration: "{{ mul .Values.clusterguardController.certExpiration 24 }}h"
+  uris:
+    - spiffe://cluster.local/ns/{{ $ns }}/sa/{{ include "falcon-clusterguard.nodeServiceAccountName" . }}
+  usages:
+    - client auth
+{{- end }}

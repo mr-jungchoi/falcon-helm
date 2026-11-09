@@ -1,0 +1,126 @@
+Falcon Cluster Guard has been installed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ include "falcon-clusterguard.namespace" . }}
+Version:   {{ .Chart.AppVersion }}
+{{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+Falcon CID: Secrets Store CSI ({{ include "falcon-clusterguard.csiSecretName" . }})
+{{- else if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
+Falcon CID: existing secret ({{ include "falcon-clusterguard.falconSecretName" . }})
+{{- else }}
+Falcon CID: Helm values (falcon.cid)
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WORKLOADS
+{{- if and .Values.nodeSensor.enabled .Values.nodeSensor.cleanupOnly }}
+  Node Sensor: cleanup only (nodeSensor.cleanupOnly=true). The sensor DaemonSet is not deployed.
+{{- else if .Values.nodeSensor.enabled }}
+  Node Sensor DaemonSet:
+    kubectl rollout status daemonset/{{ include "falcon-clusterguard.nodeDaemonsetName" . }} \
+      -n {{ include "falcon-clusterguard.namespace" . }}
+  {{- if and (not .Values.gke.autopilot) (not (kindIs "invalid" (dig "limits" "cpu" nil (.Values.nodeSensor.daemonset.resources | default dict)))) }}
+    Note: a CPU limit is set (nodeSensor.daemonset.resources.limits.cpu). This is not recommended:
+    the sensor is throttled when it reaches the limit, which can delay event processing.
+  {{- end }}
+{{- else }}
+  Node Sensor: disabled (nodeSensor.enabled=false)
+{{- end }}
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+
+  Cluster Guard Controller Deployment:
+    kubectl rollout status deployment/{{ include "falcon-clusterguard.controllerName" . }} \
+      -n {{ include "falcon-clusterguard.namespace" . }}
+{{- else }}
+
+  Cluster Guard Controller: disabled (clusterguardController.disableClusterGuardController is set)
+{{- end }}
+{{- if .Values.imageAnalyzer.enabled }}
+{{- $iarKind := ternary "DaemonSet" "Deployment" (include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true") }}
+
+  Image Analyzer {{ $iarKind }}:
+    kubectl rollout status {{ lower $iarKind }}/{{ include "falcon-clusterguard.iarName" . }} \
+      -n {{ include "falcon-clusterguard.namespace" . }}
+{{- else }}
+
+  Image Analyzer: disabled (imageAnalyzer.enabled=false)
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+
+FALCON CLUSTER GUARD CONTROLLER CONFIGURATION
+  Metadata Service: api.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+  {{- if eq (include "falcon-clusterguard.admissionControlEnabled" .) "true" }}
+  Admission control: ENABLED (failurePolicy: {{ .Values.clusterguardController.webhook.failurePolicy }})
+  ValidatingWebhookConfiguration: validating.{{ include "falcon-clusterguard.webhookName" . }}
+  Webhook Service:  webhook.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+  {{- else }}
+  Admission control: DISABLED (visibility-only mode).
+    Set clusterguardController.admissionControl.enabled=true to enable the validating webhook.
+  {{- end }}
+
+  {{- if .Values.certManager.enabled }}
+
+  TLS certificates (admission webhook and gRPC mTLS) are issued by cert-manager.
+  {{- else }}
+
+  TLS certificates are auto-generated on install.
+  {{- if .Values.clusterguardController.autoCertificateUpdate }}
+  Auto-rotation is ENABLED — Helm-generated certs refresh on every helm upgrade.
+  {{- else }}
+  Auto-rotation is DISABLED — Helm-generated certs are preserved across upgrades.
+  {{- end }}
+  {{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+{{- if .Values.imageAnalyzer.enabled }}
+
+FALCON IMAGE ANALYZER CONFIGURATION
+  {{- if include "falcon-clusterguard.iarDaemonsetEnabled" . | eq "true" }}
+  Mode:          socket (DaemonSet)
+  Runtime:       {{ .Values.imageAnalyzer.crowdstrikeConfig.agentRuntime }} ({{ include "falcon-clusterguard.iarAgentRuntimeSocket" . }})
+  {{- else }}
+  Mode:          watcher (Deployment)
+  {{- end }}
+  Agent Service: {{ include "falcon-clusterguard.iarAgentService" . }}.{{ include "falcon-clusterguard.namespace" . }}.svc:443
+  {{- if include "falcon-clusterguard.csiEnabled" . | eq "true" }}
+  Credentials:   Secrets Store CSI ({{ include "falcon-clusterguard.iarCsiSecretName" . }})
+  {{- else if include "falcon-clusterguard.falconSecretEnabled" . | eq "true" }}
+  Credentials:   existing secret ({{ include "falcon-clusterguard.falconSecretName" . }})
+  {{- else }}
+  Credentials:   chart-managed secret ({{ include "falcon-clusterguard.iarName" . }})
+  {{- end }}
+  {{- if .Values.certManager.enabled }}
+  TLS:           issued by cert-manager ({{ include "falcon-clusterguard.iarName" . }}-tls)
+  {{- else if .Values.imageAnalyzer.iarAgentService.autoCertificateUpdate }}
+  TLS:           Helm-generated ({{ include "falcon-clusterguard.iarName" . }}-tls), refreshed on every helm upgrade
+  {{- else }}
+  TLS:           Helm-generated ({{ include "falcon-clusterguard.iarName" . }}-tls), preserved across upgrades
+  {{- end }}
+  {{- if .Values.gke.enabled }}
+  GKE:           waits for the GKE metadata server before starting (gke.enabled)
+  {{- end }}
+  {{- if .Values.azure.enabled }}
+  AKS:           mounts {{ .Values.azure.azureConfig }} for registry authentication (azure.enabled)
+  {{- end }}
+
+  View Image Analyzer logs:
+    kubectl logs -l app=falcon-image-analyzer \
+      -n {{ include "falcon-clusterguard.namespace" . }} --tail=100
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+{{- if .Values.testing.enabled }}
+
+HELM TESTS
+  Run the test suite:
+    helm test {{ .Release.Name }} -n {{ include "falcon-clusterguard.namespace" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- end }}
+
+For support, visit https://crowdstrike.com or open an issue at
+https://github.com/CrowdStrike/falcon-helm
