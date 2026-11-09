@@ -164,10 +164,12 @@ Create the name of the config map if GKE Autopilot is used.
 WorkloadAllowlists require an exact match for naming.
 */}}
 {{- define "falcon-sensor.configMapName" -}}
-{{- if and .Values.node.gke.autopilot -}}
+{{- if and .Values.node.enabled .Values.node.gke.autopilot -}}
 {{- printf "falcon-node-sensor-config" -}}
-{{- else -}}
-{{- printf "%s-config" (include "falcon-sensor.fullname" .) -}}
+{{- else if .Values.node.enabled -}}
+{{- printf "%s-node-config" (include "falcon-sensor.fullname" .) -}}
+{{- else if .Values.container.enabled -}}
+{{- printf "%s-container-config" (include "falcon-sensor.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
