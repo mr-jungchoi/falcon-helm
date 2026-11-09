@@ -372,17 +372,35 @@ namespaceOverride should only be used when installing falcon-clusterguard as a s
 {{- end -}}
 
 {{/*
-On OpenShift lookup namespaces and emit namespaces prefixed with "openshift-"
-(used by webhook namespaceSelector to exclude system namespaces).
+On OpenShift, the comma-separated names of the cluster's namespaces that start with "openshift"
+(excluded from the webhooks by webhookExcludedNamespaces). Empty elsewhere, and in helm template.
 */}}
 {{- define "falcon-clusterguard.openshiftNamespaces" -}}
+{{- $names := list -}}
 {{- if .Capabilities.APIVersions.Has "security.openshift.io/v1" -}}
-{{- range $index, $namespace := (lookup "v1" "Namespace" "" "").items -}}
+{{- range $namespace := (lookup "v1" "Namespace" "" "").items -}}
 {{- if hasPrefix "openshift" $namespace.metadata.name -}}
-- {{ printf "%s\n" $namespace.metadata.name }}
+{{- $names = append $names $namespace.metadata.name -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- join "," $names -}}
+{{- end -}}
+
+{{/*
+Namespaces the admission webhooks skip, as a YAML list: the install namespace, the Kubernetes and
+Falcon system namespaces, clusterguardController.webhook.disableNamespaces, and the OpenShift system
+namespaces. Duplicates and empty entries are removed, keeping the first occurrence's position.
+*/}}
+{{- define "falcon-clusterguard.webhookExcludedNamespaces" -}}
+{{- $namespaces := list (include "falcon-clusterguard.namespace" .) "kube-system" "kube-public" "falcon-system" "falcon-kubernetes-protection" "falcon-platform" -}}
+{{- range splitList "," (.Values.clusterguardController.webhook.disableNamespaces | default "") -}}
+{{- $namespaces = append $namespaces (trim .) -}}
+{{- end -}}
+{{- range splitList "," (include "falcon-clusterguard.openshiftNamespaces" .) -}}
+{{- $namespaces = append $namespaces . -}}
+{{- end -}}
+{{- without $namespaces "" | uniq | toYaml -}}
 {{- end -}}
 
 {{/*
