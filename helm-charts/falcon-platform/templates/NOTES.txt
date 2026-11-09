@@ -16,12 +16,12 @@ container registry accessible to your Kubernetes deployment.
 ✓ Falcon Cluster Guard
   - Namespace: {{ $fcg.namespaceOverride | default .Release.Namespace }}
   - Image: {{ $fcg.image.repository }}:{{ $fcg.image.tag | default "latest" }}
+  - Cluster name: {{ $fcg.clusterName | default "(auto-discovered)" }}
 
   {{- if $fcg.nodeSensor.enabled }}
 
   ✓ Node Sensor (DaemonSet)
     - Replaces: falcon-sensor node mode
-    - Cluster name: {{ $fcg.nodeSensor.clusterName | default "(auto-discovered)" }}
   {{- end }}
 
   {{- if eq (include "falcon-platform.clusterGuardDisabled" .) "false" }}
@@ -49,7 +49,6 @@ container registry accessible to your Kubernetes deployment.
     - Replaces: falcon-image-analyzer
     - Mode: watcher
   {{- end }}
-    - Cluster name: {{ ($fcg.nodeSensor).clusterName | default "(auto-discovered)" }}
   {{- end }}
 
 {{- end }}

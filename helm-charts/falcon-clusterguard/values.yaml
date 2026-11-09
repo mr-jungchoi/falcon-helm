@@ -5,12 +5,16 @@
 # Falcon Cluster Guard (FCG) is a unified Kubernetes security service that combines:
 #   - Falcon node-sensor DaemonSet (kernel/eBPF endpoint protection)
 #   - Falcon clusterguard-controller (validating webhook for K8s workloads + metadata service for visibility)
-#
+
+# Falcon Cluster Guard can usually discover the clusterName automatically so setting clusterName here is normally
+# not necessary, but in some cases the clusterName cannot be discovered, e.g. for self-hosted
+# kubernetes clusters such as MicroK8s. In those cases, the clusterName can be manually set here.
+# The node sensor, clusterguard controller, and image analyzer all use this cluster name.
+clusterName: ""
+
 # The `image` block below is unified across both workloads - a single FCG container
 # image is used by both the node DaemonSet and the clusterguard controller Deployment.
-
 image:
-  # Unified FCG container image (runs both node sensor and admission control modes)
   repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
   pullPolicy: Always
 
@@ -146,11 +150,6 @@ azure:
 nodeSensor:
   # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
   enabled: true
-
-  # Falcon Cluster Guard can usually discover the clusterName automatically so setting clusterName here is normally
-  # not necessary, but in some cases the clusterName cannot be discovered, e.g. for self-hosted
-  # kubernetes clusters such as MicroK8s. In those cases, the clusterName can be manually set here.
-  clusterName: ""
 
   # ServiceAccount for the node sensor DaemonSet and post-delete cleanup DaemonSet.
   # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).

@@ -231,7 +231,8 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
 
 | Source                                                | Destination                                                                  | Notes                                                                                                                                               |
 |-------------------------------------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `falcon-sensor.node.*`                                | `falcon-clusterguard.nodeSensor.*`                                           | Copied verbatim, except `gke.*`, which moves to the top level (below)                                                                               |
+| `falcon-sensor.node.*`                                | `falcon-clusterguard.nodeSensor.*`                                           | Copied verbatim, except `clusterName` and `gke.*`, which move to the top level (below)                                                              |
+| `falcon-sensor.node.clusterName`                      | `falcon-clusterguard.clusterName`                                            | Moved to the chart root, shared by all FCG components; takes precedence over kac and image analyzer                                                 |
 | `falcon-sensor.node.gke.*`                            | `falcon-clusterguard.gke.*`                                                  | `autopilot` and the WorkloadAllowlist versions; moved to the chart root                                                                             |
 | `falcon-sensor.serviceAccount.*`                      | `falcon-clusterguard.nodeSensor.serviceAccount.*`                            | Moved under `nodeSensor.`; old name preserved                                                                                                       |
 | `falcon-sensor.falcon.*`                              | `falcon-clusterguard.falcon.*`                                               | Identical structure                                                                                                                                 |
@@ -242,7 +243,7 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
 | `falcon-sensor.node.image.registryConfigJSON`         | `falcon-clusterguard.image.registryConfigJSON`                               | Pull auth comes from one chart: the sensor if it sets `pullSecrets` or `registryConfigJSON`, otherwise kac                                          |
 | `falcon-kac.admissionControl.enabled`                 | `falcon-clusterguard.clusterguardController.admissionControl.enabled`        | Controls VWC + webhook Service; **old default was `true`, new default is `false`** — always written explicitly                                      |
 | `falcon-kac.enabled: false`                           | `falcon-clusterguard.clusterguardController.admissionControl.enabled: false` | KAC wasn't deployed, so the webhook stays off. The clusterguard controller still runs for cluster visibility                                        |
-| `falcon-kac.clusterName`                              | `falcon-clusterguard.nodeSensor.clusterName`                                 | Moved to `nodeSensor.` — shared with DaemonSet                                                                                                      |
+| `falcon-kac.clusterName`                              | `falcon-clusterguard.clusterName`                                            | Only if the sensor sets no cluster name; a conflict prints a warning                                                                                |
 | `falcon-kac.tolerations`                              | `falcon-clusterguard.clusterguardController.tolerations`                     | Moved under `clusterguardController.`                                                                                                               |
 | `falcon-kac.webhook.*`                                | `falcon-clusterguard.clusterguardController.webhook.*`                       | Moved under `clusterguardController.`                                                                                                               |
 | `falcon-kac.clusterVisibility.*`                      | `falcon-clusterguard.clusterguardController.visibility.*`                    | Moved under `clusterguardController.`                                                                                                               |
@@ -257,7 +258,7 @@ helm upgrade falcon-platform helm-charts/falcon-platform \
 | `falcon-image-analyzer.azure.*`                       | `falcon-clusterguard.azure.*`                                                | Moved to the chart root                                                                                                                             |
 | `falcon-image-analyzer.gcp.enabled`                   | `falcon-clusterguard.gke.enabled`                                            | `true` only if `gcp.enabled` was `true`; Autopilot alone does not set it                                                                            |
 | `falcon-image-analyzer.crowdstrikeConfig.*`           | `falcon-clusterguard.imageAnalyzer.crowdstrikeConfig.*`                      | `clientID`, `clientSecret`, `agentRegion`, `agentMaxConsumerThreads`, `enableKlogs`; `agentRuntime` and `agentRuntimeSocket` in DaemonSet mode only |
-| `falcon-image-analyzer.crowdstrikeConfig.clusterName` | `falcon-clusterguard.nodeSensor.clusterName`                                 | Only if no node cluster name is set; a conflict prints a warning                                                                                    |
+| `falcon-image-analyzer.crowdstrikeConfig.clusterName` | `falcon-clusterguard.clusterName`                                            | Only if sensor and kac set no cluster name; a conflict prints a warning                                                                             |
 | `falcon-image-analyzer.crowdstrikeConfig.cid`         | `falcon-clusterguard.falcon.cid`                                             | Only if neither `falcon.cid` nor `global.falcon.cid` is set                                                                                         |
 | `falcon-image-analyzer.image.pullSecret`              | `falcon-clusterguard.image.pullSecret`                                       | Only if sensor and kac set no image pull auth                                                                                                       |
 | `falcon-image-analyzer.image.registryConfigJSON`      | `falcon-clusterguard.image.registryConfigJSON`                               | Only if sensor and kac set no image pull auth                                                                                                       |
@@ -452,11 +453,11 @@ global:
 falcon-clusterguard:
   enabled: true
   namespaceOverride: falcon-system
+  clusterName: "my-cluster"  # must match the cluster name in the CMDB
   image:
     repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
     tag: 8.14.0-12345-1
   nodeSensor:
-    clusterName: "my-cluster"  # must match the cluster name in the CMDB
     daemonset:
       tolerations:
         - key: "node-role.kubernetes.io/master"

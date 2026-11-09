@@ -268,8 +268,9 @@ def apply_overrides(migrated: dict, admission_control_override, image_analyzer_o
 def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: list) -> CommentedMap:
     """Map standalone falcon-image-analyzer values to falcon-clusterguard.imageAnalyzer.*.
 
-    Settings that FCG keeps outside imageAnalyzer (CID, cluster name, image pull auth,
-    OpenShift) are folded into fcg with the lowest precedence, after sensor and kac.
+    Settings that FCG keeps outside imageAnalyzer (CID, image pull auth, OpenShift) are
+    folded into fcg with the lowest precedence, after sensor and kac. The cluster name is
+    handled in migrate().
     """
     ia = CommentedMap()
     # falcon-platform defaults falcon-image-analyzer.enabled=true, so a block without
@@ -295,20 +296,6 @@ def migrate_image_analyzer(iar: dict, fcg: CommentedMap, global_cid, warnings: l
         elif copied(k, iar):
             val = copy_value(iar[k])
             ia[k] = val
-
-    # crowdstrikeConfig.clusterName → nodeSensor.clusterName (shared by all FCG components)
-    iar_cluster_name = cs_config.get("clusterName")
-    if iar_cluster_name:
-        if "nodeSensor" not in fcg:
-            fcg["nodeSensor"] = CommentedMap()
-        if not fcg["nodeSensor"].get("clusterName"):
-            fcg["nodeSensor"]["clusterName"] = iar_cluster_name
-        elif fcg["nodeSensor"]["clusterName"] != iar_cluster_name:
-            warnings.append(
-                f"falcon-image-analyzer.crowdstrikeConfig.clusterName='{iar_cluster_name}' conflicts with "
-                f"falcon-clusterguard.nodeSensor.clusterName='{fcg['nodeSensor']['clusterName']}'. "
-                "The node value has been kept. Review manually."
-            )
 
     # crowdstrikeConfig.cid → falcon.cid, unless a CID is already set for FCG
     iar_cid = cs_config.get("cid")
@@ -406,10 +393,31 @@ def migrate(values: dict, warnings: list,
 
     sensor = values.get("falcon-sensor", {}) or {}
     sensor_node = sensor.get("node", {}) or {}
+    kac = values.get("falcon-kac", {}) or {}
+    iar = values.get("falcon-image-analyzer", {}) or {}
 
     # namespaceOverride — pick falcon-sensor's if set, else default falcon-system
     ns_override = sensor.get("namespaceOverride") or "falcon-system"
     fcg["namespaceOverride"] = ns_override
+
+    # clusterName — top level in FCG, shared by every component. falcon-sensor.node takes
+    # precedence, then falcon-kac, then falcon-image-analyzer.crowdstrikeConfig.
+    cluster_names = [
+        (source, name) for source, name in (
+            ("falcon-sensor.node.clusterName", sensor_node.get("clusterName")),
+            ("falcon-kac.clusterName", kac.get("clusterName")),
+            ("falcon-image-analyzer.crowdstrikeConfig.clusterName", get_nested(iar, "crowdstrikeConfig", "clusterName")),
+        ) if name
+    ]
+    if cluster_names:
+        kept_source, kept_name = cluster_names[0]
+        fcg["clusterName"] = copy_value(kept_name)
+        for source, name in cluster_names[1:]:
+            if name != kept_name:
+                warnings.append(
+                    f"{source}='{name}' conflicts with {kept_source}='{kept_name}'. "
+                    f"The {kept_source} value has been kept. Review manually."
+                )
 
     # image — set the FCG repository, tag, and digest, then carry over pull auth and pull policy
     # from falcon-sensor.node.image or falcon-kac.image (sensor takes precedence).
@@ -463,7 +471,7 @@ def migrate(values: dict, warnings: list,
         node = CommentedMap()
 
         direct_node_keys = [
-            "enabled", "clusterName", "daemonset", "podAnnotations", "podLabels",
+            "enabled", "daemonset", "podAnnotations", "podLabels",
             "terminationGracePeriod", "hooks", "cleanupOnly",
         ]
         for k in direct_node_keys:
@@ -510,8 +518,6 @@ def migrate(values: dict, warnings: list,
         )
 
     # ---- falcon-kac → falcon-clusterguard.clusterguardController ----------
-
-    kac = values.get("falcon-kac", {}) or {}
 
     if kac:
         cluster = CommentedMap()
@@ -575,19 +581,6 @@ def migrate(values: dict, warnings: list,
 
         fcg["clusterguardController"] = cluster
         fcg.yaml_set_comment_before_after_key("clusterguardController", before="\n")
-
-        # clusterName at kac top level → nodeSensor.clusterName
-        if "clusterName" in kac and kac["clusterName"]:
-            if "nodeSensor" not in fcg:
-                fcg["nodeSensor"] = CommentedMap()
-            if not fcg["nodeSensor"].get("clusterName"):
-                fcg["nodeSensor"]["clusterName"] = kac["clusterName"]
-            elif fcg["nodeSensor"]["clusterName"] != kac["clusterName"]:
-                warnings.append(
-                    f"falcon-kac.clusterName='{kac['clusterName']}' conflicts with "
-                    f"falcon-sensor.node.clusterName='{fcg['nodeSensor']['clusterName']}'. "
-                    "The falcon-sensor value has been kept. Review manually."
-                )
 
         # clusterVisibility — now lives under clusterguardController.visibility.*
         if "clusterVisibility" in kac:
@@ -654,7 +647,6 @@ def migrate(values: dict, warnings: list,
 
     # ---- falcon-image-analyzer → falcon-clusterguard.imageAnalyzer ---------
 
-    iar = values.get("falcon-image-analyzer", {}) or {}
     if iar:
         fcg["imageAnalyzer"] = migrate_image_analyzer(
             iar, fcg, get_nested(values, "global", "falcon", "cid"), warnings,
@@ -732,6 +724,7 @@ COMMENT_RULES = [
     # falcon-sensor
     (("falcon-sensor",), [F + ("nodeSensor",)], True),
     (("falcon-sensor", "node"), [F + ("nodeSensor",)], False),
+    (("falcon-sensor", "node", "clusterName"), [F + ("clusterName",)], False),
     (("falcon-sensor", "node", "gke"), [F + ("gke",)], False),
     (("falcon-sensor", "node", "openshift"), [F + ("openshift",)], False),
     (("falcon-sensor", "node", "backend"), [], False),
@@ -748,7 +741,7 @@ COMMENT_RULES = [
     # falcon-kac: children move under clusterguardController unless a rule below says otherwise
     (("falcon-kac",), [CTRL], False),
     (("falcon-kac", "clusterVisibility"), [CTRL + ("visibility",)], False),
-    (("falcon-kac", "clusterName"), [F + ("nodeSensor", "clusterName")], False),
+    (("falcon-kac", "clusterName"), [F + ("clusterName",)], False),
     (("falcon-kac", "image"), [F + ("image",)], False),
     (("falcon-kac", "image", "pullSecrets"), [F + ("image", "pullSecret")], False),
 ] + [
@@ -762,7 +755,7 @@ COMMENT_RULES = [
 ] + [
     # falcon-image-analyzer: children move under imageAnalyzer unless a rule below says otherwise
     (("falcon-image-analyzer",), [IA], False),
-    (("falcon-image-analyzer", "crowdstrikeConfig", "clusterName"), [F + ("nodeSensor", "clusterName")], False),
+    (("falcon-image-analyzer", "crowdstrikeConfig", "clusterName"), [F + ("clusterName",)], False),
     (("falcon-image-analyzer", "crowdstrikeConfig", "cid"), [F + ("falcon", "cid")], False),
     (("falcon-image-analyzer", "image"), [F + ("image",)], False),
     (("falcon-image-analyzer", "openshift"), [F + ("openshift",)], False),

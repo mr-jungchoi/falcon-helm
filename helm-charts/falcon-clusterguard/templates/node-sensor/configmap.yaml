@@ -27,7 +27,7 @@ data:
   {{- end }}
   {{- end }}
 
-  {{- if .Values.nodeSensor.clusterName }}
-  FALCON_CLUSTER_NAME: {{ .Values.nodeSensor.clusterName | quote }}
+  {{- if .Values.clusterName }}
+  FALCON_CLUSTER_NAME: {{ .Values.clusterName | quote }}
   {{- end }}
 {{- end }}
