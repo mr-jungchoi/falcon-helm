@@ -273,16 +273,28 @@
                                 "limits": {
                                     "type": "object",
                                     "properties": {
-                                        "cpu": { "type": "string" },
-                                        "memory": { "type": "string" },
+                                        "cpu": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "CPU quantity, such as 250m or 1. Minimum 250m. Not recommended: the sensor is throttled when it reaches the limit."
+                                        },
+                                        "memory": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "Memory quantity, such as 512Mi or 1.5Gi. Minimum 512Mi."
+                                        },
                                         "ephemeral-storage": { "type": "string" }
                                     }
                                 },
                                 "requests": {
                                     "type": "object",
                                     "properties": {
-                                        "cpu": { "type": "string" },
-                                        "memory": { "type": "string" },
+                                        "cpu": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "CPU quantity, such as 250m or 1. Minimum 250m."
+                                        },
+                                        "memory": {
+                                          "type": ["string", "number", "null"],
+                                          "description": "Memory quantity, such as 512Mi or 1.5Gi. Minimum 512Mi."
+                                        },
                                         "ephemeral-storage": { "type": "string" }
                                     }
                                 }

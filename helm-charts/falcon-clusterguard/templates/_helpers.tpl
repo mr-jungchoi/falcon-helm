@@ -232,6 +232,72 @@ resources:
 {{- end -}}
 
 {{/*
+Convert a Kubernetes CPU quantity (250m, 1, 1.5, or a number) to millicores.
+Takes a dict with "quantity" and "path" (the values path, used in error messages).
+*/}}
+{{- define "falcon-clusterguard.cpuMillicores" -}}
+{{- $q := .quantity -}}
+{{- if kindIs "string" $q -}}
+  {{- if not (regexMatch "^([0-9]+(\\.[0-9]+)?|\\.[0-9]+)m?$" $q) -}}
+  {{- fail (printf "%s: invalid CPU quantity %q. Use millicores (e.g. 250m) or cores (e.g. 1)." .path $q) -}}
+  {{- end -}}
+  {{- if hasSuffix "m" $q -}}
+  {{- trimSuffix "m" $q | float64 -}}
+  {{- else -}}
+  {{- mulf ($q | float64) 1000 -}}
+  {{- end -}}
+{{- else -}}
+{{- mulf ($q | float64) 1000 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Convert a Kubernetes memory quantity (512Mi, 1.5Gi, 600M, or a number of bytes) to bytes.
+Takes a dict with "quantity" and "path" (the values path, used in error messages).
+*/}}
+{{- define "falcon-clusterguard.memoryBytes" -}}
+{{- $q := .quantity -}}
+{{- if kindIs "string" $q -}}
+  {{- $units := dict "" 1 "k" 1000 "M" 1000000 "G" 1000000000 "T" 1000000000000 "P" 1000000000000000 "E" 1000000000000000000 "Ki" 1024 "Mi" 1048576 "Gi" 1073741824 "Ti" 1099511627776 "Pi" 1125899906842624 "Ei" 1152921504606846976 -}}
+  {{- $num := regexFind "^([0-9]+(\\.[0-9]+)?|\\.[0-9]+)" $q -}}
+  {{- $unit := trimPrefix $num $q -}}
+  {{- if or (not $num) (not (hasKey $units $unit)) -}}
+  {{- fail (printf "%s: invalid memory quantity %q. Use a number with an optional unit (e.g. 512Mi, 1.5Gi)." .path $q) -}}
+  {{- end -}}
+  {{- mulf ($num | float64) (get $units $unit) -}}
+{{- else -}}
+{{- $q | float64 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate that nodeSensor.daemonset.resources requests and limits meet the node sensor minimums:
+250m CPU and 512Mi memory. Unset values are not checked.
+*/}}
+{{- define "falcon-clusterguard.validateDaemonsetResources" -}}
+{{- $resources := .Values.nodeSensor.daemonset.resources | default dict -}}
+{{- range $type := list "requests" "limits" -}}
+{{- $r := index $resources $type | default dict -}}
+{{- $cpu := index $r "cpu" -}}
+{{- if not (kindIs "invalid" $cpu) -}}
+  {{- $path := printf "nodeSensor.daemonset.resources.%s.cpu" $type -}}
+  {{- $millicores := include "falcon-clusterguard.cpuMillicores" (dict "quantity" $cpu "path" $path) | float64 -}}
+  {{- if lt $millicores 250.0 -}}
+  {{- fail (printf "%s must be at least 250m, got %v" $path $cpu) -}}
+  {{- end -}}
+{{- end -}}
+{{- $memory := index $r "memory" -}}
+{{- if not (kindIs "invalid" $memory) -}}
+  {{- $path := printf "nodeSensor.daemonset.resources.%s.memory" $type -}}
+  {{- $bytes := include "falcon-clusterguard.memoryBytes" (dict "quantity" $memory "path" $path) | float64 -}}
+  {{- if lt $bytes 536870912.0 -}}
+  {{- fail (printf "%s must be at least 512Mi, got %v" $path $memory) -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Init container args for the node daemonset (falconstore setup + cluster-id configure)
 */}}
 {{- define "falcon-clusterguard.nodeInitArgs" -}}
