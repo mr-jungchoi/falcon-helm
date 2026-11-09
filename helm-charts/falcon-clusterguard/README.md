@@ -17,6 +17,7 @@ built around a single container image.
   - [Helm Chart Support for FCG Versions](#helm-chart-support-for-fcg-versions)
 - [Installation](#installation)
 - [Image Configuration](#image-configuration)
+- [Cluster Name](#cluster-name)
 - [Falcon Configuration Options](#falcon-configuration-options)
   - [Using Existing Kubernetes Secrets](#using-existing-kubernetes-secrets)
   - [Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration)
@@ -187,6 +188,8 @@ helm upgrade --install falcon-clusterguard crowdstrike/falcon-clusterguard \
 
 ```yaml
 # falcon-clusterguard-values.yaml
+clusterName: "my-cluster"     # required for self-hosted K8s; auto-discovered on EKS/GKE/AKS
+
 image:
   repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
   digest: sha256:ffdc91f66ef8570bd7612cf19145563a787f552656f5eec43cd80ef9caca0398
@@ -199,7 +202,6 @@ falcon:
 
 nodeSensor:
   enabled: true
-  clusterName: "my-cluster"   # required for self-hosted K8s; auto-discovered on EKS/GKE/AKS
   daemonset:
     updateStrategy: RollingUpdate
 
@@ -241,6 +243,16 @@ controller Deployment.
 | `image.pullPolicy`         | Kubernetes image pull policy (Default: `Always`)                                                                     |
 | `image.pullSecret`         | Name of an existing docker-registry Secret                                                                           |
 | `image.registryConfigJSON` | Base64-encoded Docker `config.json`. Conflicts with `image.pullSecret`.                                              |
+
+## Cluster Name
+
+FCG usually discovers the cluster name on managed Kubernetes (EKS, GKE, AKS). Set `clusterName` when it
+can't be discovered, for example on self-hosted clusters such as MicroK8s. The node sensor, clusterguard
+controller, and image analyzer all use this value.
+
+| Parameter     | Description                                  | Default                    |
+|:--------------|:---------------------------------------------|:---------------------------|
+| `clusterName` | Cluster name reported by every FCG component | None (auto-discovery used) |
 
 ## Falcon Configuration Options
 
@@ -565,7 +577,6 @@ The following table lists the configurable parameters for the FCG node sensor Da
 | Parameter                                  | Description                                                                                                                  | Default                                          |
 |:-------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------|
 | `nodeSensor.enabled`                       | Enable the node sensor DaemonSet                                                                                             | `true`                                           |
-| `nodeSensor.clusterName`                   | Manually set cluster name. Usually auto-discovered on managed Kubernetes (EKS, GKE, AKS). Required for self-hosted clusters. | None (auto-discovery used)                       |
 | `nodeSensor.serviceAccount.name`           | Name of the Kubernetes ServiceAccount used by the node sensor DaemonSet and cleanup DaemonSet                                | `falcon-node-sensor-sa`                          |
 | `nodeSensor.serviceAccount.annotations`    | Annotations applied to the ServiceAccount (e.g., for IRSA or Workload Identity)                                              | `{}`                                             |
 | `nodeSensor.daemonset.annotations`         | Annotations applied to the DaemonSet resource                                                                                | `{}`                                             |

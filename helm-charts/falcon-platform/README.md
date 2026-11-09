@@ -856,7 +856,7 @@ Some settings move outside `imageAnalyzer` because FCG shares them across compon
 | Standalone `falcon-image-analyzer` value | FCG value                                                                                                  |
 |------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `daemonset.enabled: true`                | `imageAnalyzer.mode: daemonset` (`agentRuntime`, `agentRuntimeSocket`, and `securityContext` move with it) |
-| `crowdstrikeConfig.clusterName`          | `nodeSensor.clusterName`                                                                                   |
+| `crowdstrikeConfig.clusterName`          | `clusterName` (top level)                                                                                  |
 | `crowdstrikeConfig.cid`                  | `falcon.cid`, if no FCG or global CID is set                                                               |
 | `azure.*`                                | `azure.*` (top level)                                                                                      |
 | `gcp.enabled`                            | `gke.enabled`                                                                                              |
@@ -957,13 +957,13 @@ global:
 falcon-clusterguard:
   enabled: true
   namespaceOverride: falcon-system
+  clusterName: my-cluster
   image:
     repository: registry.crowdstrike.com/falcon-clusterguard/release/falcon-clusterguard
     tag: "<fcg-tag>"
     pullSecret: YOUR-IMAGE-PULL-SECRET-NAME
 
   nodeSensor:
-    clusterName: my-cluster
     daemonset:
       tolerations:
         - key: node-role.kubernetes.io/master

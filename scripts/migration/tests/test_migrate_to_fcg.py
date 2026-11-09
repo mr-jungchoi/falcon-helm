@@ -438,7 +438,6 @@ class TestNodeSensor(unittest.TestCase):
 falcon-sensor:
   node:
     enabled: true
-    clusterName: c1
     daemonset: {updateStrategy: OnDelete, maxUnavailable: 3}
     podAnnotations: {a: b}
     podLabels: {c: d}
@@ -447,7 +446,6 @@ falcon-sensor:
     cleanupOnly: true
 """)
         node = plain(fcg["nodeSensor"])
-        self.assertEqual(node["clusterName"], "c1")
         self.assertEqual(node["daemonset"], {"updateStrategy": "OnDelete", "maxUnavailable": 3})
         self.assertEqual(node["podAnnotations"], {"a": "b"})
         self.assertEqual(node["podLabels"], {"c": "d"})
@@ -461,11 +459,12 @@ falcon-sensor:
 falcon-sensor:
   node:
     backend: kernel
+    clusterName: c1
     image: {pullSecrets: s}
     openshift: {enabled: true}
     gke: {autopilot: true}
 """)
-        for key in ("backend", "image", "openshift", "gke"):
+        for key in ("backend", "clusterName", "image", "openshift", "gke"):
             self.assertNotIn(key, fcg["nodeSensor"])
 
     def test_backend_is_dropped_with_a_warning(self):
@@ -494,7 +493,7 @@ falcon-sensor:
     def test_disabled_when_falcon_sensor_is_disabled(self):
         _, fcg, warnings = migrate("falcon-sensor: {enabled: false, node: {enabled: true, clusterName: c1}}")
         self.assertIs(fcg["nodeSensor"]["enabled"], False)
-        self.assertEqual(fcg["nodeSensor"]["clusterName"], "c1")
+        self.assertEqual(fcg["clusterName"], "c1")
         self.assertTrue(warned(warnings, "because falcon-sensor.enabled is false"))
 
     def test_disabled_when_node_is_disabled(self):
@@ -575,15 +574,17 @@ class TestClusterguardController(unittest.TestCase):
         _, fcg, _ = migrate("falcon-kac: {clusterVisibility: {resourceSnapshots: {enabled: false, interval: 2h}}}")
         self.assertEqual(plain(fcg["clusterguardController"]["visibility"]), {"resourceSnapshots": {"enabled": False, "interval": "2h"}})
 
-    def test_cluster_name_moves_to_node_sensor(self):
+    def test_cluster_name_moves_to_the_top_level(self):
         _, fcg, warnings = migrate("falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {clusterName: kac-name}")
-        self.assertEqual(fcg["nodeSensor"]["clusterName"], "kac-name")
+        self.assertEqual(fcg["clusterName"], "kac-name")
+        self.assertNotIn("clusterName", fcg["nodeSensor"])
+        self.assertNotIn("clusterName", fcg["clusterguardController"])
         self.assertFalse(warned(warnings, "conflicts"))
 
     def test_cluster_name_conflict_keeps_the_sensor_value(self):
         _, fcg, warnings = migrate("falcon-sensor: {node: {clusterName: s}}\nfalcon-kac: {clusterName: k}")
-        self.assertEqual(fcg["nodeSensor"]["clusterName"], "s")
-        self.assertTrue(warned(warnings, "falcon-kac.clusterName='k' conflicts"))
+        self.assertEqual(fcg["clusterName"], "s")
+        self.assertTrue(warned(warnings, "falcon-kac.clusterName='k' conflicts with falcon-sensor.node.clusterName='s'"))
 
     def test_identical_cluster_names_do_not_warn(self):
         _, _, warnings = migrate("falcon-sensor: {node: {clusterName: same}}\nfalcon-kac: {clusterName: same}")
@@ -601,6 +602,31 @@ class TestClusterguardController(unittest.TestCase):
 
 
 class TestSharedSettings(unittest.TestCase):
+    def test_cluster_name_is_placed_before_image(self):
+        _, fcg, _ = migrate("falcon-sensor: {node: {enabled: true, clusterName: c1}}")
+        keys = list(fcg)
+        self.assertEqual(fcg["clusterName"], "c1")
+        self.assertEqual(keys.index("clusterName"), keys.index("image") - 1)
+
+    def test_cluster_name_precedence_is_sensor_then_kac_then_image_analyzer(self):
+        _, fcg, warnings = migrate("""
+falcon-sensor: {node: {clusterName: s}}
+falcon-kac: {clusterName: k}
+falcon-image-analyzer: {crowdstrikeConfig: {clusterName: i}}
+""")
+        self.assertEqual(fcg["clusterName"], "s")
+        self.assertTrue(warned(warnings, "falcon-kac.clusterName='k' conflicts with falcon-sensor.node.clusterName='s'"))
+        self.assertTrue(warned(warnings, "falcon-image-analyzer.crowdstrikeConfig.clusterName='i' conflicts with falcon-sensor.node.clusterName='s'"))
+
+    def test_empty_cluster_names_are_ignored(self):
+        _, fcg, warnings = migrate("falcon-sensor: {node: {clusterName: ''}}\nfalcon-kac: {clusterName: k}")
+        self.assertEqual(fcg["clusterName"], "k")
+        self.assertFalse(warned(warnings, "conflicts"))
+
+    def test_no_cluster_name_without_a_source_value(self):
+        _, fcg, _ = migrate("falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {enabled: true}")
+        self.assertNotIn("clusterName", fcg)
+
     def test_falcon_values_merge_with_sensor_precedence(self):
         _, fcg, _ = migrate("""
 falcon-sensor: {falcon: {cid: sensor-cid, trace: null}, node: {enabled: true}}
@@ -723,15 +749,21 @@ deployment: {enabled: true}
 """)
         self.assertFalse(warned(warnings, "has no FCG equivalent"))
 
-    def test_cluster_name_moves_to_node_sensor(self):
+    def test_cluster_name_moves_to_the_top_level(self):
         _, fcg, _ = self.iar("crowdstrikeConfig: {clusterName: iar-name}", "falcon-sensor: {node: {enabled: true}}")
-        self.assertEqual(fcg["nodeSensor"]["clusterName"], "iar-name")
+        self.assertEqual(fcg["clusterName"], "iar-name")
+        self.assertNotIn("clusterName", fcg["nodeSensor"])
         self.assertNotIn("clusterName", fcg["imageAnalyzer"].get("crowdstrikeConfig", {}))
 
     def test_cluster_name_conflict_keeps_the_node_value(self):
         _, fcg, warnings = self.iar("crowdstrikeConfig: {clusterName: iar-name}", "falcon-sensor: {node: {clusterName: node-name}}")
-        self.assertEqual(fcg["nodeSensor"]["clusterName"], "node-name")
-        self.assertTrue(warned(warnings, "crowdstrikeConfig.clusterName='iar-name' conflicts"))
+        self.assertEqual(fcg["clusterName"], "node-name")
+        self.assertTrue(warned(warnings, "crowdstrikeConfig.clusterName='iar-name' conflicts with falcon-sensor.node.clusterName='node-name'"))
+
+    def test_cluster_name_conflict_keeps_the_kac_value(self):
+        _, fcg, warnings = self.iar("crowdstrikeConfig: {clusterName: iar-name}", "falcon-kac: {clusterName: kac-name}")
+        self.assertEqual(fcg["clusterName"], "kac-name")
+        self.assertTrue(warned(warnings, "crowdstrikeConfig.clusterName='iar-name' conflicts with falcon-kac.clusterName='kac-name'"))
 
     def test_cid_becomes_falcon_cid_after_image(self):
         _, fcg, _ = self.iar("crowdstrikeConfig: {cid: iar-cid}")
@@ -871,7 +903,7 @@ class TestComments(unittest.TestCase):
 
     def test_end_of_line_comment_on_a_key_copied_by_itself(self):
         text, _ = migrate_text("falcon-sensor:\n  node:\n    clusterName: c1   # matches the CMDB\n")
-        self.assertLines(text, "  nodeSensor:", "    clusterName: c1  # matches the CMDB")
+        self.assertIn("\n  clusterName: c1  # matches the CMDB\n", text)
 
     def test_comment_above_a_key_copied_by_itself(self):
         text, _ = migrate_text("falcon-kac:\n  webhookPort: 4443\n  # pinned by the firewall team\n  watcherPort: 4080\n")
@@ -950,7 +982,7 @@ falcon-image-analyzer:
 
     def test_cluster_name_from_kac_keeps_its_comment(self):
         text, _ = migrate_text("falcon-sensor:\n  node: {enabled: true}\nfalcon-kac:\n  clusterName: k1   # from kac\n")
-        self.assertIn("    clusterName: k1  # from kac\n", text)
+        self.assertIn("\n  clusterName: k1  # from kac\n", text)
 
     def test_comments_on_dropped_keys_are_reported(self):
         text, warnings = migrate_text("""
@@ -1043,7 +1075,7 @@ falcon-sensor:
             "falcon-kac": "# kac file\nwebhookPort: 4443\nwatcherPort: 4080   # kac watcher\n",
         })
         self.assertTrue(text.startswith("# sensor file\n# kac file\n\n"))
-        self.assertIn("    clusterName: c1  # sensor name\n", text)
+        self.assertIn("\n  clusterName: c1  # sensor name\n", text)
         self.assertIn("    watcherPort: 4080  # kac watcher\n", text)
 
     def test_comments_do_not_change_the_migrated_values(self):

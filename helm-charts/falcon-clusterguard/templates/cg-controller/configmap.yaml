@@ -31,7 +31,7 @@ data:
   {{- end }}
   {{- end }}
 
-{{- if .Values.nodeSensor.clusterName }}
+{{- if .Values.clusterName }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -41,6 +41,6 @@ metadata:
   labels:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 data:
-  ClusterName: {{ .Values.nodeSensor.clusterName | quote }}
+  ClusterName: {{ .Values.clusterName | quote }}
 {{- end }}
 {{- end }}
