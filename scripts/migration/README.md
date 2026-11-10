@@ -3,6 +3,38 @@
 Migrates a `falcon-platform` values file from the legacy `falcon-sensor` + `falcon-kac` +
 `falcon-image-analyzer` schema to the new `falcon-clusterguard` (FCG) schema.
 
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Getting your current values](#getting-your-current-values)
+- [Usage](#usage)
+  - [Input modes (mutually exclusive)](#input-modes-mutually-exclusive)
+  - [Options](#options)
+- [Interactive wizard](#interactive-wizard)
+  - [Step 1 — Locate your existing release](#step-1--locate-your-existing-release)
+  - [Step 2 — FCG image](#step-2--fcg-image)
+  - [Step 3 — Values source](#step-3--values-source)
+  - [Step 4 — Admission control](#step-4--admission-control)
+  - [Step 5 — Image Analyzer](#step-5--image-analyzer)
+  - [Overriding wizard prompts with CLI flags](#overriding-wizard-prompts-with-cli-flags)
+- [Quickstart (non-interactive)](#quickstart-non-interactive)
+- [What the script does](#what-the-script-does)
+  - [Moves](#moves)
+  - [Renames](#renames)
+  - [Service account names](#service-account-names)
+  - [Image](#image)
+  - [Deprecated keys](#deprecated-keys)
+  - [Comments](#comments)
+  - [falcon-sensor output](#falcon-sensor-output)
+  - [falcon-kac](#falcon-kac)
+  - [falcon-image-analyzer](#falcon-image-analyzer)
+- [Input checks](#input-checks)
+  - [Validating the output](#validating-the-output)
+- [Reading the output](#reading-the-output)
+- [After migration](#after-migration)
+- [Example](#example)
+- [Running the tests](#running-the-tests)
+
 ## Requirements
 
 Python 3.8+ and the `ruamel.yaml` library (0.17+):
@@ -18,6 +50,40 @@ pip3 install ruamel.yaml
 > `--fcg-image-tag` (or `--fcg-image-digest`); otherwise the script prompts for them, or exits with
 > an error when it isn't running in a terminal. Default values will be added once FCG is generally
 > available.
+
+## Getting your current values
+
+The script reads the values your existing releases were installed with. If you don't have those
+values files, export them from the cluster with `helm get values`. It returns every value you set
+at install or upgrade time, from both `-f` files and `--set` flags.
+
+Find the release names and namespaces:
+
+```bash
+helm list -A | grep -E 'falcon-(platform|sensor|kac|image-analyzer)'
+```
+
+Export the values for each release. A `falcon-platform` release becomes `--platform-values`:
+
+```bash
+helm get values falcon-platform -n falcon-platform -o yaml > my-values.yaml
+```
+
+Releases of the standalone charts become `--sensor-values`, `--kac-values`, and `--iar-values`.
+Replace the release names and namespaces with yours:
+
+```bash
+helm get values falcon-sensor -n falcon-system -o yaml > sensor-values.yaml
+helm get values falcon-kac -n falcon-kac -o yaml > kac-values.yaml
+helm get values falcon-image-analyzer -n falcon-image-analyzer -o yaml > iar-values.yaml
+```
+
+If a release was installed with only the chart defaults, `helm get values` prints `null` and the
+script stops with `no values found`. Add `--all` to export the chart defaults instead. The migrated
+file then sets every old default explicitly, so review it and remove the defaults you don't need.
+
+The [interactive wizard](#interactive-wizard) can run this export for you. Choose
+**Extract from running Helm release** in [Step 3](#step-3--values-source).
 
 ## Usage
 
@@ -69,6 +135,7 @@ invocation), not nested under subchart name prefixes.
 | `--image-analyzer`    | Override `falcon-clusterguard.imageAnalyzer.enabled` (`true`/`false`)                                                                                |
 | `--output`            | Path for migrated output file. Defaults to `<input>.fcg-migrated.yaml`                                                                               |
 | `--dry-run`           | Print the migrated YAML to stdout without writing any file                                                                                           |
+| `--validate [CHART]`  | Render the migrated `falcon-clusterguard` values with `helm template` to check them. `CHART` defaults to the chart in this repository. Requires helm |
 
 ## Interactive wizard
 
@@ -94,15 +161,16 @@ is generally available, and the wizard asks again until each value is valid.
 
 ### Step 3 — Values source
 
-Either provide a path to an existing values file, or press Enter to extract values from
-the running Helm release:
+Choose where the values come from:
 
-```bash
-helm get values <release> -n <namespace> -o yaml
-```
+- **Extract from running Helm release** — the wizard runs `helm get values <release> -n <namespace> -o yaml`
+  for the release from Step 1. This returns only the values you set, without chart defaults, which
+  keeps the migrated output clean.
+- **Single falcon-platform umbrella values file** — enter the path to the file.
+- **Separate values files per chart** — enter the path to each chart's values file, or press Enter
+  to skip a chart.
 
-This returns only the values you explicitly set — chart defaults are excluded, keeping
-the migrated output clean.
+The wizard runs the same [input checks](#input-checks) as the command-line modes.
 
 ### Step 4 — Admission control
 
@@ -361,6 +429,52 @@ subchart; a comment above `falcon-clusterguard` notes the move. `kac.namespace` 
 `namespaceOverride` are dropped without a warning, since the image analyzer now runs in the FCG
 namespace.
 
+## Input checks
+
+The script stops with `ERROR:` and exit status 1, before writing anything, when an input can't be
+migrated:
+
+| Problem                                                  | Example message                                                                                             |
+|----------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| Missing file, directory, or a file that isn't UTF-8 text | `my-values.yaml: file not found`                                                                            |
+| Invalid YAML, including duplicate keys                   | `my-values.yaml, line 4, column 3: invalid YAML: found duplicate key "node" ...`                            |
+| Empty file, or one with only comments                    | `my-values.yaml: no values found ...`                                                                       |
+| Top level isn't a mapping                                | `my-values.yaml: expected a mapping of values at the top level, got a list`                                 |
+| A block or value the script reads has the wrong type     | `falcon-kac.admissionControl must be a mapping, got a boolean (true)`                                       |
+| A falcon-platform values file passed as a chart file     | `my-values.yaml looks like a falcon-platform values file ... Use --platform-values my-values.yaml instead.` |
+| A standalone chart file passed as `--platform-values`    | `sensor.yaml looks like a standalone falcon-sensor values file, not a falcon-platform values file. ...`     |
+| A chart file passed with the wrong flag                  | `kac.yaml looks like a falcon-kac values file, not a falcon-sensor values file. Pass it with --kac-values.` |
+| Values that are already migrated                         | `my-values.yaml looks like falcon-clusterguard values ..., which are already migrated. ...`                 |
+
+Every wrong type is listed in one error, so you can fix them all at once. A key set to null is
+treated as unset.
+
+Keys that the source charts don't define, which are usually typos, are reported as warnings:
+
+```
+  ⚠  falcon-sensor.node.daemonSet is not a falcon-sensor value, so it was omitted. Check it for a typo.
+  ⚠  falcon-sensor.falcon.trase is not a falconctl option. It was copied to falcon-clusterguard.falcon as-is; check it for a typo.
+```
+
+### Validating the output
+
+The input checks only cover the values the script reads. Values it copies as-is, such as
+`daemonset.tolerations`, are checked by the `falcon-clusterguard` chart. Add `--validate` to render
+the migrated values with `helm template` before you upgrade:
+
+```bash
+python3 scripts/migration/migrate-to-fcg.py --platform-values my-values.yaml \
+  --fcg-image-repo <fcg-repo> --fcg-image-tag <fcg-tag> --validate
+```
+
+`--validate` uses the chart in this repository. To use another copy, pass its path or name, for
+example `--validate ./falcon-clusterguard`. If helm can't render the values, the script prints
+helm's error and exits with status 1. The migrated file is still written, so you can fix it.
+
+The `falcon-clusterguard` block is rendered on its own, with `global.*` from the same file. Settings
+you passed with `--set` when you installed aren't in the values file, so add them to the file
+first; otherwise helm may report them missing, such as the Falcon CID.
+
 ## Reading the output
 
 **Warnings** are printed to stderr before the YAML output:
@@ -485,21 +599,4 @@ falcon-clusterguard:
 
   imageAnalyzer:
     enabled: true
-```
-
-## Running the tests
-
-The tests in `scripts/migration/tests/` cover every mapping, warning, and precedence rule, plus the CLI, the
-interactive wizard, and the next-steps output. They also check the script against the chart:
-
-- Every key the script writes must exist in the falcon-clusterguard `values.yaml` or
-  `values.schema.json`.
-- The migrated values must render with `helm template` (skipped when `helm` isn't installed).
-- The [Example](#example) output above must match the script's output exactly, so update it when
-  the output changes.
-
-Run them from the repository root. They use only the standard library and `ruamel.yaml`:
-
-```bash
-python3 -m unittest discover -s scripts/migration/tests -v
 ```

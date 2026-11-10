@@ -1579,9 +1579,19 @@ class TestWizard(unittest.TestCase):
         r = self.run_wizard(["rel", "ns", "1", "", ""], helm=self.helm_list([], values_yaml="null\n"))
         self.assertEqual(r["values"], {})
 
-    def test_missing_file_exits(self):
-        with self.assertRaises(SystemExit), mock.patch("sys.stderr", io.StringIO()):
+    def test_missing_file_is_an_input_error(self):
+        with self.assertRaisesRegex(mig.InputError, "missing.yaml: file not found"):
             self.run_wizard(["rel", "ns", "2", str(self.tmp / "missing.yaml")])
+
+    def test_wrong_kind_of_file_is_an_input_error(self):
+        f = self.write("sensor.yaml", "node: {enabled: true}\n")
+        with self.assertRaisesRegex(mig.InputError, "looks like a standalone falcon-sensor values file"):
+            self.run_wizard(["rel", "ns", "2", f])
+
+    def test_individual_file_for_the_wrong_chart_is_an_input_error(self):
+        f = self.write("kac.yaml", "admissionControl: {enabled: true}\n")
+        with self.assertRaisesRegex(mig.InputError, "looks like a falcon-kac values file, not a falcon-sensor"):
+            self.run_wizard(["rel", "ns", "3", f, "", ""])
 
     def test_invalid_menu_choice_is_asked_again(self):
         f = self.write("v.yaml", "{}\n")
@@ -1608,6 +1618,291 @@ class TestNextSteps(unittest.TestCase):
         text = self.next_steps({"nodeSensor": {"enabled": False}})
         self.assertNotIn("daemonset/", text)
         self.assertNotIn("falcon-image-analyzer", text.split("4)")[0])
+
+
+def nested(path, value):
+    """A falcon-platform values mapping with value at path."""
+    for key in reversed(path):
+        value = {key: value}
+    return value
+
+
+class TestLoadValues(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.yaml = mig.make_yaml()
+
+    def load_text(self, text, name="v.yaml"):
+        f = self.tmp / name
+        f.write_bytes(text) if isinstance(text, bytes) else f.write_text(text)
+        return mig.load_values(self.yaml, str(f))
+
+    def test_a_mapping_loads(self):
+        self.assertEqual(plain(self.load_text("falcon-sensor: {node: {enabled: true}}\n")),
+                         {"falcon-sensor": {"node": {"enabled": True}}})
+
+    def test_missing_file(self):
+        with self.assertRaisesRegex(mig.InputError, "missing.yaml: file not found"):
+            mig.load_values(self.yaml, str(self.tmp / "missing.yaml"))
+
+    def test_directory(self):
+        with self.assertRaisesRegex(mig.InputError, "is a directory, not a values file"):
+            mig.load_values(self.yaml, str(self.tmp))
+
+    def test_binary_file(self):
+        with self.assertRaisesRegex(mig.InputError, "not a UTF-8 text file"):
+            self.load_text(b"\xff\xfe\x00")
+
+    def test_invalid_yaml_reports_the_line_and_column(self):
+        with self.assertRaisesRegex(mig.InputError, r"v.yaml, line 3, column 1: invalid YAML: expected the node content"):
+            self.load_text("falcon-sensor:\n  node: [\n")
+
+    def test_duplicate_keys(self):
+        with self.assertRaisesRegex(mig.InputError, r"line 4, column 3: invalid YAML: found duplicate key \"node\""):
+            self.load_text("falcon-sensor:\n  node: {enabled: true}\n  # again\n  node: {enabled: false}\n")
+
+    def test_undefined_alias(self):
+        with self.assertRaisesRegex(mig.InputError, "found undefined alias 'y'"):
+            self.load_text("a: &x [1]\nb: *y\n")
+
+    def test_empty_file(self):
+        with self.assertRaisesRegex(mig.InputError, "no values found.*helm get values <release>"):
+            self.load_text("")
+
+    def test_comment_only_file(self):
+        with self.assertRaisesRegex(mig.InputError, "no values found"):
+            self.load_text("# nothing here\n")
+
+    def test_top_level_list(self):
+        with self.assertRaisesRegex(mig.InputError, "expected a mapping of values at the top level, got a list"):
+            self.load_text("- a\n- b\n")
+
+    def test_top_level_scalar(self):
+        with self.assertRaisesRegex(mig.InputError, "got a string \\('just text'\\)"):
+            self.load_text("just text\n")
+
+    def test_empty_mapping_is_allowed(self):
+        self.assertEqual(plain(self.load_text("{}\n")), {})
+
+
+class TestInputKind(unittest.TestCase):
+    def test_platform_file_passes(self):
+        mig.check_platform_file(load("falcon-sensor: {node: {enabled: true}}\n"), "p.yaml")
+
+    def test_platform_file_with_only_global_passes(self):
+        mig.check_platform_file(load("global: {falcon: {cid: x}}\n"), "p.yaml")
+
+    def test_standalone_files_are_rejected_as_platform_values(self):
+        for chart, text in (("falcon-sensor", "node: {enabled: true}\n"),
+                            ("falcon-kac", "admissionControl: {enabled: true}\n"),
+                            ("falcon-image-analyzer", "crowdstrikeConfig: {clientID: x}\n")):
+            with self.subTest(chart), self.assertRaisesRegex(
+                    mig.InputError, f"looks like a standalone {chart} values file, not a falcon-platform"):
+                mig.check_platform_file(load(text), "p.yaml")
+
+    def test_migrated_values_are_rejected(self):
+        for text in ("falcon-clusterguard: {enabled: true}\n", "nodeSensor: {enabled: true}\n",
+                     "falcon-kac: {}\nfalcon-clusterguard: {}\n"):
+            with self.subTest(text), self.assertRaisesRegex(mig.InputError, "already migrated"):
+                mig.check_platform_file(load(text), "p.yaml")
+            with self.subTest(text), self.assertRaisesRegex(mig.InputError, "already migrated"):
+                mig.check_chart_file(load(text), "s.yaml", "falcon-sensor")
+
+    def test_chart_files_pass(self):
+        mig.check_chart_file(load("node: {enabled: true}\n"), "s.yaml", "falcon-sensor")
+        mig.check_chart_file(load("admissionControl: {enabled: true}\n"), "k.yaml", "falcon-kac")
+        mig.check_chart_file(load("crowdstrikeConfig: {clientID: x}\n"), "i.yaml", "falcon-image-analyzer")
+
+    def test_chart_file_without_distinctive_keys_passes(self):
+        mig.check_chart_file(load("falcon: {cid: x}\n"), "s.yaml", "falcon-sensor")
+
+    def test_platform_file_is_rejected_as_chart_values(self):
+        with self.assertRaisesRegex(mig.InputError, "has a top-level falcon-kac key.*--platform-values p.yaml"):
+            mig.check_chart_file(load("falcon-kac: {enabled: true}\n"), "p.yaml", "falcon-sensor")
+
+    def test_file_for_another_chart_is_rejected(self):
+        with self.assertRaisesRegex(mig.InputError, "looks like a falcon-kac values file, not a falcon-sensor.*--kac-values"):
+            mig.check_chart_file(load("admissionControl: {enabled: true}\n"), "k.yaml", "falcon-sensor")
+        with self.assertRaisesRegex(mig.InputError, "looks like a falcon-sensor values file, not a falcon-image-analyzer.*--sensor-values"):
+            mig.check_chart_file(load("node: {enabled: true}\n"), "s.yaml", "falcon-image-analyzer")
+
+
+class TestStructure(unittest.TestCase):
+    def assertRejected(self, values, fragment):
+        with self.assertRaises(mig.InputError) as ctx:
+            mig.migrate(load(dump(values)), [])
+        self.assertIn(fragment, str(ctx.exception))
+
+    def test_every_block_must_be_a_mapping(self):
+        for path in mig.MAPPING_PATHS:
+            for bad in ("text", ["a"], True, 3):
+                with self.subTest(path=path, value=bad):
+                    self.assertRejected(nested(path, bad), f"{'.'.join(path)} must be a mapping, got")
+
+    def test_flags_must_be_booleans(self):
+        for path in mig.BOOL_PATHS:
+            with self.subTest(path=path):
+                self.assertRejected(nested(path, "false"), f"{'.'.join(path)} must be true or false, got a string ('false')")
+
+    def test_names_must_be_strings(self):
+        for path in mig.STRING_PATHS:
+            with self.subTest(path=path):
+                self.assertRejected(nested(path, ["a"]), f"{'.'.join(path)} must be a string, got a list")
+
+    def test_null_values_are_allowed(self):
+        for path in mig.MAPPING_PATHS + mig.BOOL_PATHS + mig.STRING_PATHS:
+            with self.subTest(path=path):
+                mig.migrate(load(dump(nested(path, None))), [])
+
+    def test_every_problem_is_listed(self):
+        with self.assertRaises(mig.InputError) as ctx:
+            migrate("falcon-sensor: {node: {enabled: 'yes', image: x}}\nfalcon-kac: {admissionControl: true}")
+        message = str(ctx.exception)
+        for fragment in ("falcon-sensor.node.enabled must be true or false", "falcon-sensor.node.image must be a mapping",
+                         "falcon-kac.admissionControl must be a mapping"):
+            self.assertIn(fragment, message)
+
+    def test_the_full_platform_values_pass(self):
+        mig.check_structure(load(FULL_PLATFORM_VALUES))
+
+
+class TestUnknownKeys(unittest.TestCase):
+    def test_typos_are_reported(self):
+        _, _, warnings = migrate("""
+falcon-sesnor: {node: {enabled: true}}
+falcon-sensor:
+  node: {enabled: true, daemonSet: {}}
+  nodeOverride: x
+falcon-kac: {webhookPrt: 1}
+""")
+        for fragment in ("falcon-sesnor is not a falcon-platform value, so it was omitted",
+                         "falcon-sensor.node.daemonSet is not a falcon-sensor value, so it was omitted",
+                         "falcon-sensor.nodeOverride is not a falcon-sensor value",
+                         "falcon-kac.webhookPrt is not a falcon-kac value"):
+            self.assertTrue(warned(warnings, fragment), fragment)
+
+    def test_unknown_falcon_options_are_reported_and_copied(self):
+        _, fcg, warnings = migrate("falcon-sensor: {falcon: {trase: debug}, node: {enabled: true}}")
+        self.assertTrue(warned(warnings, "falcon-sensor.falcon.trase is not a falconctl option. It was copied"))
+        self.assertEqual(fcg["falcon"]["trase"], "debug")
+
+    def test_known_keys_are_not_reported(self):
+        _, _, warnings = migrate(FULL_PLATFORM_VALUES)
+        self.assertFalse(warned(warnings, "check it for a typo"), warnings)
+        self.assertFalse(warned(warnings, "Check it for a typo"), warnings)
+
+    def test_every_documented_source_key_is_known(self):
+        # Keys in the standalone charts' values.yaml on main must not be reported as typos.
+        for chart, path in (("falcon-sensor", ("falcon-sensor",)), ("falcon-kac", ("falcon-kac",))):
+            result = subprocess.run(["git", "show", f"main:helm-charts/{chart}/values.yaml"], cwd=REPO_ROOT,
+                                    capture_output=True, text=True)
+            if result.returncode != 0:
+                self.skipTest("main branch charts are not available")
+            keys = set(load(result.stdout))
+            self.assertEqual(keys - mig.KNOWN_KEYS[path], set(), chart)
+
+
+class TestCLIInputErrors(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def write(self, name, text):
+        f = self.tmp / name
+        f.write_text(text)
+        return str(f)
+
+    def assertInputError(self, result, fragment):
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("ERROR: ", result.stderr)
+        self.assertIn(fragment, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_missing_file(self):
+        self.assertInputError(run_cli("--platform-values", str(self.tmp / "nope.yaml"), "--dry-run"), "file not found")
+
+    def test_invalid_yaml(self):
+        f = self.write("bad.yaml", "falcon-sensor: [\n")
+        self.assertInputError(run_cli("--platform-values", f, "--dry-run"), "invalid YAML")
+
+    def test_wrong_input_flag(self):
+        f = self.write("platform.yaml", "falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {admissionControl: {enabled: true}}\n")
+        self.assertInputError(run_cli("--sensor-values", f, "--dry-run"), "Use --platform-values")
+
+    def test_wrong_chart_file(self):
+        s = self.write("s.yaml", "node: {enabled: true}\n")
+        k = self.write("k.yaml", "crowdstrikeConfig: {clientID: x}\n")
+        self.assertInputError(run_cli("--sensor-values", s, "--kac-values", k, "--dry-run"),
+                              "looks like a falcon-image-analyzer values file, not a falcon-kac values file")
+
+    def test_wrong_value_type(self):
+        f = self.write("v.yaml", "falcon-kac: {admissionControl: true}\n")
+        self.assertInputError(run_cli("--platform-values", f, "--dry-run"),
+                              "falcon-kac.admissionControl must be a mapping, got a boolean (true)")
+
+    def test_no_output_file_is_written_on_an_input_error(self):
+        f = self.write("v.yaml", "falcon-kac: {admissionControl: true}\n")
+        run_cli("--platform-values", f)
+        self.assertFalse((self.tmp / "v.fcg-migrated.yaml").exists())
+
+
+class TestValidate(unittest.TestCase):
+    GOOD = f"global: {{falcon: {{cid: {CID}}}}}\nfalcon-sensor: {{node: {{enabled: true}}}}\n"
+    LOW_MEMORY = (f"global: {{falcon: {{cid: {CID}}}}}\n"
+                  "falcon-sensor: {node: {enabled: true, daemonset: {resources: {requests: {memory: 256Mi}}}}}\n")
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def write(self, name, text):
+        f = self.tmp / name
+        f.write_text(text)
+        return str(f)
+
+    def test_requires_helm(self):
+        # run_cli leaves helm off PATH.
+        result = run_cli("--platform-values", self.write("v.yaml", self.GOOD), "--dry-run", "--validate")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--validate requires helm", result.stderr)
+
+    def test_default_chart_is_the_repository_chart(self):
+        self.assertEqual(Path(mig.default_fcg_chart()), FCG_CHART.resolve())
+
+    @unittest.skipUnless(shutil.which("helm"), "helm is not installed")
+    def test_valid_values_render(self):
+        out, _, _ = migrate(self.GOOD, fcg_image_tag=TAG)
+        self.assertIsNone(mig.validate_with_helm(out, str(FCG_CHART), mig.make_yaml()))
+
+    @unittest.skipUnless(shutil.which("helm"), "helm is not installed")
+    def test_invalid_values_return_the_helm_error(self):
+        out, _, _ = migrate(self.LOW_MEMORY, fcg_image_tag=TAG)
+        error = mig.validate_with_helm(out, str(FCG_CHART), mig.make_yaml())
+        self.assertIn("nodeSensor.daemonset.resources.requests.memory must be at least 512Mi", error)
+        self.assertNotIn("--debug", error)
+
+    @unittest.skipUnless(shutil.which("helm"), "helm is not installed")
+    def test_cli_reports_validation(self):
+        env_path = f"{Path(shutil.which('helm')).parent}:/usr/bin:/bin"
+        def cli(text, *extra):
+            f = self.write("v.yaml", text)
+            return subprocess.run([sys.executable, str(SCRIPT), "--platform-values", f, "--fcg-image-repo", REPO,
+                                   "--fcg-image-tag", TAG, "--validate", *extra],
+                                  capture_output=True, text=True, env=dict(os.environ, PATH=env_path),
+                                  stdin=subprocess.DEVNULL)
+        ok = cli(self.GOOD, "--dry-run")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("The migrated values render with", ok.stderr)
+        self.assertTrue(ok.stdout.startswith("global:"))
+        bad = cli(self.LOW_MEMORY)
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("VALIDATION FAILED", bad.stderr)
+        self.assertIn("must be at least 512Mi", bad.stderr)
+        self.assertIn("were still written to", bad.stderr)
+        self.assertTrue((self.tmp / "v.fcg-migrated.yaml").exists())
+        self.assertNotIn("Next steps", bad.stdout)
 
 
 if __name__ == "__main__":
