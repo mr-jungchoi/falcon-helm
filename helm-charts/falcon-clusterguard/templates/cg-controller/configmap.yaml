@@ -8,7 +8,7 @@ metadata:
     {{- include "falcon-clusterguard.cgControllerLabels" . | nindent 4 }}
 data:
   HELM_CHART: {{ include "falcon-clusterguard.helmChart" . | quote }}
-  FALCON_MODE: kac
+  FALCON_MODE: fcg_controller
   __CS_ADMISSION_CONTROL_ENABLED: {{ include "falcon-clusterguard.admissionControlEnabled" . | quote }}
   __CS_GRPC_API_ENABLED: "true"
   {{- if .Values.clusterguardController.tlsVersionMinimum }}
