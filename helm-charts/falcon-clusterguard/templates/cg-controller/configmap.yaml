@@ -1,5 +1,4 @@
 {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
-{{- $falconSecretKeys := list "cid" "provisioning_token" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -25,10 +24,8 @@ data:
   {{- end }}
   {{- end }}
 
-  {{- range $key, $value := .Values.falcon }}
-  {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
-  FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
-  {{- end }}
+  {{- with include "falcon-clusterguard.falconctlOptions" (dict "root" . "component" .Values.clusterguardController) | trim }}
+  {{- . | nindent 2 }}
   {{- end }}
 
 {{- if .Values.clusterName }}

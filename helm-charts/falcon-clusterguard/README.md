@@ -19,6 +19,7 @@ built around a single container image.
 - [Image Configuration](#image-configuration)
 - [Cluster Name](#cluster-name)
 - [Falcon Configuration Options](#falcon-configuration-options)
+  - [Per-Component Falcon Options](#per-component-falcon-options)
   - [Using Existing Kubernetes Secrets](#using-existing-kubernetes-secrets)
   - [Secrets Store CSI Driver Integration](#secrets-store-csi-driver-integration)
 - [Cloud Provider Configuration](#cloud-provider-configuration)
@@ -258,7 +259,10 @@ controller, and image analyzer all use this value.
 
 The following table lists the Falcon sensor options shared by both the node sensor and
 the clusterguard controller. These are passed to `falconctl` as `FALCONCTL_OPT_*` environment
-variables in both the node and clusterguard controller ConfigMaps.
+variables in both the node and clusterguard controller ConfigMaps. To set `falcon.trace`,
+`falcon.feature`, or `falcon.tags` differently for one of them, see
+[Per-Component Falcon Options](#per-component-falcon-options). The image analyzer does not use
+these options.
 
 > [!NOTE]
 > `falcon.cid` and `falcon.provisioning_token` are handled separately via the
@@ -277,6 +281,35 @@ variables in both the node and clusterguard controller ConfigMaps.
 | `falcon.billing`            | Billing mode (`default` or `metered`)                                             | None    |
 | `falcon.tags`               | Comma-separated list of tags for sensor grouping                                  | None    |
 | `falcon.provisioning_token` | Provisioning token value. Not supported when `falconSecret.enabled=true`.         | None    |
+
+### Per-Component Falcon Options
+
+`falcon.trace`, `falcon.feature`, and `falcon.tags` apply to both the node sensor and the
+clusterguard controller. To change one of them for only one of these, set it under that
+component's `falcon` block. A value set there
+replaces the shared value for that component only, so per-component `tags` are not added to
+`falcon.tags`.
+
+| Parameter                               | Description                                                   | Default          |
+|:----------------------------------------|:--------------------------------------------------------------|:-----------------|
+| `nodeSensor.falcon.trace`               | Trace level for the node sensor                               | `falcon.trace`   |
+| `nodeSensor.falcon.feature`             | Sensor feature options for the node sensor                    | `falcon.feature` |
+| `nodeSensor.falcon.tags`                | Comma-separated sensor grouping tags for the node sensor      | `falcon.tags`    |
+| `clusterguardController.falcon.trace`   | Trace level for the clusterguard controller                   | `falcon.trace`   |
+| `clusterguardController.falcon.feature` | Feature options for the clusterguard controller               | `falcon.feature` |
+| `clusterguardController.falcon.tags`    | Comma-separated grouping tags for the clusterguard controller | `falcon.tags`    |
+
+For example, to debug the node sensor while the clusterguard controller keeps the shared trace level:
+
+```yaml
+falcon:
+  trace: warn
+  tags: prod/us-east
+
+nodeSensor:
+  falcon:
+    trace: debug
+```
 
 ### Using Existing Kubernetes Secrets
 

@@ -102,6 +102,12 @@ IAR_HANDLED_KEYS = {
 }
 IAR_HANDLED_CROWDSTRIKE_CONFIG_KEYS = {"clusterName", "cid", "existingSecret"}
 
+# falcon.* options FCG lets each component override in <component>.falcon, and the FCG
+# defaults for them. falcon-kac values that differ from the node sensor's are written to
+# clusterguardController.falcon.
+COMPONENT_FALCON_KEYS = ("trace", "feature", "tags")
+FCG_FALCON_DEFAULTS = {"trace": "none"}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -622,12 +628,26 @@ def migrate(values: dict, warnings: list,
     # CommentedMap.insert() lets us control position rather than always appending.
     sensor_falcon = sensor.get("falcon") or {}
     kac_falcon    = (values.get("falcon-kac") or {}).get("falcon") or {}
-    merged_falcon = copy_value(kac_falcon)
+    merged_falcon = CommentedMap(
+        (k, copy_value(v)) for k, v in kac_falcon.items() if k not in COMPONENT_FALCON_KEYS
+    )
     merged_falcon.update({k: v for k, v in sensor_falcon.items() if v is not None})
     if merged_falcon:
         # Insert after "image" (index 2: enabled=0, namespaceOverride=1, image=2)
         image_idx = list(fcg.keys()).index("image") if "image" in fcg else len(fcg) - 1
         fcg.insert(image_idx + 1, "falcon", merged_falcon)
+
+    # trace, feature, and tags are per component in FCG. The shared falcon.* values come from
+    # falcon-sensor, as the node sensor used them; falcon-kac values that differ go to
+    # clusterguardController.falcon so the controller keeps them without changing the node sensor.
+    kac_component_falcon = CommentedMap(
+        (k, copy_value(kac_falcon[k])) for k in COMPONENT_FALCON_KEYS
+        if kac_falcon.get(k) not in (None, "")
+        and kac_falcon[k] != (sensor_falcon.get(k) or FCG_FALCON_DEFAULTS.get(k))
+    )
+    if kac_component_falcon and "clusterguardController" in fcg:
+        cluster = fcg["clusterguardController"]
+        cluster.insert(list(cluster.keys()).index("admissionControl") + 1, "falcon", kac_component_falcon)
 
     # secretsStore — prefer sensor value; fall back to kac
     sensor_csi = sensor.get("secretsStore") or {}
@@ -748,6 +768,8 @@ COMMENT_RULES = [
     (("falcon-kac", old), [CTRL + ("resources", new)], False) for old, (new, _) in RESOURCE_RENAMES.items()
 ] + [
     (("falcon-kac", k), [F + (k,)], False) for k in ("falcon", "falconSecret", "secretsStore", "openshift")
+] + [
+    (("falcon-kac", "falcon", k), [CTRL + ("falcon", k), F + ("falcon", k)], False) for k in COMPONENT_FALCON_KEYS
 ] + [
     (("falcon-kac", k), [], False)
     for k in ("enabled", "replicas", "falconImageAnalyzerNamespace", "nameOverride", "fullnameOverride", "testing",

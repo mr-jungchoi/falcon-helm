@@ -221,6 +221,21 @@
             "type": "object",
             "required": ["enabled"],
             "properties": {
+                "falcon": {
+                    "type": "object",
+                    "properties": {
+                        "trace": {
+                            "type": ["null", "string"],
+                            "pattern": "^(|none|err|warn|info|debug)$"
+                        },
+                        "feature": {
+                            "type": ["null", "string"]
+                        },
+                        "tags": {
+                            "type": ["null", "string"]
+                        }
+                    }
+                },
                 "enabled": {
                     "type": "boolean",
                     "default": true
@@ -407,6 +422,21 @@
         "clusterguardController": {
             "type": "object",
             "properties": {
+                "falcon": {
+                    "type": "object",
+                    "properties": {
+                        "trace": {
+                            "type": ["null", "string"],
+                            "pattern": "^(|none|err|warn|info|debug)$"
+                        },
+                        "feature": {
+                            "type": ["null", "string"]
+                        },
+                        "tags": {
+                            "type": ["null", "string"]
+                        }
+                    }
+                },
                 "admissionControl": {
                     "type": "object",
                     "properties": {

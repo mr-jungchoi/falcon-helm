@@ -489,6 +489,25 @@ Get Falcon CID
 {{- end -}}
 
 {{/*
+FALCONCTL_OPT_* ConfigMap entries for a given FCG component. falcon.trace, falcon.feature, and
+falcon.tags can be overridden per component in <component>.falcon; the other falcon.* options are shared.
+Usage: include "falcon-clusterguard.falconctlOptions" (dict "root" . "component" .Values.nodeSensor)
+*/}}
+{{- define "falcon-clusterguard.falconctlOptions" -}}
+{{- $options := omit .root.Values.falcon "cid" "provisioning_token" -}}
+{{- range $key, $value := pick ((.component).falcon | default dict) "trace" "feature" "tags" -}}
+{{- if or $value (eq ($value | toString) "false") -}}
+{{- $_ := set $options $key $value -}}
+{{- end -}}
+{{- end -}}
+{{- range $key, $value := $options }}
+{{- if or $value (eq ($value | toString) "false") }}
+FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
 Check if Falcon secret is enabled — true if either chart-level or global is true.
 */}}
 {{- define "falcon-clusterguard.falconSecretEnabled" -}}

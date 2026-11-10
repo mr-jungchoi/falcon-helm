@@ -36,20 +36,22 @@ image:
   digest:
 
 # =============================================================================
-# Falcon CTL options (shared across node sensor and admission control)
+# Falcon CTL options (shared across node sensor and clusterguard controller)
 # =============================================================================
 # falcon.cid is required unless falconSecret.enabled is true and FALCONCTL_OPT_CID is
 # defined in an existing secret referenced by falconSecret.secretName.
+# Unique trace, feature, and tags can be applied to nodeSensor and clusterguardController.
+# Override them with nodeSensor.falcon or clusterguardController.falcon.
 falcon:
   cid:
   cloud:
   apd:
   aph:
   app:
-  trace: none         # needs to be configurable for each subcomponent
-  feature:            # needs to be configurable for each subcomponent
+  trace: none
+  feature:
   billing:
-  tags:               # needs to be configurable for each subcomponent
+  tags:
   provisioning_token:
 
 # If falcon.cid is not defined, falconSecret.enabled must be true, and FALCONCTL_OPT_CID
@@ -150,6 +152,12 @@ azure:
 nodeSensor:
   # When enabled, the chart deploys the FCG node sensor DaemonSet to all nodes.
   enabled: true
+
+  # Falcon CTL options for the node sensor.
+  falcon:
+    trace:
+    feature:
+    tags:
 
   # ServiceAccount for the node sensor DaemonSet and post-delete cleanup DaemonSet.
   # Bound to the privileged SCC on OpenShift (requires host access for kernel/eBPF sensor).
@@ -259,6 +267,12 @@ clusterguardController:
   # but does not act as a validating webhook.
   admissionControl:
     enabled: false
+
+  # Falcon CTL options for the clusterguard controller.
+  falcon:
+    trace:
+    feature:
+    tags:
 
   # ServiceAccount for the clusterguard-controller Deployment.
   serviceAccount:
