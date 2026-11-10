@@ -819,6 +819,10 @@ python3 scripts/migration/migrate-to-fcg.py --platform-values my-values.yaml --f
 diff my-values.yaml my-values-fcg.yaml
 ```
 
+The script stops with an error if a values file can't be migrated, for example invalid YAML or a
+file passed with the wrong flag. Add `--validate` to check that the migrated values render with the
+`falcon-clusterguard` chart (requires `helm`).
+
 > [!NOTE]
 > See [`scripts/migration/README.md`](../../scripts/migration/README.md) for full script documentation, including
 > all key mappings, renamed resource keys, and how deprecated keys are annotated in the output.

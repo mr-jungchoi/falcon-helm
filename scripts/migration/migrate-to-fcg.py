@@ -24,6 +24,7 @@ Common options:
     --image-analyzer        Override image analyzer enabled: true or false
     --output <file>         Write output to this path (default: <first-input>.fcg-migrated.yaml)
     --dry-run               Print migrated YAML to stdout without writing any file
+    --validate [CHART]      Render the migrated values with helm template (default: this repository's chart)
 
 An FCG image repository, and a tag or digest, are required. If they aren't passed, the script
 prompts for them (or exits with an error when stdin is not a terminal). Default values will be
@@ -37,14 +38,17 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from copy import deepcopy
+from pathlib import Path
 
 try:
     from ruamel.yaml import YAML
     from ruamel.yaml.comments import CommentedMap, CommentedSeq
-    from ruamel.yaml.error import CommentMark
+    from ruamel.yaml.error import CommentMark, YAMLError
     from ruamel.yaml.tokens import CommentToken
 except ImportError:
     print("ERROR: ruamel.yaml is required. Install it with: pip3 install ruamel.yaml", file=sys.stderr)
@@ -268,6 +272,276 @@ def apply_overrides(migrated: dict, admission_control_override, image_analyzer_o
 
 
 # ---------------------------------------------------------------------------
+# Input checks
+# ---------------------------------------------------------------------------
+
+class InputError(Exception):
+    """A values file can't be migrated. The script prints the message and exits with status 1."""
+
+
+CHART_KEYS = ("falcon-sensor", "falcon-kac", "falcon-image-analyzer")
+CHART_FLAGS = {"falcon-sensor": "--sensor-values", "falcon-kac": "--kac-values", "falcon-image-analyzer": "--iar-values"}
+
+# Top-level keys that only one standalone chart has, used to tell which chart a values file is for.
+DISTINCTIVE_KEYS = {
+    "falcon-sensor": {"node", "container"},
+    "falcon-kac": {
+        "admissionControl", "clusterVisibility", "webhookPort", "watcherPort", "webhook", "replicas",
+        "falconClientResources", "falconClientNoWebhookResources", "falconWatcherResources", "falconAcResources",
+        "falconImageAnalyzerNamespace", "resourceQuota", "autoCertificateUpdate", "autoDeploymentUpdate",
+        "certExpiration", "domainName", "clusterName",
+    },
+    "falcon-image-analyzer": {
+        "crowdstrikeConfig", "deployment", "daemonset", "watcher", "replicaCount", "exclusions",
+        "privateRegistries", "iarAgentService", "kac", "proxyConfig", "log", "gcp", "azure",
+    },
+}
+# Top-level keys of a falcon-clusterguard values file, which is already migrated.
+FCG_KEYS = {"falcon-clusterguard", "nodeSensor", "clusterguardController", "imageAnalyzer"}
+
+FALCON_OPTION_KEYS = {
+    "cid", "cloud", "apd", "aph", "app", "trace", "feature", "billing", "tags", "provisioning_token", "backend",
+}
+# Keys each block can have in the source charts (falcon-platform 1.x and the standalone chart
+# values and schemas). Other keys are reported as possible typos. falcon-image-analyzer keys are
+# checked in migrate_image_analyzer().
+KNOWN_KEYS = {
+    (): {"global", "createComponentNamespaces", *CHART_KEYS},
+    ("falcon-sensor",): {
+        "enabled", "namespaceOverride", "node", "container", "serviceAccount", "testing", "falcon",
+        "falconSecret", "secretsStore", "nameOverride", "fullnameOverride", "global",
+    },
+    ("falcon-sensor", "node"): {
+        "enabled", "backend", "clusterName", "gke", "daemonset", "image", "podAnnotations", "podLabels",
+        "terminationGracePeriod", "hooks", "cleanupOnly", "openshift",
+    },
+    ("falcon-sensor", "falcon"): FALCON_OPTION_KEYS,
+    ("falcon-kac",): {
+        "enabled", "namespaceOverride", "image", "replicas", "webhookPort", "watcherPort", "autoCertificateUpdate",
+        "certExpiration", "domainName", "serviceAccount", "falcon", "admissionControl", "falconSecret",
+        "secretsStore", "clusterVisibility", "clusterName", "falconImageAnalyzerNamespace", "annotations",
+        "labels", "podAnnotations", "podLabels", "tolerations", "affinity", "falconClientResources",
+        "falconClientNoWebhookResources", "falconWatcherResources", "falconAcResources", "autoDeploymentUpdate",
+        "nameOverride", "fullnameOverride", "webhook", "hostNetwork", "openshift", "dnsPolicy", "resourceQuota",
+        "tlsVersionMinimum", "global", "testing",
+    },
+    ("falcon-kac", "falcon"): FALCON_OPTION_KEYS,
+}
+
+# Blocks the script reads keys from, as paths in a falcon-platform values file. Each must be a
+# mapping or null.
+MAPPING_PATHS = [
+    ("global",), ("global", "falcon"),
+    ("falcon-sensor",), ("falcon-sensor", "node"), ("falcon-sensor", "node", "image"),
+    ("falcon-sensor", "node", "gke"), ("falcon-sensor", "node", "openshift"), ("falcon-sensor", "node", "daemonset"),
+    ("falcon-sensor", "container"), ("falcon-sensor", "falcon"), ("falcon-sensor", "falconSecret"),
+    ("falcon-sensor", "secretsStore"), ("falcon-sensor", "serviceAccount"),
+    ("falcon-kac",), ("falcon-kac", "image"), ("falcon-kac", "admissionControl"), ("falcon-kac", "webhook"),
+    ("falcon-kac", "falcon"), ("falcon-kac", "falconSecret"), ("falcon-kac", "secretsStore"),
+    ("falcon-kac", "openshift"), ("falcon-kac", "clusterVisibility"), ("falcon-kac", "serviceAccount"),
+    ("falcon-image-analyzer",), ("falcon-image-analyzer", "crowdstrikeConfig"), ("falcon-image-analyzer", "image"),
+    ("falcon-image-analyzer", "deployment"), ("falcon-image-analyzer", "daemonset"),
+    ("falcon-image-analyzer", "openshift"), ("falcon-image-analyzer", "azure"), ("falcon-image-analyzer", "gcp"),
+    ("falcon-image-analyzer", "secretsStore"), ("falcon-image-analyzer", "serviceAccount"),
+]
+# Values the script reads as true/false to decide what to migrate. Each must be a boolean or null.
+BOOL_PATHS = [
+    ("falcon-sensor", "enabled"), ("falcon-sensor", "node", "enabled"), ("falcon-sensor", "container", "enabled"),
+    ("falcon-sensor", "falconSecret", "enabled"), ("falcon-sensor", "secretsStore", "enabled"),
+    ("falcon-sensor", "node", "openshift", "enabled"), ("falcon-sensor", "node", "openshift", "createSCC"),
+    ("falcon-kac", "enabled"), ("falcon-kac", "admissionControl", "enabled"), ("falcon-kac", "falconSecret", "enabled"),
+    ("falcon-kac", "secretsStore", "enabled"), ("falcon-kac", "openshift", "enabled"),
+    ("falcon-kac", "openshift", "createSCC"),
+    ("falcon-image-analyzer", "enabled"), ("falcon-image-analyzer", "deployment", "enabled"),
+    ("falcon-image-analyzer", "daemonset", "enabled"), ("falcon-image-analyzer", "gcp", "enabled"),
+    ("falcon-image-analyzer", "secretsStore", "enabled"), ("falcon-image-analyzer", "openshift", "enabled"),
+    ("falcon-image-analyzer", "openshift", "createSCC"),
+]
+# Values the script compares or reads as text. Each must be a string or null.
+STRING_PATHS = [
+    ("falcon-sensor", "namespaceOverride"), ("falcon-sensor", "node", "clusterName"), ("falcon-kac", "clusterName"),
+    ("falcon-image-analyzer", "crowdstrikeConfig", "clusterName"),
+    ("falcon-sensor", "node", "image", "pullSecrets"), ("falcon-kac", "image", "pullSecrets"),
+    ("falcon-sensor", "serviceAccount", "name"), ("falcon-kac", "serviceAccount", "name"),
+    ("falcon-sensor", "falconSecret", "secretName"), ("falcon-kac", "falconSecret", "secretName"),
+]
+
+
+def _describe(value):
+    """A short description of a value's type for error messages, such as "a boolean (true)"."""
+    if isinstance(value, bool):
+        return f"a boolean ({str(value).lower()})"
+    if isinstance(value, (int, float)):
+        return f"a number ({value})"
+    if isinstance(value, str):
+        return f"a string ({value!r})"
+    if isinstance(value, list):
+        return "a list"
+    if isinstance(value, dict):
+        return "a mapping"
+    return type(value).__name__
+
+
+def parse_values(yaml_instance, stream, source):
+    """Parse a values document and return its top-level mapping. Raises InputError if it isn't one."""
+    try:
+        data = yaml_instance.load(stream)
+    except YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f", line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+        problem = getattr(e, "problem", None) or str(e).strip().splitlines()[0]
+        raise InputError(f"{source}{where}: invalid YAML: {problem}") from None
+    if data is None:
+        raise InputError(
+            f"{source}: no values found (the file is empty or only has comments). If the release uses only "
+            "chart defaults, export them with: helm get values <release> -n <namespace> --all -o yaml"
+        )
+    if not isinstance(data, dict):
+        raise InputError(f"{source}: expected a mapping of values at the top level, got {_describe(data)}")
+    return data
+
+
+def load_values(yaml_instance, path):
+    """Load a values file. Raises InputError if it can't be read or isn't a mapping of values."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return parse_values(yaml_instance, f, path)
+    except FileNotFoundError:
+        raise InputError(f"{path}: file not found") from None
+    except IsADirectoryError:
+        raise InputError(f"{path}: is a directory, not a values file") from None
+    except PermissionError:
+        raise InputError(f"{path}: permission denied") from None
+    except UnicodeDecodeError:
+        raise InputError(f"{path}: not a UTF-8 text file") from None
+
+
+def _looks_like(doc):
+    """Standalone charts whose distinctive top-level keys appear in doc."""
+    return [chart for chart, keys in DISTINCTIVE_KEYS.items() if keys & set(doc)]
+
+
+def _check_not_migrated(doc, source):
+    fcg_keys = sorted(FCG_KEYS & set(doc))
+    if fcg_keys:
+        raise InputError(
+            f"{source} looks like falcon-clusterguard values (it has a top-level {fcg_keys[0]} key), which are "
+            "already migrated. Pass the values file from before the migration."
+        )
+
+
+def check_platform_file(doc, source):
+    """Raise InputError if doc isn't a falcon-platform values file."""
+    _check_not_migrated(doc, source)
+    if not any(k in doc for k in CHART_KEYS):
+        charts = _looks_like(doc)
+        if charts:
+            raise InputError(
+                f"{source} looks like a standalone {charts[0]} values file, not a falcon-platform values file. "
+                f"Use individual chart mode instead: --sensor-values <falcon-sensor values file>, plus "
+                "--kac-values and --iar-values for the other charts."
+            )
+
+
+def check_chart_file(doc, source, chart):
+    """Raise InputError if doc isn't a standalone values file for chart."""
+    _check_not_migrated(doc, source)
+    platform_keys = [k for k in CHART_KEYS if k in doc]
+    if platform_keys:
+        raise InputError(
+            f"{source} looks like a falcon-platform values file (it has a top-level {platform_keys[0]} key). "
+            f"Use --platform-values {source} instead."
+        )
+    if not DISTINCTIVE_KEYS[chart] & set(doc):
+        others = [c for c in _looks_like(doc) if c != chart]
+        if others:
+            raise InputError(
+                f"{source} looks like a {others[0]} values file, not a {chart} values file. "
+                f"Pass it with {CHART_FLAGS[others[0]]}."
+            )
+
+
+def check_structure(values):
+    """Raise InputError listing every block or value whose type the migration can't use."""
+    problems = []
+
+    def check(paths, ok, expected):
+        for path in paths:
+            try:
+                value = _lookup(values, path)
+            except KeyError:
+                continue
+            if value is not None and not ok(value):
+                problems.append(f"{'.'.join(path)} must be {expected}, got {_describe(value)}")
+
+    check(MAPPING_PATHS, lambda v: isinstance(v, dict), "a mapping")
+    check(BOOL_PATHS, lambda v: isinstance(v, bool), "true or false")
+    check(STRING_PATHS, lambda v: isinstance(v, str), "a string")
+    if problems:
+        raise InputError("these values can't be migrated:\n" + "\n".join(f"  - {p}" for p in problems))
+
+
+def unknown_key_warnings(values):
+    """Warnings for keys that the source charts don't define, which are usually typos."""
+    warnings = []
+    for path, known in KNOWN_KEYS.items():
+        try:
+            block = _lookup(values, path)
+        except KeyError:
+            continue
+        if not isinstance(block, dict):
+            continue
+        for key in block:
+            if key in known:
+                continue
+            dotted = ".".join(path + (key,))
+            if path and path[-1] == "falcon":
+                warnings.append(
+                    f"{dotted} is not a falconctl option. It was copied to falcon-clusterguard.falcon as-is; "
+                    "check it for a typo."
+                )
+            else:
+                chart = path[0] if path else "falcon-platform"
+                warnings.append(f"{dotted} is not a {chart} value, so it was omitted. Check it for a typo.")
+    return warnings
+
+
+def default_fcg_chart():
+    """The falcon-clusterguard chart in this repository, or None when the script runs elsewhere."""
+    chart = Path(__file__).resolve().parents[2] / "helm-charts" / "falcon-clusterguard"
+    return str(chart) if (chart / "Chart.yaml").is_file() else None
+
+
+def validate_with_helm(migrated, chart, yaml_instance):
+    """Render the migrated falcon-clusterguard values with helm template.
+
+    Returns None if they render, or helm's error output if they don't. The falcon-clusterguard block is
+    rendered on its own, with global.* from the migrated file.
+    """
+    fcg = migrated.get("falcon-clusterguard") or {}
+    values = CommentedMap()
+    if migrated.get("global"):
+        values["global"] = migrated["global"]
+    for k, v in fcg.items():
+        if k != "enabled":
+            values[k] = v
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        yaml_instance.dump(values, f)
+    try:
+        result = subprocess.run(
+            ["helm", "template", "fcg-validate", chart, "-n", fcg.get("namespaceOverride") or "falcon-system",
+             "-f", f.name],
+            capture_output=True, text=True,
+        )
+    finally:
+        os.unlink(f.name)
+    if result.returncode == 0:
+        return None
+    output = result.stderr.strip() or result.stdout.strip()
+    return "\n".join(l for l in output.splitlines() if l.strip() and "Use --debug flag" not in l)
+
+
+# ---------------------------------------------------------------------------
 # Migration logic
 # ---------------------------------------------------------------------------
 
@@ -392,6 +666,9 @@ def migrate(values: dict, warnings: list,
             fcg_image_repo: str = None,
             fcg_image_tag: str = None,
             fcg_image_digest: str = None) -> dict:
+    check_structure(values)
+    warnings.extend(unknown_key_warnings(values))
+
     fcg = CommentedMap()
     fcg["enabled"] = True
 
@@ -1125,8 +1402,8 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
                 print("  No user-supplied values found in this release — proceeding with empty values.")
                 values = {}
             else:
-                import io
-                values = yaml_instance.load(io.StringIO(result.stdout)) or {}
+                values = parse_values(yaml_instance, result.stdout, f"helm get values {release_name}")
+                check_platform_file(values, f"Release {release_name!r}")
             primary_input_label = f"{release_name}-extracted"
             kac_provided = "falcon-kac" in values
             print(f"  ✓ Extracted {len(values)} top-level keys from release.")
@@ -1139,11 +1416,10 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
 
     elif input_mode.startswith("Single"):
         values_path = _prompt("Path to your falcon-platform values file")
-        if not values_path or not os.path.isfile(values_path):
-            print(f"  ERROR: file not found: {values_path!r}", file=sys.stderr)
-            sys.exit(1)
-        with open(values_path, "r") as f:
-            values = yaml_instance.load(f) or {}
+        if not values_path:
+            raise InputError("no falcon-platform values file was given")
+        values = load_values(yaml_instance, values_path)
+        check_platform_file(values, values_path)
         primary_input_label = values_path
         kac_provided = "falcon-kac" in values
         print(f"  ✓ Loaded values from {values_path}")
@@ -1153,18 +1429,16 @@ def run_wizard(yaml_instance, cli_admission_control=None, cli_image_analyzer=Non
         kac_path    = _prompt("Path to falcon-kac values file (or Enter to skip)")
         iar_path    = _prompt("Path to falcon-image-analyzer values file (or Enter to skip)")
 
-        def _load_if(path):
+        def _load_if(path, chart):
             if not path:
                 return {}
-            if not os.path.isfile(path):
-                print(f"  ERROR: file not found: {path!r}", file=sys.stderr)
-                sys.exit(1)
-            with open(path, "r") as f:
-                return yaml_instance.load(f) or {}
+            doc = load_values(yaml_instance, path)
+            check_chart_file(doc, path, chart)
+            return doc
 
-        sensor_vals = _load_if(sensor_path)
-        kac_vals    = _load_if(kac_path)
-        iar_vals    = _load_if(iar_path)
+        sensor_vals = _load_if(sensor_path, "falcon-sensor")
+        kac_vals    = _load_if(kac_path, "falcon-kac")
+        iar_vals    = _load_if(iar_path, "falcon-image-analyzer")
 
         values = CommentedMap()
         if sensor_vals:
@@ -1408,6 +1682,14 @@ def main():
         action="store_true",
         help="Print migrated YAML to stdout instead of writing a file",
     )
+    parser.add_argument(
+        "--validate",
+        nargs="?",
+        const="",
+        metavar="CHART",
+        help="Render the migrated falcon-clusterguard values with helm template to check them. CHART is a "
+             "falcon-clusterguard chart path or name (default: the chart in this repository). Requires helm",
+    )
     args = parser.parse_args()
 
     # Parse bool flags early so errors surface before any work begins
@@ -1442,15 +1724,28 @@ def main():
         except ValueError as e:
             parser.error(f"--fcg-image-digest: {e}")
 
+    validate_chart = None
+    if args.validate is not None:
+        validate_chart = args.validate or default_fcg_chart()
+        if not validate_chart:
+            parser.error("--validate: the falcon-clusterguard chart isn't in this repository; pass its path or "
+                         "name, for example --validate ./falcon-clusterguard")
+        if not shutil.which("helm"):
+            parser.error("--validate requires helm, which was not found in PATH")
+
     # Validate: individual chart flags only with --sensor-values
     if args.platform_values and (args.kac_values or args.iar_values):
         parser.error("--sensor-values, --kac-values, and --iar-values cannot be used with --platform-values")
 
     yaml = make_yaml()
 
-    def load(path):
-        with open(path, "r") as f:
-            return yaml.load(f) or {}
+    def load(path, chart=None):
+        doc = load_values(yaml, path)
+        if chart:
+            check_chart_file(doc, path, chart)
+        else:
+            check_platform_file(doc, path)
+        return doc
 
     # Determine mode
     use_wizard = args.interactive or (
@@ -1473,9 +1768,9 @@ def main():
         if image_analyzer_override is None and "falcon-image-analyzer" not in values:
             image_analyzer_override = False
     else:
-        sensor_vals = load(args.sensor_values)
-        kac_vals    = load(args.kac_values) if args.kac_values else {}
-        iar_vals    = load(args.iar_values) if args.iar_values else {}
+        sensor_vals = load(args.sensor_values, "falcon-sensor")
+        kac_vals    = load(args.kac_values, "falcon-kac") if args.kac_values else {}
+        iar_vals    = load(args.iar_values, "falcon-image-analyzer") if args.iar_values else {}
 
         values = CommentedMap()
         if sensor_vals:
@@ -1518,6 +1813,7 @@ def main():
             print(f"  ⚠  {w}", file=sys.stderr)
         print(file=sys.stderr)
 
+    output_path = None
     if args.dry_run:
         yaml.dump(migrated, sys.stdout)
     else:
@@ -1529,8 +1825,26 @@ def main():
         with open(output_path, "w") as f:
             yaml.dump(migrated, f)
         print(f"\nMigrated values written to: {output_path}")
+
+    if validate_chart:
+        error = validate_with_helm(migrated, validate_chart, yaml)
+        if error:
+            print(f"\nVALIDATION FAILED — helm template could not render the migrated values with {validate_chart}:",
+                  file=sys.stderr)
+            print("  " + error.replace("\n", "\n  "), file=sys.stderr)
+            if output_path:
+                print(f"\nThe migrated values were still written to {output_path}. Fix them before upgrading.",
+                      file=sys.stderr)
+            sys.exit(1)
+        print(f"\n✓ The migrated values render with {validate_chart}.", file=sys.stderr)
+
+    if output_path:
         print_next_steps(output_path, primary_input, release_name, release_ns, migrated)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except InputError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
