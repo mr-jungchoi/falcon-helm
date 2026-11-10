@@ -120,6 +120,9 @@ falcon-sensor:
 falcon-kac:
   enabled: true
   clusterName: my-cluster
+  falcon:
+    trace: debug
+    tags: "a,b"
   replicas: 1
   webhookPort: 4443
   watcherPort: 4080
@@ -629,10 +632,42 @@ falcon-image-analyzer: {crowdstrikeConfig: {clusterName: i}}
 
     def test_falcon_values_merge_with_sensor_precedence(self):
         _, fcg, _ = migrate("""
-falcon-sensor: {falcon: {cid: sensor-cid, trace: null}, node: {enabled: true}}
-falcon-kac: {falcon: {cid: kac-cid, trace: info, tags: t1}}
+falcon-sensor: {falcon: {cid: sensor-cid, billing: null}, node: {enabled: true}}
+falcon-kac: {falcon: {cid: kac-cid, billing: metered, cloud: us-2}}
 """)
-        self.assertEqual(plain(fcg["falcon"]), {"cid": "sensor-cid", "trace": "info", "tags": "t1"})
+        self.assertEqual(plain(fcg["falcon"]), {"cid": "sensor-cid", "billing": "metered", "cloud": "us-2"})
+
+    def test_kac_trace_feature_and_tags_go_to_the_controller(self):
+        _, fcg, _ = migrate("""
+falcon-sensor: {falcon: {trace: info, tags: shared}, node: {enabled: true}}
+falcon-kac: {falcon: {trace: debug, feature: f1, tags: kac-tag}}
+""")
+        self.assertEqual(plain(fcg["falcon"]), {"trace": "info", "tags": "shared"})
+        self.assertEqual(plain(fcg["clusterguardController"]["falcon"]),
+                         {"trace": "debug", "feature": "f1", "tags": "kac-tag"})
+
+    def test_kac_values_matching_the_sensor_are_not_repeated(self):
+        _, fcg, _ = migrate("""
+falcon-sensor: {falcon: {trace: info, tags: shared}, node: {enabled: true}}
+falcon-kac: {falcon: {trace: info, tags: shared}}
+""")
+        self.assertNotIn("falcon", fcg["clusterguardController"])
+
+    def test_kac_default_trace_is_not_written(self):
+        # falcon-kac's default trace (none) is also FCG's, so it needs no override.
+        _, fcg, _ = migrate("falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {falcon: {trace: none}}")
+        self.assertNotIn("falcon", fcg["clusterguardController"])
+        self.assertNotIn("falcon", fcg)
+
+    def test_kac_trace_without_a_sensor_value_goes_to_the_controller(self):
+        _, fcg, _ = migrate("falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {falcon: {trace: debug}}")
+        self.assertEqual(plain(fcg["clusterguardController"]["falcon"]), {"trace": "debug"})
+        self.assertNotIn("falcon", fcg)
+
+    def test_controller_falcon_is_placed_after_admission_control(self):
+        _, fcg, _ = migrate("falcon-sensor: {node: {enabled: true}}\nfalcon-kac: {falcon: {trace: debug}}")
+        keys = list(fcg["clusterguardController"])
+        self.assertEqual(keys.index("falcon"), keys.index("admissionControl") + 1)
 
     def test_falcon_is_placed_after_image(self):
         _, fcg, _ = migrate("falcon-sensor: {falcon: {cid: c}, node: {enabled: true}}")
@@ -979,6 +1014,11 @@ falcon-image-analyzer:
         self.assertIn("    visibility:  # visibility tuning\n", text)
         self.assertIn("    mode: daemonset  # socket mode for containerd\n", text)
         self.assertIn("    iarSCCName: my-scc  # pre-created SCC\n", text)
+
+    def test_kac_trace_comment_moves_to_the_controller(self):
+        text, _ = migrate_text("falcon-sensor:\n  node: {enabled: true}\nfalcon-kac:\n  falcon:\n    trace: debug   # noisy on purpose\n")
+        self.assertLines(text, "  clusterguardController:", "    admissionControl:", "      enabled: true",
+                         "    falcon:", "      trace: debug  # noisy on purpose")
 
     def test_cluster_name_from_kac_keeps_its_comment(self):
         text, _ = migrate_text("falcon-sensor:\n  node: {enabled: true}\nfalcon-kac:\n  clusterName: k1   # from kac\n")

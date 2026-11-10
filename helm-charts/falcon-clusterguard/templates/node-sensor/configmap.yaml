@@ -1,5 +1,4 @@
 {{- if and .Values.nodeSensor.enabled (not .Values.nodeSensor.cleanupOnly) }}
-{{- $falconSecretKeys := list "cid" "provisioning_token" -}}
 
 apiVersion: v1
 kind: ConfigMap
@@ -21,10 +20,8 @@ data:
   {{- end }}
   {{- end }}
 
-  {{- range $key, $value := .Values.falcon }}
-  {{- if and (or $value (eq ($value | toString) "false")) (not (has $key $falconSecretKeys)) }}
-  FALCONCTL_OPT_{{ $key | upper }}: {{ $value | quote }}
-  {{- end }}
+  {{- with include "falcon-clusterguard.falconctlOptions" (dict "root" . "component" .Values.nodeSensor) | trim }}
+  {{- . | nindent 2 }}
   {{- end }}
 
   {{- if .Values.clusterName }}
