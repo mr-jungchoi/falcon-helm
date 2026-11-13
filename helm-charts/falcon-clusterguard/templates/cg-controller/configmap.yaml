@@ -10,7 +10,6 @@ data:
   HELM_CHART: {{ include "falcon-clusterguard.helmChart" . | quote }}
   FALCON_MODE: fcg_controller
   __CS_ADMISSION_CONTROL_ENABLED: {{ include "falcon-clusterguard.admissionControlEnabled" . | quote }}
-  __CS_GRPC_API_ENABLED: "true"
   {{- if .Values.clusterguardController.tlsVersionMinimum }}
   __CS_TLS_PROTOCOL_MIN: {{ .Values.clusterguardController.tlsVersionMinimum | quote }}
   {{- end }}
