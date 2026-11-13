@@ -88,8 +88,6 @@ spec:
       hostPID: true
       hostIPC: true
       initContainers:
-        {{- /* Creates the falconstore file on the host so Kubernetes mounts it as a file
-               (not a directory), preserving the AID across container restarts. */}}
         - name: init-falconstore
           image: {{ include "falcon-clusterguard.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
@@ -129,6 +127,15 @@ spec:
                   fieldPath: spec.nodeName
             - name: API_SERVICE_NAME
               value: {{ include "falcon-clusterguard.apiServiceName" . }}
+          {{- if (eq (include "falcon-clusterguard.clusterGuardDisabled" .) "false") }}
+          volumeMounts:
+            - name: falcon-node-sensor-tls-certs
+              mountPath: /run/secrets/tls
+              readOnly: true
+            - name: falcon-api-ca
+              mountPath: /run/secrets/ca
+              readOnly: true
+          {{- end }}
       containers:
         - name: falcon-node-sensor
           image: {{ include "falcon-clusterguard.image" . | quote }}
@@ -228,9 +235,6 @@ spec:
         - name: falcon-api-ca
           secret:
             {{- if .Values.certManager.enabled }}
-            {{- /* The cert-manager CA Secret (falcon-grpc-ca) holds the CA private key, so take only
-                 the CA certificate that cert-manager copies into the leaf Secret. Nodes never
-                 reference the CA Secret, so kubelet credentials on a node cannot read its key. */}}
             secretName: "falcon-node-sensor-tls"
             items:
               - key: ca.crt
